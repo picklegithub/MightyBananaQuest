@@ -1,0 +1,126 @@
+/* Life Admin — Design Tokens
+ * Minimal, editorial aesthetic. Two variants share most tokens; only color differs.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+:root {
+  /* Type */
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-ui: 'Inter Tight', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Variant A — Warm Editorial (default, "playful-minimal") */
+  --paper: oklch(0.965 0.012 85);
+  --paper-2: oklch(0.945 0.014 85);
+  --paper-3: oklch(0.92 0.016 85);
+  --ink: oklch(0.20 0.018 80);
+  --ink-2: oklch(0.40 0.015 80);
+  --ink-3: oklch(0.62 0.012 80);
+  --rule: oklch(0.86 0.012 85);
+  --accent: oklch(0.42 0.085 145);   /* deep olive */
+  --accent-soft: oklch(0.88 0.04 145);
+  --warn: oklch(0.55 0.13 50);       /* terracotta for urgent */
+  --warn-soft: oklch(0.92 0.05 50);
+
+  /* Spacing scale */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 40px;
+  --s-9: 48px;
+  --s-10: 64px;
+
+  /* Radii */
+  --r-1: 6px;
+  --r-2: 10px;
+  --r-3: 14px;
+  --r-4: 20px;
+  --r-pill: 999px;
+
+  /* Shadows — soft, warm */
+  --shadow-1: 0 1px 0 rgba(60, 50, 30, 0.04), 0 1px 2px rgba(60, 50, 30, 0.05);
+  --shadow-2: 0 2px 4px rgba(60, 50, 30, 0.06), 0 8px 24px rgba(60, 50, 30, 0.08);
+  --shadow-pop: 0 4px 12px rgba(60, 50, 30, 0.10), 0 16px 40px rgba(60, 50, 30, 0.12);
+}
+
+/* Variant B — Strict Monochrome */
+[data-variant="strict"] {
+  --paper: oklch(0.985 0.003 85);
+  --paper-2: oklch(0.965 0.004 85);
+  --paper-3: oklch(0.94 0.005 85);
+  --ink: oklch(0.16 0 0);
+  --ink-2: oklch(0.38 0 0);
+  --ink-3: oklch(0.60 0 0);
+  --rule: oklch(0.88 0 0);
+  --accent: oklch(0.16 0 0);          /* mono — accent IS ink */
+  --accent-soft: oklch(0.90 0 0);
+  --warn: oklch(0.30 0 0);
+  --warn-soft: oklch(0.92 0 0);
+}
+
+/* Theme: Dark */
+[data-theme="dark"] {
+  --paper: oklch(0.18 0.01 80);
+  --paper-2: oklch(0.22 0.012 80);
+  --paper-3: oklch(0.26 0.014 80);
+  --ink: oklch(0.95 0.01 85);
+  --ink-2: oklch(0.78 0.008 85);
+  --ink-3: oklch(0.58 0.008 85);
+  --rule: oklch(0.32 0.012 80);
+  --accent: oklch(0.78 0.10 145);
+  --accent-soft: oklch(0.32 0.06 145);
+  --warn: oklch(0.72 0.13 50);
+  --warn-soft: oklch(0.32 0.08 50);
+  --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"][data-variant="strict"] {
+  --paper: oklch(0.14 0 0);
+  --paper-2: oklch(0.18 0 0);
+  --paper-3: oklch(0.22 0 0);
+  --ink: oklch(0.96 0 0);
+  --ink-2: oklch(0.78 0 0);
+  --ink-3: oklch(0.58 0 0);
+  --rule: oklch(0.30 0 0);
+  --accent: oklch(0.96 0 0);
+  --accent-soft: oklch(0.28 0 0);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: #1a1612;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'ss01', 'cv11';
+}
+
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; padding: 0; }
+input, textarea { font-family: inherit; color: inherit; }
+
+/* Type utilities */
+.t-display { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.01em; line-height: 1.05; }
+.t-mono    { font-family: var(--font-mono); font-feature-settings: 'tnum'; }
+.t-italic  { font-style: italic; }
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Hide scrollbars in mock screens */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
