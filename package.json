@@ -1,0 +1,26 @@
+{
+  "name": "mightybananaquest",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "build:gh": "tsc && vite build --base=/MightyBananaQuest/",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "dexie": "^4.0.8",
+    "dexie-react-hooks": "^1.1.7"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.2",
+    "vite-plugin-pwa": "^0.20.5",
+    "workbox-window": "^7.1.0"
+  }
+}
