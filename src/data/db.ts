@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { Task, Category, Goal, JournalEntry, InboxItem, AppSettings } from '../types'
+import type { Task, Category, Goal, JournalEntry, InboxItem, AppSettings, WeeklyReview } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS, EFFORT } from '../constants'
 import { SEED_TASKS, SEED_GOALS, SEED_JOURNAL, SEED_INBOX } from './seeds'
 import {
@@ -19,13 +19,14 @@ export interface HabitLog {
 }
 
 export class LifeAdminDB extends Dexie {
-  tasks!:      Table<Task>
-  categories!: Table<Category>
-  goals!:      Table<Goal>
-  journal!:    Table<JournalEntry>
-  inbox!:      Table<InboxItem>
-  settings!:   Table<AppSettings>
-  habitLog!:   Table<HabitLog>
+  tasks!:         Table<Task>
+  categories!:    Table<Category>
+  goals!:         Table<Goal>
+  journal!:       Table<JournalEntry>
+  inbox!:         Table<InboxItem>
+  settings!:      Table<AppSettings>
+  habitLog!:      Table<HabitLog>
+  weeklyReviews!: Table<WeeklyReview>
 
   constructor() {
     super('LifeAdminDB')
@@ -46,6 +47,17 @@ export class LifeAdminDB extends Dexie {
       inbox:      'id, kind, processed',
       settings:   'id',
       habitLog:   'id, taskId, date',
+    })
+    // Version 3 adds weekly review records
+    this.version(3).stores({
+      tasks:         'id, cat, due, done, effort, quad, createdAt',
+      categories:    'id',
+      goals:         'id, area',
+      journal:       'id, date, kind',
+      inbox:         'id, kind, processed',
+      settings:      'id',
+      habitLog:      'id, taskId, date',
+      weeklyReviews: 'id, weekStart, completedAt',
     })
   }
 }
@@ -72,9 +84,13 @@ export async function completeTask(taskId: string): Promise<number> {
   const task = await db.tasks.get(taskId)
   if (!task || task.done) return 0
   const gained = EFFORT[task.effort]?.xp ?? 8
-  await db.tasks.update(taskId, { done: true })
+
+  // For recurring tasks, increment per-task streak
+  const newStreak = task.recurring ? (task.streak ?? 0) + 1 : task.streak ?? 0
+  await db.tasks.update(taskId, { done: true, streak: newStreak, updatedAt: Date.now() })
   const updated = await db.tasks.get(taskId)
   if (updated) pushTask(updated)
+
   const settings = await db.settings.get(1)
   if (settings) {
     await db.settings.update(1, { xp: (settings.xp ?? 0) + gained })
@@ -89,6 +105,29 @@ export async function completeTask(taskId: string): Promise<number> {
   return gained
 }
 
+// ── Helper: reset recurring tasks that weren't completed today ───────────────
+// Call on app start (after auth). Finds recurring tasks that are done=true but
+// have no habitLog entry for today — meaning they were completed on a prior day
+// and should be reset so the user can complete them again today.
+export async function resetRecurringTasks(): Promise<void> {
+  const today    = new Date().toISOString().slice(0, 10)
+  const recurring = await db.tasks.filter(t => !!t.recurring && t.done).toArray()
+  if (recurring.length === 0) return
+
+  const resetIds: string[] = []
+  for (const task of recurring) {
+    const log = await db.habitLog.get(`${task.id}:${today}`)
+    if (!log) resetIds.push(task.id)
+  }
+  if (resetIds.length > 0) {
+    const now = Date.now()
+    await Promise.all(resetIds.map(id => db.tasks.update(id, { done: false, updatedAt: now })))
+    // Sync resets to Supabase in the background
+    const updatedTasks = await db.tasks.bulkGet(resetIds)
+    updatedTasks.forEach(t => { if (t) pushTask(t) })
+  }
+}
+
 // ── Helper: log a habit completion ───────────────────────────────────────────
 export async function logHabitCompletion(taskId: string, date: string) {
   const id = `${taskId}:${date}`
@@ -100,16 +139,24 @@ export async function toggleSubTask(taskId: string, index: number) {
   const task = await db.tasks.get(taskId)
   if (!task) return
   const sub = task.sub.map((s, i) => i === index ? { ...s, d: !s.d } : s)
-  await db.tasks.update(taskId, { sub })
+  await db.tasks.update(taskId, { sub, updatedAt: Date.now() })
   const updated = await db.tasks.get(taskId)
   if (updated) pushTask(updated)
 }
 
 // ── Helper: add a task ───────────────────────────────────────────────────────
 export async function addTask(task: Task) {
-  const toAdd = { ...task, createdAt: Date.now() }
+  const now = Date.now()
+  const toAdd = { ...task, createdAt: now, updatedAt: now }
   await db.tasks.add(toAdd)
   pushTask(toAdd)
+}
+
+// ── Helper: update a task (always stamps updatedAt, syncs to Supabase) ───────
+export async function updateTask(taskId: string, patch: Partial<Task>) {
+  await db.tasks.update(taskId, { ...patch, updatedAt: Date.now() })
+  const updated = await db.tasks.get(taskId)
+  if (updated) pushTask(updated)
 }
 
 // ── Helper: get settings (always returns something) ──────────────────────────

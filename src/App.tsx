@@ -3,63 +3,69 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from './data/db'
 import { supabase } from './lib/supabase'
 import { pullAll, startRealtime, stopRealtime, pushAllLocal } from './lib/sync'
-import { BottomNav } from './components/layout/BottomNav'
-import { QuickCapture } from './components/QuickCapture'
-import { GlobalPomodoro } from './components/GlobalPomodoro'
-import { DashboardScreen }  from './screens/DashboardScreen'
-import { TaskDetailScreen } from './screens/TaskDetailScreen'
-import { AddScreen }        from './screens/AddScreen'
-import { CategoryScreen }   from './screens/CategoryScreen'
-import { GoalsScreen }      from './screens/GoalsScreen'
-import { JournalScreen }    from './screens/JournalScreen'
-import { SettingsScreen }   from './screens/SettingsScreen'
-import { CalendarScreen }   from './screens/CalendarScreen'
-import { InboxScreen }      from './screens/InboxScreen'
-import { AllTasksScreen }   from './screens/AllTasksScreen'
-import { ScheduleScreen }   from './screens/ScheduleScreen'
-import { AuthScreen }       from './screens/AuthScreen'
-import type { Screen, AppSettings } from './types'
+import { resetRecurringTasks } from './data/db'
+import { useNotifications } from './lib/useNotifications'
+import { BottomNav }          from './components/layout/BottomNav'
+import { GlobalPomodoro }     from './components/GlobalPomodoro'
+import { QuickCaptureSheet }  from './components/QuickCaptureSheet'
+import { AddTaskSheet }       from './components/AddTaskSheet'
+import { AddGoalSheet }       from './components/AddGoalSheet'
+import { FabMenu }            from './components/FabMenu'
+import type { FabAction }     from './components/FabMenu'
+import { Icons }              from './components/ui/Icons'
+import { DashboardScreen }    from './screens/DashboardScreen'
+import { TaskDetailScreen }   from './screens/TaskDetailScreen'
+import { CategoryScreen }     from './screens/CategoryScreen'
+import { GoalsScreen }        from './screens/GoalsScreen'
+import { JournalScreen }      from './screens/JournalScreen'
+import { SettingsScreen }     from './screens/SettingsScreen'
+import { CalendarScreen }     from './screens/CalendarScreen'
+import { InboxScreen }        from './screens/InboxScreen'
+import { AllTasksScreen }     from './screens/AllTasksScreen'
+import { ScheduleScreen }      from './screens/ScheduleScreen'
+import { WeeklyReviewScreen }  from './screens/WeeklyReviewScreen'
+import { AuthScreen }          from './screens/AuthScreen'
+import type { Screen, AppSettings, Category } from './types'
 
 // ── Theme application ─────────────────────────────────────────────────────────
 function applyTheme(settings: AppSettings) {
   const root = document.documentElement
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
   const isDark = settings.theme === 'dark' || (settings.theme === 'auto' && systemDark)
-
   root.setAttribute('data-theme', isDark ? 'dark' : 'light')
   root.setAttribute('data-variant', settings.variant)
   root.setAttribute('data-intensity', settings.intensity)
 }
 
-// ── Nav tabs that show the bottom bar ────────────────────────────────────────
+// ── Nav screens that show BottomNav ───────────────────────────────────────────
 const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar'])
-function showsNav(screen: Screen): boolean {
-  return NAV_SCREENS.has(screen.name)
-}
+function showsNav(screen: Screen): boolean { return NAV_SCREENS.has(screen.name) }
 function activeTab(screen: Screen): string {
-  if (screen.name === 'journal') return 'journal'
-  if (screen.name === 'goals')   return 'goals'
+  if (screen.name === 'journal')  return 'journal'
+  if (screen.name === 'goals')    return 'goals'
   if (screen.name === 'calendar') return 'calendar'
   return 'dashboard'
 }
 
-// ── Auth state ────────────────────────────────────────────────────────────────
 type AuthState = 'loading' | 'authed' | 'unauthed'
+type FabSheet  = 'none' | 'capture' | 'task' | 'goal' | 'menu'
 
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [screenStack, setScreenStack] = useState<Screen[]>([{ name: 'dashboard' }])
   const screen = screenStack[screenStack.length - 1]
-  const [authState, setAuthState] = useState<AuthState>('loading')
+
+  const [authState,  setAuthState]  = useState<AuthState>('loading')
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done'>('idle')
-  const settings = useLiveQuery(() => db.settings.get(1), [])
+  const [isOnline,   setIsOnline]   = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true)
+  const [fabSheet,   setFabSheet]   = useState<FabSheet>('none')
+  const [taskPrefill, setTaskPrefill] = useState<{ title?: string; catId?: string; due?: string } | null>(null)
 
-  // Apply theme whenever settings change
-  useEffect(() => {
-    if (settings) applyTheme(settings)
-  }, [settings])
+  const settings   = useLiveQuery(() => db.settings.get(1), [])
+  const categories = useLiveQuery(() => db.categories.toArray(), []) as Category[] | undefined
 
-  // Listen for system dark-mode changes
+  // Theme
+  useEffect(() => { if (settings) applyTheme(settings) }, [settings])
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const handler = () => { if (settings) applyTheme(settings) }
@@ -67,15 +73,16 @@ export default function App() {
     return () => mq.removeEventListener('change', handler)
   }, [settings])
 
-  // ── Auth listener ─────────────────────────────────────────────────────────
+  // Auth
   const handleSignIn = useCallback(async (userId: string) => {
     setAuthState('authed')
     setSyncStatus('syncing')
     try {
-      // First time sign-in: push local data up, then pull remote
       await pushAllLocal()
       await pullAll()
       startRealtime(userId)
+      // Reset recurring tasks that weren't completed today
+      resetRecurringTasks().catch(e => console.warn('[recurring] reset failed', e))
     } catch (e) {
       console.warn('[sync] pull failed', e)
     } finally {
@@ -84,59 +91,96 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    // Check for existing session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        handleSignIn(session.user.id)
-      } else {
-        setAuthState('unauthed')
-      }
+      if (session?.user) handleSignIn(session.user.id)
+      else setAuthState('unauthed')
     })
-
-    // Listen for future auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        await handleSignIn(session.user.id)
-      } else if (event === 'SIGNED_OUT') {
-        stopRealtime()
-        setAuthState('unauthed')
-      }
+      if (event === 'SIGNED_IN' && session?.user) await handleSignIn(session.user.id)
+      else if (event === 'SIGNED_OUT') { stopRealtime(); setAuthState('unauthed') }
     })
-
     return () => subscription.unsubscribe()
   }, [handleSignIn])
 
-  // Push a new screen onto the stack
-  function navigate(s: Screen) {
-    setScreenStack(prev => [...prev, s])
-    window.scrollTo(0, 0)
+  // ── Notifications ─────────────────────────────────────────────────────────
+  useNotifications(settings, authState === 'authed')
+
+  // ── Periodic background pull (every 5 min while authed + online) ─────────
+  useEffect(() => {
+    if (authState !== 'authed') return
+    const id = setInterval(() => {
+      if (navigator.onLine) pullAll().catch(e => console.warn('[sync] periodic pull', e))
+    }, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [authState])
+
+  // ── Pull on reconnect ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (authState !== 'authed') return
+    const handler = () => pullAll().catch(e => console.warn('[sync] online pull', e))
+    window.addEventListener('online', handler)
+    return () => window.removeEventListener('online', handler)
+  }, [authState])
+
+  // ── Offline / online banner ────────────────────────────────────────────────
+  useEffect(() => {
+    const onOnline  = () => setIsOnline(true)
+    const onOffline = () => setIsOnline(false)
+    window.addEventListener('online',  onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => {
+      window.removeEventListener('online',  onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [])
+
+  // Navigation
+  function navigate(s: Screen)    { setScreenStack(prev => [...prev, s]); window.scrollTo(0, 0) }
+  function back()                 { setScreenStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev); window.scrollTo(0, 0) }
+  function navigateTab(s: Screen) { setScreenStack([s]); window.scrollTo(0, 0) }
+
+  // ── FAB logic ─────────────────────────────────────────────────────────────
+  function handleFabTap() {
+    const tab = activeTab(screen)
+    if (tab === 'goals')   { setFabSheet('goal') }
+    else if (tab === 'journal') {
+      // If already on journal, do nothing extra — it handles its own entry flow
+      if (screen.name !== 'journal') navigate({ name: 'journal' })
+    }
+    else { setFabSheet('capture') }  // dashboard, calendar
   }
 
-  // Pop back one screen (safe — never empties the stack)
-  function back() {
-    setScreenStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev)
-    window.scrollTo(0, 0)
+  function handleFabLongPress() { setFabSheet('menu') }
+
+  function handleFabMenuSelect(action: FabAction) {
+    if (action === 'capture')  { setFabSheet('capture') }
+    if (action === 'task')     { setTaskPrefill(null); setFabSheet('task') }
+    if (action === 'journal')  { navigate({ name: 'journal' }) }
+    if (action === 'pomodoro') { window.dispatchEvent(new CustomEvent('pom:expand')) }
   }
 
-  // Replace the entire stack (used by bottom nav tabs)
-  function navigateTab(s: Screen) {
-    setScreenStack([s])
-    window.scrollTo(0, 0)
+  // Open full task sheet (called from screens that had navigate({name:'add'}))
+  function openAddTask(prefill?: { title?: string; catId?: string; due?: string }) {
+    setTaskPrefill(prefill ?? null)
+    setFabSheet('task')
   }
 
-  // ── Loading splash ────────────────────────────────────────────────────────
-  if (authState === 'loading') {
-    return <SplashScreen onDone={() => {}} />
+  function closeSheet() {
+    setFabSheet('none')
+    setTaskPrefill(null)
   }
 
-  // ── Auth gate ─────────────────────────────────────────────────────────────
-  if (authState === 'unauthed') {
-    return <AuthScreen onAuth={() => {}} />
-  }
+  // ── Context-aware FAB for non-tab screens ────────────────────────────────
+  // (shows as small floating button bottom-right)
+  const currentCatId = screen.name === 'category' ? screen.catId : undefined
+
+  if (authState === 'loading') return <SplashScreen onDone={() => {}} />
+  if (authState === 'unauthed') return <AuthScreen onAuth={() => {}} />
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Sync indicator */}
+
+      {/* Sync stripe */}
       {syncStatus === 'syncing' && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
@@ -145,34 +189,132 @@ export default function App() {
         }} />
       )}
 
+      {/* Offline banner */}
+      {!isOnline && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9998,
+          padding: '6px 16px',
+          background: 'hsl(38, 90%, 52%)',
+          color: 'white',
+          fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.06em',
+          textAlign: 'center',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        }}>
+          <span>&#9888;</span> Working offline &mdash; changes will sync when you reconnect
+        </div>
+      )}
+
       {/* Screen content */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {screen.name === 'dashboard'  && <DashboardScreen navigate={navigate} />}
         {screen.name === 'task'       && <TaskDetailScreen taskId={screen.taskId} navigate={navigate} back={back} />}
-        {screen.name === 'add'        && <AddScreen navigate={navigate} back={back} />}
-        {screen.name === 'category'   && <CategoryScreen catId={screen.catId} navigate={navigate} back={back} />}
-        {screen.name === 'goals'      && <GoalsScreen navigate={navigate} />}
+        {screen.name === 'category'   && (
+          <CategoryScreen
+            catId={screen.catId}
+            navigate={navigate}
+            back={back}
+            onAddTask={() => openAddTask({ catId: screen.catId })}
+          />
+        )}
+        {screen.name === 'goals'      && (
+          <GoalsScreen
+            navigate={navigate}
+            onAddTask={() => openAddTask()}
+          />
+        )}
         {screen.name === 'journal'    && <JournalScreen navigate={navigate} phase={screen.phase} />}
         {screen.name === 'settings'   && <SettingsScreen navigate={navigate} back={back} />}
-        {screen.name === 'calendar'   && <CalendarScreen navigate={navigate} />}
-        {screen.name === 'inbox'      && <InboxScreen navigate={navigate} back={back} />}
-        {screen.name === 'all-tasks'  && <AllTasksScreen navigate={navigate} back={back} />}
+        {screen.name === 'calendar'   && (
+          <CalendarScreen
+            navigate={navigate}
+            onAddTask={(due?: string) => openAddTask(due ? { due } : undefined)}
+          />
+        )}
+        {screen.name === 'inbox'      && (
+          <InboxScreen
+            navigate={navigate}
+            back={back}
+            onAddTask={(title?: string) => openAddTask(title ? { title } : undefined)}
+          />
+        )}
+        {screen.name === 'all-tasks'  && (
+          <AllTasksScreen
+            navigate={navigate}
+            back={back}
+            onAddTask={() => openAddTask()}
+          />
+        )}
         {screen.name === 'schedule'   && <ScheduleScreen taskId={screen.taskId} navigate={navigate} back={back} />}
         {screen.name === 'progress'   && <StubScreen title="Progress" back={back} />}
-        {screen.name === 'review'     && <StubScreen title="Weekly Review" back={back} />}
+        {screen.name === 'review'     && <WeeklyReviewScreen navigate={navigate} back={back} />}
         {screen.name === 'onboarding' && <StubScreen title="Welcome" back={back} />}
         {screen.name === 'splash'     && <SplashScreen onDone={() => navigateTab({ name: 'dashboard' })} />}
       </div>
 
-      {/* Global floating Pomodoro — always visible, bottom-left */}
+      {/* Global Pomodoro */}
       <GlobalPomodoro workMins={settings?.defaultPomodoroMins ?? 25} />
 
-      {/* Quick capture FAB — hidden on AddScreen to avoid double entry-points */}
-      <QuickCapture navigate={navigate} visible={screen.name !== 'add'} />
+      {/* Floating FAB for non-tab screens (replaces old QuickCapture FAB) */}
+      {!showsNav(screen) && (
+        <button
+          onClick={() => setFabSheet('capture')}
+          aria-label="Quick capture"
+          style={{
+            position: 'fixed',
+            bottom: 'calc(20px + env(safe-area-inset-bottom))',
+            right: 20, zIndex: 50,
+            width: 46, height: 46, borderRadius: '50%',
+            background: 'var(--ink)', color: 'var(--paper)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: 'var(--shadow-pop)',
+            border: '2px solid var(--paper)',
+          }}
+        >
+          <Icons.plus size={18} />
+        </button>
+      )}
 
-      {/* Bottom nav — only on main tabs */}
+      {/* Bottom nav (tab screens only) */}
       {showsNav(screen) && (
-        <BottomNav active={activeTab(screen)} navigate={navigate} navigateTab={navigateTab} />
+        <BottomNav
+          active={activeTab(screen)}
+          navigate={navigate}
+          navigateTab={navigateTab}
+          onFabTap={handleFabTap}
+          onFabLongPress={handleFabLongPress}
+        />
+      )}
+
+      {/* ── Sheets / modals ────────────────────────────────────────────────── */}
+      {fabSheet === 'menu' && (
+        <FabMenu
+          onSelect={handleFabMenuSelect}
+          onClose={closeSheet}
+        />
+      )}
+
+      {fabSheet === 'capture' && (
+        <QuickCaptureSheet
+          onClose={closeSheet}
+          onExpand={title => { setTaskPrefill({ title, catId: currentCatId }); setFabSheet('task') }}
+          defaultCatId={currentCatId}
+        />
+      )}
+
+      {fabSheet === 'task' && (
+        <AddTaskSheet
+          onClose={closeSheet}
+          defaultTitle={taskPrefill?.title}
+          defaultCatId={taskPrefill?.catId}
+          defaultDue={taskPrefill?.due}
+        />
+      )}
+
+      {fabSheet === 'goal' && categories && (
+        <AddGoalSheet
+          categories={categories}
+          onClose={closeSheet}
+        />
       )}
     </div>
   )
@@ -200,13 +342,13 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
   )
 }
 
-// ── Stub screen for unimplemented screens ─────────────────────────────────────
+// ── Stub ──────────────────────────────────────────────────────────────────────
 function StubScreen({ title, back }: { title: string; back: () => void }) {
   return (
     <div className="screen">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--rule)' }}>
         <button onClick={back} style={{ color: 'var(--ink-2)' }}>
-          ← Back
+          <Icons.back size={20} />
         </button>
         <span className="t-display" style={{ fontSize: 20 }}>{title}</span>
       </div>

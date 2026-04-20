@@ -36,6 +36,7 @@ export interface Task {
   time?: string
   notes?: string
   createdAt?: number
+  updatedAt?: number
 }
 
 // ── Category ─────────────────────────────────────────────────────────────────
@@ -104,6 +105,32 @@ export interface AppSettings {
   onboarded: boolean
   xp: number
   streak: number
+}
+
+// ── Weekly Review ────────────────────────────────────────────────────────────
+export type GoalPulseStatus = 'on-track' | 'needs-attention' | 'pausing'
+
+export interface GoalPulse {
+  goalId: string
+  status: GoalPulseStatus
+}
+
+export interface WeeklyReview {
+  id: string
+  weekStart: string   // ISO 'YYYY-MM-DD' Monday
+  weekEnd: string     // ISO 'YYYY-MM-DD' Sunday
+  // Stats snapshotted at review time
+  tasksCompleted: number
+  xpGained: number
+  journalDays: number
+  quadCounts: { q1: number; q2: number; q3: number; q4: number }
+  // User inputs
+  wins: string[]
+  goalPulse: GoalPulse[]
+  nextWeekThing: string
+  // Meta
+  completedAt?: number
+  updatedAt?: number
 }
 
 // ── Navigation ───────────────────────────────────────────────────────────────

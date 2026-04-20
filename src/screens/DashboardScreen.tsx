@@ -1,16 +1,18 @@
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, addCategory, deleteCategory } from '../data/db'
-import { EFFORT, DEFAULT_CATEGORIES } from '../constants'
+import { db, completeTask, addCategory, deleteCategory, updateTask } from '../data/db'
+import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
-import { EffortPip, SectionHeader, ConfettiBurst, Chip } from '../components/ui'
+import { ThemeToggle } from '../components/ThemeToggle'
+import { SectionHeader, ConfettiBurst } from '../components/ui'
+import { TaskCard } from '../components/TaskCard'
 import type { Screen, Task, Category } from '../types'
 
 // ── Area icons available for custom areas ─────────────────────────────────────
 const AREA_ICONS = ['home','heart','briefcase','book','dollar','family','leaf','drop','bolt','star','bell','layers','pet']
 
-// Built-in category IDs — these cannot be deleted
-const BUILTIN_IDS = new Set(['home','work','health','finance','learning','family'])
+// Only 'home' is protected — it's the fallback area for orphaned tasks
+const BUILTIN_IDS = new Set(['home'])
 
 // ── Add Area Modal ────────────────────────────────────────────────────────────
 function AddAreaModal({ onClose }: { onClose: () => void }) {
@@ -128,7 +130,10 @@ export const DashboardScreen = ({ navigate }: Props) => {
   const tasks    = useLiveQuery(() => db.tasks.toArray(), [])
   const settings = useLiveQuery(() => db.settings.get(1), [])
   const cats     = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
-  const inboxCount = useLiveQuery(() => db.inbox.where('processed').equals(0).count(), [])
+  const inboxCount = useLiveQuery(
+    () => db.tasks.where('cat').equals('inbox').filter(t => !t.done).count(),
+    []
+  )
 
   if (!tasks || !settings) return null
 
@@ -151,9 +156,9 @@ export const DashboardScreen = ({ navigate }: Props) => {
   }
 
   async function handleDeleteArea(cat: Category) {
-    // Move tasks from deleted area to 'home'
+    // Move tasks from deleted area to 'home' (stamp updatedAt + sync each)
     const areaTasks = await db.tasks.where('cat').equals(cat.id).toArray()
-    await Promise.all(areaTasks.map(t => db.tasks.update(t.id, { cat: 'home' })))
+    await Promise.all(areaTasks.map(t => updateTask(t.id, { cat: 'home' })))
     await deleteCategory(cat.id)
     setDeleteTarget(null)
   }
@@ -167,7 +172,7 @@ export const DashboardScreen = ({ navigate }: Props) => {
             <div className="eyebrow" style={{ marginBottom: 4 }}>{DAY}</div>
             <div className="t-display" style={{ fontSize: 28 }}>{DATE}</div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', paddingTop: 4 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingTop: 4 }}>
             {streak > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--warn)' }}>
                 <Icons.flame size={14} />
@@ -177,6 +182,7 @@ export const DashboardScreen = ({ navigate }: Props) => {
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>
               {xp.toLocaleString()} XP
             </div>
+            <ThemeToggle />
             <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
               <Icons.settings size={20} />
             </button>
@@ -272,19 +278,19 @@ export const DashboardScreen = ({ navigate }: Props) => {
                     </div>
                   </button>
 
-                  {/* Delete button — custom areas only, top-right corner */}
+                  {/* Delete button — all non-home areas, top-right corner */}
                   {isCustom && (
                     <button
                       onClick={e => { e.stopPropagation(); setDeleteTarget(cat) }}
                       style={{
-                        position: 'absolute', top: 4, right: 4,
-                        width: 20, height: 20, borderRadius: '50%',
+                        position: 'absolute', top: 5, right: 5,
+                        width: 22, height: 22, borderRadius: '50%',
                         background: 'var(--paper-3)', border: '1px solid var(--rule)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        color: 'var(--ink-4)',
+                        color: 'var(--ink-3)',
                       }}
                     >
-                      <Icons.close size={9} />
+                      <Icons.close size={10} />
                     </button>
                   )}
                 </div>
@@ -314,7 +320,8 @@ export const DashboardScreen = ({ navigate }: Props) => {
             } />
             <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {allTodayTasks.map(task => (
-                <TaskRow key={task.id} task={task}
+                <TaskCard key={task.id} task={task}
+                  hue={cats.find((c: Category) => c.id === task.cat)?.hue}
                   onTap={() => navigate({ name: 'task', taskId: task.id })}
                   onComplete={(e) => handleComplete(e, task)}
                 />
@@ -324,7 +331,7 @@ export const DashboardScreen = ({ navigate }: Props) => {
         )}
 
         {/* Upcoming — non-today tasks with a due date */}
-        <UpcomingSection tasks={tasks} navigate={navigate} handleComplete={handleComplete} />
+        <UpcomingSection tasks={tasks} cats={cats} navigate={navigate} handleComplete={handleComplete} />
       </div>
 
       {/* Confetti bursts */}
@@ -341,111 +348,81 @@ export const DashboardScreen = ({ navigate }: Props) => {
   )
 }
 
-// ── Task row ────────────────────────────────────────────────────────────────
-function TaskRow({ task, onTap, onComplete, onDelete }: { task: Task; onTap: () => void; onComplete: (e: React.MouseEvent) => void; onDelete?: (e: React.MouseEvent) => void }) {
-  const doneRing = task.sub.length > 0
-    ? task.sub.filter(s => s.d).length / task.sub.length
-    : task.done ? 1 : 0
-  const subDone = task.sub.filter(s => s.d).length
 
-  return (
-    <button onClick={onTap} style={{
-      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
-      background: 'var(--paper-2)', borderRadius: 12, border: '1px solid var(--rule)',
-      textAlign: 'left', width: '100%',
-      opacity: task.done ? 0.55 : 1,
-    }}>
-      {/* Complete button */}
-      <button onClick={onComplete} style={{
-        flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
-        border: `1.5px solid ${task.done ? 'var(--accent)' : 'var(--rule)'}`,
-        background: task.done ? 'var(--accent)' : 'transparent',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: task.done ? 'var(--paper)' : 'transparent',
-      }}>
-        {task.done && <Icons.check size={12} sw={2.5} />}
-      </button>
-
-      {/* Content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 500, textDecoration: task.done ? 'line-through' : 'none', color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {task.title}
-        </div>
-        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <EffortPip effort={task.effort} mono />
-          {task.streak > 0 && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--warn)', letterSpacing: '0.06em' }}>
-              <Icons.flame size={10} />
-              {task.streak}
-            </span>
-          )}
-          {task.sub.length > 0 && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
-              {subDone}/{task.sub.length}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Sub-progress ring if has subs */}
-      {task.sub.length > 0 && (
-        <MiniRing progress={doneRing} />
-      )}
-
-      {onDelete ? (
-        <button onClick={onDelete} style={{ flexShrink: 0, padding: '4px', color: 'var(--ink-4)' }}>
-          <Icons.close size={14} />
-        </button>
-      ) : (
-        <Icons.arrow size={14} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
-      )}
-    </button>
-  )
-}
-
-function MiniRing({ progress }: { progress: number }) {
-  const r = 8, c = 2 * Math.PI * r
-  return (
-    <svg width={20} height={20} style={{ flexShrink: 0 }}>
-      <circle cx={10} cy={10} r={r} fill="none" stroke="var(--rule)" strokeWidth={2} />
-      <circle cx={10} cy={10} r={r} fill="none" stroke="var(--accent)" strokeWidth={2}
-        strokeDasharray={c} strokeDashoffset={c * (1 - progress)}
-        strokeLinecap="round" transform="rotate(-90 10 10)" />
-    </svg>
-  )
-}
-
-function UpcomingSection({ tasks, navigate, handleComplete }: {
+function UpcomingSection({ tasks, cats, navigate, handleComplete }: {
   tasks: Task[]
+  cats: Category[]
   navigate: (s: Screen) => void
   handleComplete: (e: React.MouseEvent, task: Task) => void
 }) {
-  const upcoming = tasks.filter(t => !t.done && t.due !== 'Today' && t.due !== '')
-  if (upcoming.length === 0) return null
+  const todayISO     = new Date().toISOString().slice(0, 10)
+  const tomorrowDate = new Date(); tomorrowDate.setDate(tomorrowDate.getDate() + 1)
+  const tomorrowISO  = tomorrowDate.toISOString().slice(0, 10)
+  const isoRe        = /^\d{4}-\d{2}-\d{2}$/
+
+  const overdue   = tasks.filter(t => !t.done && isoRe.test(t.due) && t.due < todayISO)
+  const tomorrow  = tasks.filter(t => !t.done && (t.due === 'Tomorrow' || t.due === tomorrowISO))
+  const upcoming  = tasks.filter(t =>
+    !t.done &&
+    t.due !== 'Today' && t.due !== 'Tomorrow' && t.due !== '' &&
+    !(isoRe.test(t.due) && t.due <= tomorrowISO)
+  )
+
+  // Sort upcoming ISO tasks by date; 'Someday' / text labels go to end
+  const sorted = [...upcoming].sort((a, b) => {
+    const aIso = isoRe.test(a.due) ? a.due : '9999'
+    const bIso = isoRe.test(b.due) ? b.due : '9999'
+    return aIso < bIso ? -1 : aIso > bIso ? 1 : 0
+  })
+
+  const hasAny = overdue.length > 0 || tomorrow.length > 0 || sorted.length > 0
+  if (!hasAny) return null
+
+  function TaskGroup({ label, labelColor, tasks: group }: { label: string; labelColor?: string; tasks: Task[] }) {
+    if (group.length === 0) return null
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <div style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em',
+          color: labelColor ?? 'var(--ink-3)', marginBottom: 6, textTransform: 'uppercase',
+        }}>
+          {label}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {group.map(task => (
+            <TaskCard key={task.id} task={task}
+              hue={cats.find(c => c.id === task.cat)?.hue}
+              onTap={() => navigate({ name: 'task', taskId: task.id })}
+              onComplete={e => handleComplete(e, task)}
+            />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ padding: '20px 20px 0' }}>
-      <SectionHeader title="Upcoming" />
-      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {upcoming.slice(0, 5).map(task => (
-          <TaskRow key={task.id} task={task}
-            onTap={() => navigate({ name: 'task', taskId: task.id })}
-            onComplete={(e) => handleComplete(e, task)}
-          />
-        ))}
-        {upcoming.length > 5 && (
+      <SectionHeader title="Upcoming" action={
+        <button onClick={() => navigate({ name: 'all-tasks' })}
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
+          ALL <Icons.arrow size={12} />
+        </button>
+      } />
+      <div style={{ marginTop: 12 }}>
+        <TaskGroup label={`Overdue \u00B7 ${overdue.length}`} labelColor="var(--warn)" tasks={overdue} />
+        <TaskGroup label="Tomorrow" tasks={tomorrow} />
+        <TaskGroup label="Later" tasks={sorted.slice(0, 5)} />
+        {sorted.length > 5 && (
           <button onClick={() => navigate({ name: 'all-tasks' })} style={{
             padding: '10px 14px', borderRadius: 12, background: 'transparent',
             border: '1px dashed var(--rule)', fontFamily: 'var(--font-mono)', fontSize: 11,
-            color: 'var(--ink-3)', letterSpacing: '0.06em',
+            color: 'var(--ink-3)', letterSpacing: '0.06em', width: '100%',
           }}>
-            +{upcoming.length - 5} more tasks
+            +{sorted.length - 5} more tasks
           </button>
         )}
       </div>
     </div>
   )
 }
-
-// Re-export TaskRow for use in other screens
-export { TaskRow }

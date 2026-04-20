@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png'],
       manifest: {
-        name: 'Life Admin',
-        short_name: 'Life Admin',
-        description: "A quietly gamified place for chores, bills, habits, and the rest of life's logistics.",
+        name: 'MightyBananaQuest',
+        short_name: 'MBQ',
+        description: 'Life admin, gamified — tasks, goals, journal, and focus in one unified system.',
         theme_color: '#14110d',
         background_color: '#14110d',
         display: 'standalone',

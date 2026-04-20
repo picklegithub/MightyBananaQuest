@@ -4,13 +4,13 @@ import { db, completeTask, deleteTask, deleteTasks } from '../data/db'
 import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst, Seg } from '../components/ui'
-import { TaskRow } from './DashboardScreen'
+import { TaskCard } from '../components/TaskCard'
 import type { Screen, Task } from '../types'
 
-interface Props { navigate: (s: Screen) => void; back: () => void }
+interface Props { navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void }
 interface Burst { id: number; x: number; y: number; xp: number }
 
-export const AllTasksScreen = ({ navigate, back }: Props) => {
+export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
   const [filter, setFilter]       = useState<'all' | 'open' | 'done'>('open')
   const [catFilter, setCatFilter] = useState<string>('all')
   const [bursts, setBursts]       = useState<Burst[]>([])
@@ -87,7 +87,7 @@ export const AllTasksScreen = ({ navigate, back }: Props) => {
             <button onClick={() => setSelectMode(true)} style={{ color: 'var(--ink-2)', fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}>
               Select
             </button>
-            <button onClick={() => navigate({ name: 'add' })} style={{ color: 'var(--ink-2)' }}>
+            <button onClick={() => onAddTask?.()} style={{ color: 'var(--ink-2)' }}>
               <Icons.plus size={22} />
             </button>
           </div>
@@ -137,7 +137,9 @@ export const AllTasksScreen = ({ navigate, back }: Props) => {
                   </button>
                 )}
                 <div style={{ flex: 1 }} onClick={selectMode ? () => toggleSelect(task.id) : undefined}>
-                  <TaskRow task={task}
+                  <TaskCard task={task}
+                    hue={cats.find(c => c.id === task.cat)?.hue}
+                    areaName={catFilter === 'all' ? (cats.find(c => c.id === task.cat)?.name) : undefined}
                     onTap={selectMode ? () => toggleSelect(task.id) : () => navigate({ name: 'task', taskId: task.id })}
                     onComplete={(e) => handleComplete(e, task)}
                     onDelete={!selectMode ? async (e) => { e.stopPropagation(); await deleteTask(task.id) } : undefined}

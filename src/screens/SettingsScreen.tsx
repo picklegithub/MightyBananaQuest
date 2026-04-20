@@ -1,16 +1,21 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, resetAllData } from '../data/db'
-import { EFFORT_ORDER } from '../constants'
 import { Icons } from '../components/ui/Icons'
+import { ThemeToggle } from '../components/ThemeToggle'
 import { Toggle, Seg } from '../components/ui'
 import { supabase } from '../lib/supabase'
+import { notificationsSupported, requestPermission } from '../lib/notifications'
 import type { Screen, AppSettings } from '../types'
 
 interface Props { navigate: (s: Screen) => void; back: () => void }
 
 export const SettingsScreen = ({ navigate, back }: Props) => {
   const settings = useLiveQuery(() => db.settings.get(1), [])
+
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() =>
+    notificationsSupported() ? Notification.permission : 'denied'
+  )
 
   if (!settings) return null
 
@@ -22,6 +27,11 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
     await db.settings.update(1, {
       notifications: { ...settings!.notifications, [key]: val },
     })
+  }
+
+  async function handleRequestPermission() {
+    const perm = await requestPermission()
+    setNotifPerm(perm)
   }
 
   const pomMins = settings.defaultPomodoroMins
@@ -39,13 +49,12 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
       <div className="screen-scroll" style={{ padding: '0 0 40px' }}>
         {/* Appearance */}
         <Section title="Appearance">
-          <Row label="Theme">
-            <Seg value={settings.theme} setValue={v => update({ theme: v as AppSettings['theme'] })}
-              options={[{ v: 'light', l: 'Light' }, { v: 'dark', l: 'Dark' }, { v: 'auto', l: 'Auto' }]} />
+          <Row label="Theme" sub="Tap to cycle · also in Today header">
+            <ThemeToggle variant="pill" />
           </Row>
           <Row label="Style">
             <Seg value={settings.variant} setValue={v => update({ variant: v as AppSettings['variant'] })}
-              options={[{ v: 'warm', l: 'Warm' }, { v: 'strict', l: 'Mono' }]} />
+              options={[{ v: 'warm', l: 'Linen' }, { v: 'strict', l: 'Mono' }]} />
           </Row>
           <Row label="Gamification">
             <Seg value={settings.intensity} setValue={v => update({ intensity: v as AppSettings['intensity'] })}
@@ -94,6 +103,36 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
 
         {/* Notifications */}
         <Section title="Notifications">
+          {/* Permission banner */}
+          {notificationsSupported() && notifPerm === 'default' && (
+            <div style={{
+              margin: '0 0 0 0', padding: '12px 20px',
+              borderBottom: '1px solid var(--rule)',
+              background: 'var(--accent-soft)',
+            }}>
+              <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 8, lineHeight: 1.5 }}>
+                Allow browser notifications to receive due reminders, Pomodoro alerts, and journal prompts.
+              </div>
+              <button onClick={handleRequestPermission} style={{
+                padding: '9px 18px', borderRadius: 10, fontSize: 12, fontWeight: 600,
+                background: 'var(--accent)', color: 'white', border: 'none',
+                fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+              }}>
+                Allow notifications
+              </button>
+            </div>
+          )}
+          {notificationsSupported() && notifPerm === 'denied' && (
+            <div style={{
+              padding: '10px 20px', borderBottom: '1px solid var(--rule)',
+              background: 'var(--paper-2)',
+            }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', lineHeight: 1.5 }}>
+                Notifications are blocked by your browser. To enable them, update the permission in your browser or OS settings.
+              </div>
+            </div>
+          )}
+
           {([
             ['due',     'Due reminders',    'Notify when tasks are due'],
             ['overdue', 'Overdue alerts',   'Notify when tasks are overdue'],
@@ -103,12 +142,35 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
             ['weekly',  'Weekly review',    'Sunday wrap-up prompt'],
           ] as const).map(([key, label, sub]) => (
             <Row key={key} label={label} sub={sub}>
-              <Toggle on={settings.notifications[key]} onChange={v => updateNotif(key, v)} />
+              <Toggle
+                on={settings.notifications[key]}
+                onChange={v => updateNotif(key, v)}
+              />
             </Row>
           ))}
           <Row label="Quiet hours" sub="No notifications 10pm–7am">
             <Toggle on={settings.notifications.quiet} onChange={v => updateNotif('quiet', v)} />
           </Row>
+        </Section>
+
+        {/* Reflect */}
+        <Section title="Reflect">
+          <button
+            onClick={() => navigate({ name: 'review' })}
+            style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '13px 20px', width: '100%',
+              borderBottom: '1px solid var(--rule)',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>Weekly Review</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+                Wins · Goals pulse · Covey quadrant audit
+              </div>
+            </div>
+            <Icons.arrow size={16} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
+          </button>
         </Section>
 
         {/* Data */}

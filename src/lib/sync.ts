@@ -41,7 +41,8 @@ function taskToRow(task: Task, userId: string) {
     time:          task.time ?? null,
     notes:         task.notes ?? null,
     created_at:    task.createdAt ?? null,
-    updated_at:    now(),
+    // Use local updatedAt when available so LWW works correctly in both directions
+    updated_at:    task.updatedAt ? new Date(task.updatedAt).toISOString() : now(),
   }
 }
 
@@ -62,6 +63,7 @@ function rowToTask(row: Record<string, unknown>): Task {
     time:         (row.time as string | undefined) ?? undefined,
     notes:        (row.notes as string | undefined) ?? undefined,
     createdAt:    (row.created_at as number | undefined) ?? undefined,
+    updatedAt:    row.updated_at ? new Date(row.updated_at as string).getTime() : undefined,
   }
 }
 

@@ -1,148 +1,274 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../data/db'
+import { db, completeTask, deleteTask, updateTask } from '../data/db'
+import { EFFORT } from '../constants'
 import { Icons } from '../components/ui/Icons'
-import type { Screen, InboxItem } from '../types'
+import { ConfettiBurst } from '../components/ui'
+import type { Screen, Task, Category } from '../types'
 
-interface Props { navigate: (s: Screen) => void; back: () => void }
-
-const KIND_ICON: Record<InboxItem['kind'], string> = {
-  capture: 'mic',
-  rss:     'rss',
-  email:   'inbox',
+interface Props {
+  navigate: (s: Screen) => void
+  back: () => void
+  onAddTask?: (title?: string) => void  // kept for compat, not used in new flow
 }
 
-const KIND_COLOR: Record<InboxItem['kind'], string> = {
-  capture: 'var(--accent)',
-  rss:     'hsl(145,55%,40%)',
-  email:   'hsl(240,55%,55%)',
+interface Burst { id: number; x: number; y: number; xp: number }
+
+// ── Effort display label ──────────────────────────────────────────────────────
+function effortLabel(effort: Task['effort']): string {
+  const mins = EFFORT[effort]?.mins ?? 15
+  if (mins >= 1440) return Math.round(mins / 1440) + 'd'
+  if (mins >= 60)   return (mins / 60) + 'h'
+  return mins + 'm'
 }
 
-export const InboxScreen = ({ navigate, back }: Props) => {
-  const items = useLiveQuery(() => db.inbox.toArray(), [])
-
-  if (!items) return null
-
-  const unprocessed = items.filter(i => !i.processed)
-  const processed   = items.filter(i => i.processed)
-
-  async function dismiss(id: string) {
-    await db.inbox.update(id, { processed: true })
-  }
-
-  async function addAsTask(item: InboxItem) {
-    await db.inbox.update(item.id, { processed: true })
-    // Navigate to add screen pre-filled (simplified: just go to add)
-    navigate({ name: 'add' })
-  }
+// ── Single inbox task card ────────────────────────────────────────────────────
+function InboxTaskCard({
+  task, cats, onNavigate, onComplete, onDelete, onAssign,
+}: {
+  task: Task
+  cats: Category[]
+  onNavigate: () => void
+  onComplete: (e: React.MouseEvent) => void
+  onDelete: () => void
+  onAssign: (catId: string) => void
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const eDef = EFFORT[task.effort]
 
   return (
-    <div className="screen">
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center' }}>
-          <Icons.back size={20} />
+    <div style={{
+      background: 'var(--paper-2)', border: '1px solid var(--rule)',
+      borderRadius: 14, overflow: 'hidden',
+      opacity: task.done ? 0.5 : 1,
+      transition: 'opacity .2s',
+    }}>
+      {/* Main row */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 14px 12px' }}>
+
+        {/* Complete button */}
+        <button
+          onClick={onComplete}
+          style={{
+            flexShrink: 0, marginTop: 2,
+            width: 22, height: 22, borderRadius: '50%',
+            border: `1.5px solid ${task.done ? 'var(--accent)' : 'var(--rule)'}`,
+            background: task.done ? 'var(--accent)' : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: task.done ? 'var(--paper)' : 'transparent',
+          }}
+        >
+          {task.done && <Icons.check size={11} sw={2.5} />}
         </button>
-        <div>
-          <h1 className="t-display" style={{ fontSize: 22 }}>Inbox</h1>
-          {unprocessed.length > 0 && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
-              {unprocessed.length} unprocessed
-            </div>
-          )}
-        </div>
-      </div>
 
-      <div className="screen-scroll" style={{ padding: '12px 20px 40px' }}>
-        {unprocessed.length === 0 && processed.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-            <Icons.inbox size={40} style={{ color: 'var(--ink-4)', margin: '0 auto 12px', display: 'block' }} />
-            <div className="t-display" style={{ fontSize: 18, marginBottom: 6 }}>Inbox zero</div>
-            <div style={{ color: 'var(--ink-3)', fontSize: 13 }}>Nothing waiting for your attention.</div>
+        {/* Content — tappable to open task detail */}
+        <button onClick={onNavigate} style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+          <div style={{
+            fontSize: 14, fontWeight: 500, lineHeight: 1.4,
+            textDecoration: task.done ? 'line-through' : 'none',
+            color: task.done ? 'var(--ink-3)' : 'var(--ink)',
+            marginBottom: 5,
+          }}>
+            {task.title}
           </div>
-        ) : (
-          <>
-            {unprocessed.length > 0 && (
-              <div style={{ marginBottom: 20 }}>
-                <div className="eyebrow" style={{ marginBottom: 10 }}>To process</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {unprocessed.map(item => (
-                    <InboxCard key={item.id} item={item} onDismiss={() => dismiss(item.id)} onAddTask={() => addAsTask(item)} />
-                  ))}
-                </div>
-              </div>
-            )}
 
-            {processed.length > 0 && (
-              <div>
-                <div className="eyebrow" style={{ marginBottom: 10 }}>Processed</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: 0.5 }}>
-                  {processed.map(item => (
-                    <InboxCard key={item.id} item={item} />
-                  ))}
-                </div>
-              </div>
+          {/* Meta row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {eDef && (
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)',
+                letterSpacing: '0.04em',
+              }}>
+                {eDef.glyph} {effortLabel(task.effort)}
+              </span>
             )}
-          </>
+            {task.due && task.due !== '' && (
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)',
+                letterSpacing: '0.04em',
+              }}>
+                {task.due}
+              </span>
+            )}
+            {task.notes && (
+              <span style={{
+                fontSize: 11, color: 'var(--ink-3)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                maxWidth: 140,
+              }}>
+                {task.notes}
+              </span>
+            )}
+          </div>
+        </button>
+
+        {/* Delete */}
+        {confirmDelete ? (
+          <button
+            onClick={onDelete}
+            style={{
+              flexShrink: 0, padding: '4px 8px', borderRadius: 6,
+              background: 'var(--warn)', color: 'white',
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.04em',
+            }}
+          >
+            DELETE
+          </button>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            style={{ flexShrink: 0, color: 'var(--ink-4)', padding: 4 }}
+          >
+            <Icons.close size={15} />
+          </button>
         )}
       </div>
+
+      {/* Area assign row — always visible, scrollable */}
+      {!task.done && (
+        <div style={{
+          borderTop: '1px solid var(--rule)',
+          padding: '9px 12px',
+          display: 'flex', gap: 5, overflowX: 'auto',
+          alignItems: 'center',
+        }}>
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)',
+            letterSpacing: '0.08em', flexShrink: 0, marginRight: 2,
+          }}>
+            MOVE TO
+          </span>
+          {cats.map(c => (
+            <button
+              key={c.id}
+              onClick={() => onAssign(c.id)}
+              style={{
+                flexShrink: 0,
+                padding: '5px 10px', borderRadius: 20,
+                fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                background: 'var(--paper-3)', color: 'var(--ink-2)',
+                border: '1px solid var(--rule)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-function InboxCard({ item, onDismiss, onAddTask }: {
-  item: InboxItem
-  onDismiss?: () => void
-  onAddTask?: () => void
-}) {
-  const I = Icons[KIND_ICON[item.kind]] ?? Icons.inbox
-  const color = KIND_COLOR[item.kind]
+// ── Main screen ───────────────────────────────────────────────────────────────
+export const InboxScreen = ({ navigate, back }: Props) => {
+  const [bursts, setBursts] = useState<Burst[]>([])
+
+  const tasks = useLiveQuery(
+    () => db.tasks.where('cat').equals('inbox').toArray(),
+    []
+  )
+  const cats = useLiveQuery(() => db.categories.toArray(), []) ?? []
+
+  if (!tasks) return null
+
+  const pending = tasks.filter(t => !t.done)
+  const done    = tasks.filter(t => t.done)
+
+  async function handleComplete(e: React.MouseEvent, task: Task) {
+    e.stopPropagation()
+    if (task.done) return
+    const gained = await completeTask(task.id)
+    if (gained > 0) {
+      const rect = (e.target as HTMLElement).getBoundingClientRect()
+      const burst: Burst = { id: Date.now(), x: rect.left + rect.width / 2, y: rect.top, xp: gained }
+      setBursts(b => [...b, burst])
+      setTimeout(() => setBursts(b => b.filter(x => x.id !== burst.id)), 1400)
+    }
+  }
+
+  async function handleAssign(taskId: string, catId: string) {
+    await updateTask(taskId, { cat: catId, due: 'Today' })
+  }
+
+  async function handleDelete(taskId: string) {
+    await deleteTask(taskId)
+  }
+
+  const isEmpty = tasks.length === 0
 
   return (
-    <div style={{
-      background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 14, padding: '14px 16px',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <div style={{
-          width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-          background: 'var(--paper-3)', color,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <I size={16} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {item.source && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.06em', marginBottom: 4, textTransform: 'uppercase' }}>
-              {item.source}
+    <div className="screen">
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '16px 20px', borderBottom: '1px solid var(--rule)', flexShrink: 0,
+      }}>
+        <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center' }}>
+          <Icons.back size={20} />
+        </button>
+        <div style={{ flex: 1 }}>
+          <h1 className="t-display" style={{ fontSize: 22 }}>Inbox</h1>
+          {pending.length > 0 && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em', marginTop: 1 }}>
+              {pending.length} to sort
             </div>
           )}
-          <div style={{ fontSize: 14, lineHeight: 1.4, marginBottom: 6 }}>{item.text}</div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>{item.when}</div>
         </div>
       </div>
 
-      {!item.processed && (onDismiss || onAddTask) && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
-          {onAddTask && (
-            <button onClick={onAddTask} style={{
-              flex: 1, padding: '8px', borderRadius: 8, fontSize: 11, fontFamily: 'var(--font-mono)',
-              background: 'var(--ink)', color: 'var(--paper)', letterSpacing: '0.04em',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            }}>
-              <Icons.plus size={12} /> Add as task
-            </button>
-          )}
-          {onDismiss && (
-            <button onClick={onDismiss} style={{
-              flex: 1, padding: '8px', borderRadius: 8, fontSize: 11, fontFamily: 'var(--font-mono)',
-              background: 'var(--paper-3)', color: 'var(--ink-2)', letterSpacing: '0.04em', border: '1px solid var(--rule)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            }}>
-              <Icons.check size={12} /> Dismiss
-            </button>
-          )}
-        </div>
-      )}
+      <div className="screen-scroll" style={{ padding: '16px 20px 40px' }}>
+
+        {/* Empty state */}
+        {isEmpty && (
+          <div style={{ textAlign: 'center', padding: '72px 20px' }}>
+            <Icons.inbox size={40} style={{ color: 'var(--ink-4)', margin: '0 auto 16px', display: 'block' }} />
+            <div className="t-display" style={{ fontSize: 20, marginBottom: 6 }}>Inbox zero</div>
+            <div style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6 }}>
+              Captures land here. Assign an area<br />or complete them to clear the queue.
+            </div>
+          </div>
+        )}
+
+        {/* Pending tasks */}
+        {pending.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: done.length > 0 ? 24 : 0 }}>
+            {pending.map(task => (
+              <InboxTaskCard
+                key={task.id}
+                task={task}
+                cats={cats}
+                onNavigate={() => navigate({ name: 'task', taskId: task.id })}
+                onComplete={e => handleComplete(e, task)}
+                onDelete={() => handleDelete(task.id)}
+                onAssign={catId => handleAssign(task.id, catId)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Done tasks — collapsed section */}
+        {done.length > 0 && (
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 10, opacity: 0.5 }}>Completed</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {done.map(task => (
+                <InboxTaskCard
+                  key={task.id}
+                  task={task}
+                  cats={cats}
+                  onNavigate={() => navigate({ name: 'task', taskId: task.id })}
+                  onComplete={e => handleComplete(e, task)}
+                  onDelete={() => handleDelete(task.id)}
+                  onAssign={catId => handleAssign(task.id, catId)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {bursts.map(b => <ConfettiBurst key={b.id} x={b.x} y={b.y} xp={b.xp} />)}
     </div>
   )
 }

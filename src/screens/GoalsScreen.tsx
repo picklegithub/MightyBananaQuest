@@ -5,7 +5,7 @@ import { Icons } from '../components/ui/Icons'
 import { Seg } from '../components/ui'
 import type { Screen, Goal, Task } from '../types'
 
-interface Props { navigate: (s: Screen) => void }
+interface Props { navigate: (s: Screen) => void; onAddTask?: () => void }
 
 const HORIZONS = ['4 weeks', '12 weeks', '6 months', '1 year', 'Ongoing']
 
@@ -44,7 +44,7 @@ function ProgressRing({ progress, hue }: { progress: number; hue: number }) {
 }
 
 // ── Goals list screen ─────────────────────────────────────────────────────────
-export const GoalsScreen = ({ navigate }: Props) => {
+export const GoalsScreen = ({ navigate, onAddTask }: Props) => {
   const goals      = useLiveQuery(() => db.goals.toArray(), [])
   const categories = useLiveQuery(() => db.categories.toArray(), [])
   const allTasks   = useLiveQuery(() => db.tasks.toArray(), [])
@@ -61,20 +61,9 @@ export const GoalsScreen = ({ navigate }: Props) => {
     <div className="screen">
       {/* Header */}
       <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 4 }}>Long game</div>
-            <h1 className="t-display" style={{ fontSize: 28 }}>Goals</h1>
-          </div>
-          {tab === 'goals' && (
-            <button onClick={() => setShowAdd(true)} style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
-              border: '1px solid var(--rule)', borderRadius: 20,
-              fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-2)', letterSpacing: '0.04em',
-            }}>
-              <Icons.plus size={14} /> Add goal
-            </button>
-          )}
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 4 }}>Long game</div>
+          <h1 className="t-display" style={{ fontSize: 28 }}>Goals</h1>
         </div>
       </div>
 
@@ -157,13 +146,25 @@ export const GoalsScreen = ({ navigate }: Props) => {
               </div>
             )}
 
-            {/* Summary stats */}
-            {goals.length > 0 && (
+            {/* Summary stats — use auto-derived progress, not stale g.progress */}
+            {goals.length > 0 && (() => {
+              const progressMap = Object.fromEntries(goals.map(g => {
+                const linked = allTasks.filter(t => g.linked.includes(t.id))
+                const ap = linked.length > 0
+                  ? linked.filter(t => t.done).length / linked.length
+                  : g.progress
+                return [g.id, ap]
+              }))
+              const avgPct = Math.round(
+                goals.reduce((a, g) => a + (progressMap[g.id] ?? 0), 0) / goals.length * 100
+              )
+              const onTrack = goals.filter(g => (progressMap[g.id] ?? 0) >= 0.5).length
+              return (
               <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
                 {[
                   { label: 'Active',       val: goals.length },
-                  { label: 'Avg progress', val: `${Math.round(goals.reduce((a, g) => a + g.progress, 0) / goals.length * 100)}%` },
-                  { label: 'On track',     val: goals.filter(g => g.progress >= 0.5).length },
+                  { label: 'Avg progress', val: `${avgPct}%` },
+                  { label: 'On track',     val: onTrack },
                 ].map(s => (
                   <div key={s.label} style={{
                     flex: 1, padding: '14px 10px',
@@ -177,13 +178,14 @@ export const GoalsScreen = ({ navigate }: Props) => {
                   </div>
                 ))}
               </div>
-            )}
+              )
+            })()}
           </>
         )}
 
         {/* ── Habits tab ── */}
         {tab === 'habits' && (
-          <HabitsTab habits={habits} cats={cats} navigate={navigate} />
+          <HabitsTab habits={habits} cats={cats} navigate={navigate} onAddTask={onAddTask} />
         )}
       </div>
 
@@ -202,7 +204,7 @@ export const GoalsScreen = ({ navigate }: Props) => {
 }
 
 // ── Habits tab ────────────────────────────────────────────────────────────────
-function HabitsTab({ habits, cats, navigate }: { habits: Task[]; cats: { id: string; name: string; hue: number }[]; navigate: (s: Screen) => void }) {
+function HabitsTab({ habits, cats, navigate, onAddTask }: { habits: Task[]; cats: { id: string; name: string; hue: number }[]; navigate: (s: Screen) => void; onAddTask?: () => void }) {
   const logs = useLiveQuery(() => db.habitLog.toArray(), [])
 
   if (!logs) return null
@@ -215,7 +217,7 @@ function HabitsTab({ habits, cats, navigate }: { habits: Task[]; cats: { id: str
         <div style={{ color: 'var(--ink-3)', fontSize: 13, marginBottom: 20 }}>
           Tasks with a recurring schedule appear here as habits.
         </div>
-        <button onClick={() => navigate({ name: 'add' })} style={{
+        <button onClick={() => onAddTask?.()} style={{
           padding: '12px 24px', borderRadius: 12, background: 'var(--ink)', color: 'var(--paper)',
           fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8,
         }}>
@@ -243,13 +245,17 @@ function HabitsTab({ habits, cats, navigate }: { habits: Task[]; cats: { id: str
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {habits.map(task => {
         const hue = cats.find(c => c.id === task.cat)?.hue ?? 200
-        const completedToday = task.done && logSet.has(`${task.id}:${TODAY_ISO}`)
+        // Completed today = a log entry exists for today (task.done may still be true from yesterday
+        // before resetRecurringTasks runs, so don't rely solely on task.done)
+        const completedToday = logSet.has(`${task.id}:${TODAY_ISO}`)
         const streak = task.streak
 
         async function handleDone() {
-          if (task.done) return
+          if (completedToday) return
           await completeTask(task.id)
         }
+
+        const catName = cats.find(c => c.id === task.cat)?.name ?? task.cat
 
         return (
           <div key={task.id} style={{
@@ -262,7 +268,7 @@ function HabitsTab({ habits, cats, navigate }: { habits: Task[]; cats: { id: str
                   onClick={() => navigate({ name: 'task', taskId: task.id })}
                   style={{ textAlign: 'left', display: 'block', width: '100%' }}
                 >
-                  <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 3, textDecoration: task.done ? 'line-through' : 'none', color: task.done ? 'var(--ink-3)' : 'var(--ink)' }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 3, textDecoration: completedToday ? 'line-through' : 'none', color: completedToday ? 'var(--ink-3)' : 'var(--ink)' }}>
                     {task.title}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -270,7 +276,7 @@ function HabitsTab({ habits, cats, navigate }: { habits: Task[]; cats: { id: str
                       padding: '2px 8px', borderRadius: 20, fontSize: 9,
                       fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
                       background: `hsl(${hue},40%,92%)`, color: `hsl(${hue},55%,38%)`,
-                    }}>{task.cat.toUpperCase()}</span>
+                    }}>{catName.toUpperCase()}</span>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.04em' }}>
                       {task.recurring}
                     </span>
@@ -292,13 +298,13 @@ function HabitsTab({ habits, cats, navigate }: { habits: Task[]; cats: { id: str
                 {/* Complete today button */}
                 <button
                   onClick={handleDone}
-                  disabled={task.done}
+                  disabled={completedToday}
                   style={{
                     width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-                    border: `2px solid ${task.done ? `hsl(${hue},55%,42%)` : 'var(--rule)'}`,
-                    background: task.done ? `hsl(${hue},55%,42%)` : 'transparent',
+                    border: `2px solid ${completedToday ? `hsl(${hue},55%,42%)` : 'var(--rule)'}`,
+                    background: completedToday ? `hsl(${hue},55%,42%)` : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: task.done ? 'white' : 'var(--ink-3)',
+                    color: completedToday ? 'white' : 'var(--ink-3)',
                     transition: 'all .2s',
                   }}
                 >
@@ -449,16 +455,20 @@ function GoalDetail({
 }) {
   const hue         = getHue(goal.area, categories)
   const linkedTasks = allTasks.filter(t => goal.linked.includes(t.id))
-  const unlinked    = allTasks.filter(t => !goal.linked.includes(t.id) && t.cat === goal.area && !t.done)
+  // All unlinked open tasks (no area filter — show everything, grouped by area in picker)
+  const unlinked    = allTasks.filter(t => !goal.linked.includes(t.id) && !t.done)
 
   // Auto-derive progress whenever linked task states change
+  // Use explicit primitive deps instead of inline array .join() to satisfy React hooks lint
+  const linkedKey = linkedTasks.map(t => `${t.id}:${t.done}`).join(',')
   useEffect(() => {
     if (linkedTasks.length === 0) return
     const computed = linkedTasks.filter(t => t.done).length / linkedTasks.length
     if (Math.abs(computed - goal.progress) > 0.005) {
       updateGoal(goal.id, { progress: computed })
     }
-  }, [linkedTasks.map(t => `${t.id}:${t.done}`).join(',')])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedKey, goal.id, goal.progress])
 
   const autoProgress = linkedTasks.length > 0
     ? linkedTasks.filter(t => t.done).length / linkedTasks.length
@@ -687,41 +697,66 @@ function GoalDetail({
       </div>
 
       {/* Task picker bottom sheet */}
-      {showPicker && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowPicker(false) }}
-        >
-          <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '20px 20px 44px', width: '100%', maxHeight: '70vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div className="t-display" style={{ fontSize: 18 }}>Link a task</div>
-              <button onClick={() => setShowPicker(false)} style={{ color: 'var(--ink-3)' }}>
-                <Icons.close size={20} />
-              </button>
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em', marginBottom: 14 }}>
-              {goal.area.toUpperCase()} AREA · OPEN TASKS
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {unlinked.map(t => (
-                <button key={t.id} onClick={() => linkTask(t.id)} style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
-                  background: 'var(--paper-2)', borderRadius: 10, border: '1px solid var(--rule)',
-                  textAlign: 'left',
-                }}>
-                  <Icons.plus size={14} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
-                  <span style={{ fontSize: 14 }}>{t.title}</span>
+      {showPicker && (() => {
+        // Group unlinked tasks by area for the picker
+        const areaOrder = Array.from(new Set(unlinked.map(t => t.cat)))
+        // Prioritise goal's own area first
+        areaOrder.sort((a, b) => (a === goal.area ? -1 : b === goal.area ? 1 : 0))
+
+        return (
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
+            onClick={e => { if (e.target === e.currentTarget) setShowPicker(false) }}
+          >
+            <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '20px 20px 44px', width: '100%', maxHeight: '70vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div className="t-display" style={{ fontSize: 18 }}>Link a task</div>
+                <button onClick={() => setShowPicker(false)} style={{ color: 'var(--ink-3)' }}>
+                  <Icons.close size={20} />
                 </button>
-              ))}
-              {unlinked.length === 0 && (
+              </div>
+              {unlinked.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-3)', fontSize: 13 }}>
-                  No more open tasks in {goal.area}
+                  No open tasks to link
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                  {areaOrder.map(catId => {
+                    const group = unlinked.filter(t => t.cat === catId)
+                    if (group.length === 0) return null
+                    const cat  = categories.find(c => c.id === catId)
+                    const name = cat?.name ?? (catId === 'inbox' ? 'Inbox' : catId)
+                    const hue2 = cat?.hue
+                    return (
+                      <div key={catId}>
+                        <div style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em',
+                          color: hue2 !== undefined ? `hsl(${hue2},55%,40%)` : 'var(--ink-3)',
+                          marginBottom: 8, textTransform: 'uppercase',
+                        }}>
+                          {name}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {group.map(t => (
+                            <button key={t.id} onClick={() => linkTask(t.id)} style={{
+                              display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+                              background: 'var(--paper-2)', borderRadius: 10, border: '1px solid var(--rule)',
+                              textAlign: 'left',
+                            }}>
+                              <Icons.plus size={14} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
+                              <span style={{ fontSize: 14 }}>{t.title}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

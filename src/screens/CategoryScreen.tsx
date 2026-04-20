@@ -3,14 +3,14 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, completeTask } from '../data/db'
 import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
-import { SectionHeader, ConfettiBurst, Seg } from '../components/ui'
-import { TaskRow } from './DashboardScreen'
+import { ConfettiBurst, Seg } from '../components/ui'
+import { TaskCard } from '../components/TaskCard'
 import type { Screen, Task } from '../types'
 
-interface Props { catId: string; navigate: (s: Screen) => void; back: () => void }
+interface Props { catId: string; navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void }
 interface Burst { id: number; x: number; y: number; xp: number }
 
-export const CategoryScreen = ({ catId, navigate, back }: Props) => {
+export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
   const [filter, setFilter] = useState<'all' | 'open' | 'done'>('open')
   const [bursts, setBursts] = useState<Burst[]>([])
 
@@ -47,7 +47,7 @@ export const CategoryScreen = ({ catId, navigate, back }: Props) => {
           <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
             <Icons.back size={18} /> Back
           </button>
-          <button onClick={() => navigate({ name: 'add' })} style={{
+          <button onClick={() => onAddTask?.()} style={{
             display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-mono)',
             fontSize: 11, color: 'var(--ink-2)', letterSpacing: '0.06em',
           }}>
@@ -100,7 +100,8 @@ export const CategoryScreen = ({ catId, navigate, back }: Props) => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {filtered.map(task => (
-              <TaskRow key={task.id} task={task}
+              <TaskCard key={task.id} task={task}
+                hue={cat.hue}
                 onTap={() => navigate({ name: 'task', taskId: task.id })}
                 onComplete={(e) => handleComplete(e, task)}
               />
