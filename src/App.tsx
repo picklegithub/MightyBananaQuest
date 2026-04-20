@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from './data/db'
+import { supabase } from './lib/supabase'
+import { pullAll, startRealtime, stopRealtime, pushAllLocal } from './lib/sync'
 import { BottomNav } from './components/layout/BottomNav'
 import { DashboardScreen }  from './screens/DashboardScreen'
 import { TaskDetailScreen } from './screens/TaskDetailScreen'
@@ -13,6 +15,7 @@ import { CalendarScreen }   from './screens/CalendarScreen'
 import { InboxScreen }      from './screens/InboxScreen'
 import { AllTasksScreen }   from './screens/AllTasksScreen'
 import { ScheduleScreen }   from './screens/ScheduleScreen'
+import { AuthScreen }       from './screens/AuthScreen'
 import type { Screen, AppSettings } from './types'
 
 // ── Theme application ─────────────────────────────────────────────────────────
@@ -38,9 +41,14 @@ function activeTab(screen: Screen): string {
   return 'dashboard'
 }
 
+// ── Auth state ────────────────────────────────────────────────────────────────
+type AuthState = 'loading' | 'authed' | 'unauthed'
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [screen, setScreen] = useState<Screen>({ name: 'dashboard' })
+  const [screen, setScreen]     = useState<Screen>({ name: 'dashboard' })
+  const [authState, setAuthState] = useState<AuthState>('loading')
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done'>('idle')
   const settings = useLiveQuery(() => db.settings.get(1), [])
 
   // Apply theme whenever settings change
@@ -56,14 +64,71 @@ export default function App() {
     return () => mq.removeEventListener('change', handler)
   }, [settings])
 
+  // ── Auth listener ─────────────────────────────────────────────────────────
+  const handleSignIn = useCallback(async (userId: string) => {
+    setAuthState('authed')
+    setSyncStatus('syncing')
+    try {
+      // First time sign-in: push local data up, then pull remote
+      await pushAllLocal()
+      await pullAll()
+      startRealtime(userId)
+    } catch (e) {
+      console.warn('[sync] pull failed', e)
+    } finally {
+      setSyncStatus('done')
+    }
+  }, [])
+
+  useEffect(() => {
+    // Check for existing session on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        handleSignIn(session.user.id)
+      } else {
+        setAuthState('unauthed')
+      }
+    })
+
+    // Listen for future auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        await handleSignIn(session.user.id)
+      } else if (event === 'SIGNED_OUT') {
+        stopRealtime()
+        setAuthState('unauthed')
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [handleSignIn])
+
   function navigate(s: Screen) {
     setScreen(s)
-    // Scroll to top on screen change
     window.scrollTo(0, 0)
+  }
+
+  // ── Loading splash ────────────────────────────────────────────────────────
+  if (authState === 'loading') {
+    return <SplashScreen onDone={() => {}} />
+  }
+
+  // ── Auth gate ─────────────────────────────────────────────────────────────
+  if (authState === 'unauthed') {
+    return <AuthScreen onAuth={() => {}} />
   }
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Sync indicator */}
+      {syncStatus === 'syncing' && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
+          height: 2, background: 'var(--accent)',
+          animation: 'pulse 1.5s ease-in-out infinite',
+        }} />
+      )}
+
       {/* Screen content */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {screen.name === 'dashboard'  && <DashboardScreen navigate={navigate} />}

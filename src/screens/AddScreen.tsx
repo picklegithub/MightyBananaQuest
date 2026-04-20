@@ -107,8 +107,18 @@ export const AddScreen = ({ navigate }: Props) => {
     navigate({ name: 'dashboard' })
   }
 
-  const RECUR_OPTIONS = [null, 'Daily', 'Every 3d', 'Weekly', 'Monthly', 'Yearly']
-  const DUE_OPTIONS = ['Today', 'Tomorrow', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'This week']
+  const RECUR_OPTIONS = [
+    null, 'Daily', 'Weekdays', 'Weekends', 'Weekly',
+    'Biweekly', 'Monthly', 'Bimonthly', 'Yearly',
+  ]
+
+  // Format a date value for display
+  function formatDue(v: string) {
+    if (!v) return 'Today'
+    try {
+      return new Date(v + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+    } catch { return v }
+  }
 
   return (
     <div className="screen">
@@ -249,19 +259,33 @@ export const AddScreen = ({ navigate }: Props) => {
 
             {/* Due */}
             <div>
-              <div className="eyebrow" style={{ marginBottom: 8 }}>Due</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {DUE_OPTIONS.map(d => (
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Due date</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                {['Today', 'Tomorrow'].map(d => (
                   <button key={d} onClick={() => setDue(d)} style={{
-                    padding: '7px 12px', borderRadius: 8, fontSize: 11, fontFamily: 'var(--font-mono)',
+                    padding: '8px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'var(--font-mono)',
                     background: due === d ? 'var(--ink)' : 'var(--paper-2)',
                     color: due === d ? 'var(--paper)' : 'var(--ink-2)',
                     border: '1px solid', borderColor: due === d ? 'var(--ink)' : 'var(--rule)',
-                  }}>
-                    {d}
-                  </button>
+                  }}>{d}</button>
                 ))}
+                <div style={{ position: 'relative', flex: 1, minWidth: 140 }}>
+                  <input type="date" value={/^\d{4}-\d{2}-\d{2}$/.test(due) ? due : ''}
+                    onChange={e => e.target.value && setDue(e.target.value)}
+                    style={{
+                      width: '100%', padding: '8px 12px', borderRadius: 8, fontSize: 12,
+                      border: `1px solid ${/^\d{4}-\d{2}-\d{2}$/.test(due) ? 'var(--ink)' : 'var(--rule)'}`,
+                      background: /^\d{4}-\d{2}-\d{2}$/.test(due) ? 'var(--ink)' : 'var(--paper-2)',
+                      color: /^\d{4}-\d{2}-\d{2}$/.test(due) ? 'var(--paper)' : 'var(--ink-2)',
+                      colorScheme: 'light',
+                    }} />
+                </div>
               </div>
+              {/^\d{4}-\d{2}-\d{2}$/.test(due) && (
+                <div style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>
+                  {formatDue(due)}
+                </div>
+              )}
             </div>
 
             {/* Priority matrix */}
@@ -272,7 +296,7 @@ export const AddScreen = ({ navigate }: Props) => {
 
             {/* Recurring */}
             <div>
-              <div className="eyebrow" style={{ marginBottom: 8 }}>Recurring</div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Repeat</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {RECUR_OPTIONS.map(r => (
                   <button key={String(r)} onClick={() => setRecurring(r)} style={{

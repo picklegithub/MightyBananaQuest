@@ -1,9 +1,10 @@
 import React from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../data/db'
+import { db, resetAllData } from '../data/db'
 import { EFFORT_ORDER } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { Toggle, Seg } from '../components/ui'
+import { supabase } from '../lib/supabase'
 import type { Screen, AppSettings } from '../types'
 
 interface Props { navigate: (s: Screen) => void }
@@ -125,8 +126,8 @@ export const SettingsScreen = ({ navigate }: Props) => {
           <div style={{ padding: '12px 20px' }}>
             <button
               onClick={async () => {
-                if (confirm('Reset all data? This cannot be undone.')) {
-                  await db.delete()
+                if (confirm('Wipe everything? Tasks, goals, journal and XP will all be reset to the demo data. This cannot be undone.')) {
+                  await resetAllData()
                   window.location.reload()
                 }
               }}
@@ -141,13 +142,33 @@ export const SettingsScreen = ({ navigate }: Props) => {
           </div>
         </Section>
 
+        {/* Account */}
+        <Section title="Account">
+          <div style={{ padding: '12px 20px' }}>
+            <button
+              onClick={async () => {
+                if (confirm('Sign out of MightyBananaQuest?')) {
+                  await supabase.auth.signOut()
+                }
+              }}
+              style={{
+                width: '100%', padding: '13px', borderRadius: 12, fontSize: 13,
+                border: '1px solid var(--rule)', color: 'var(--ink-2)',
+                fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+                background: 'var(--paper-3)',
+              }}>
+              Sign out
+            </button>
+          </div>
+        </Section>
+
         {/* About */}
         <Section title="About">
           <div style={{ padding: '6px 20px 14px' }}>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
               <span className="t-display" style={{ fontSize: 15 }}>MightyBananaQuest</span>
               <br />
-              Your personal life admin companion. All data is stored locally on your device — nothing leaves your browser.
+              Your personal life admin companion. Data is stored on-device and synced securely across your devices.
             </div>
           </div>
         </Section>

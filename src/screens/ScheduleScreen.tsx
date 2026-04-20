@@ -8,8 +8,10 @@ import type { Screen } from '../types'
 
 interface Props { taskId: string; navigate: (s: Screen) => void }
 
-const DUE_OPTIONS = ['Today', 'Tomorrow', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'This week', 'Apr 28', 'Apr 30']
-const RECUR_OPTIONS = [null, 'Daily', 'Every 3d', 'Weekly', 'Monthly', 'Yearly']
+const RECUR_OPTIONS = [
+  null, 'Daily', 'Weekdays', 'Weekends', 'Weekly',
+  'Biweekly', 'Monthly', 'Bimonthly', 'Yearly',
+]
 
 export const ScheduleScreen = ({ taskId, navigate }: Props) => {
   const task = useLiveQuery(() => db.tasks.get(taskId), [taskId])
@@ -51,17 +53,24 @@ export const ScheduleScreen = ({ taskId, navigate }: Props) => {
         {/* Due date */}
         <div style={{ marginBottom: 24 }}>
           <div className="eyebrow" style={{ marginBottom: 10 }}>Due date</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {DUE_OPTIONS.map(d => (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {['Today', 'Tomorrow'].map(d => (
               <button key={d} onClick={() => setDue(d)} style={{
                 padding: '8px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
                 background: due === d ? 'var(--ink)' : 'var(--paper-2)',
                 color: due === d ? 'var(--paper)' : 'var(--ink-2)',
                 border: '1px solid', borderColor: due === d ? 'var(--ink)' : 'var(--rule)',
-              }}>
-                {d}
-              </button>
+              }}>{d}</button>
             ))}
+            <input type="date" value={/^\d{4}-\d{2}-\d{2}$/.test(due) ? due : ''}
+              onChange={e => e.target.value && setDue(e.target.value)}
+              style={{
+                flex: 1, minWidth: 140, padding: '8px 12px', borderRadius: 8, fontSize: 12,
+                border: `1px solid ${/^\d{4}-\d{2}-\d{2}$/.test(due) ? 'var(--ink)' : 'var(--rule)'}`,
+                background: /^\d{4}-\d{2}-\d{2}$/.test(due) ? 'var(--ink)' : 'var(--paper-2)',
+                color: /^\d{4}-\d{2}-\d{2}$/.test(due) ? 'var(--paper)' : 'var(--ink-2)',
+                colorScheme: 'light',
+              }} />
           </div>
         </div>
 

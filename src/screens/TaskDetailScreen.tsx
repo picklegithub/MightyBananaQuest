@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, toggleSubTask } from '../data/db'
+import { db, completeTask, toggleSubTask, deleteTask } from '../data/db'
 import { EFFORT, QUAD } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { EffortPip, Chip, ConfettiBurst } from '../components/ui'
@@ -93,6 +93,14 @@ export const TaskDetailScreen = ({ taskId, navigate }: Props) => {
           <Icons.back size={18} /> Back
         </button>
         <div style={{ display: 'flex', gap: 12 }}>
+          <button onClick={async () => {
+            if (confirm('Delete this task?')) {
+              await deleteTask(task.id)
+              navigate({ name: 'dashboard' })
+            }
+          }} style={{ color: 'var(--warn)' }}>
+            <Icons.close size={18} />
+          </button>
           <button onClick={() => navigate({ name: 'schedule', taskId: task.id })} style={{ color: 'var(--ink-2)' }}>
             <Icons.calendar size={18} />
           </button>
