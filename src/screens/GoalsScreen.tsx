@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addGoal, updateGoal, deleteGoal, completeTask } from '../data/db'
 import { Icons } from '../components/ui/Icons'
+import { Seg } from '../components/ui'
 import type { Screen, Goal, Task } from '../types'
 
 interface Props { navigate: (s: Screen) => void }
@@ -12,6 +13,15 @@ function getHue(area: string, cats: { id: string; hue: number }[]) {
   return cats.find(c => c.id === area)?.hue
     ?? Math.abs(area.split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % 360
 }
+
+// ── ISO date string for N days ago ────────────────────────────────────────────
+function isoDateOffset(daysAgo: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - daysAgo)
+  return d.toISOString().slice(0, 10)
+}
+
+const TODAY_ISO = new Date().toISOString().slice(0, 10)
 
 // ── Progress ring ─────────────────────────────────────────────────────────────
 function ProgressRing({ progress, hue }: { progress: number; hue: number }) {
@@ -38,121 +48,142 @@ export const GoalsScreen = ({ navigate }: Props) => {
   const goals      = useLiveQuery(() => db.goals.toArray(), [])
   const categories = useLiveQuery(() => db.categories.toArray(), [])
   const allTasks   = useLiveQuery(() => db.tasks.toArray(), [])
+  const [tab,        setTab]        = useState<'goals' | 'habits'>('goals')
   const [showAdd,    setShowAdd]    = useState(false)
   const [detailGoal, setDetailGoal] = useState<Goal | null>(null)
 
-  if (!goals) return null
+  if (!goals || !allTasks) return null
 
   const cats = categories ?? []
+  const habits = allTasks.filter(t => t.recurring)
 
   return (
     <div className="screen">
       {/* Header */}
-      <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
+      <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div className="eyebrow" style={{ marginBottom: 4 }}>Long game</div>
             <h1 className="t-display" style={{ fontSize: 28 }}>Goals</h1>
           </div>
-          <button onClick={() => setShowAdd(true)} style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
-            border: '1px solid var(--rule)', borderRadius: 20,
-            fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-2)', letterSpacing: '0.04em',
-          }}>
-            <Icons.plus size={14} /> Add goal
-          </button>
+          {tab === 'goals' && (
+            <button onClick={() => setShowAdd(true)} style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+              border: '1px solid var(--rule)', borderRadius: 20,
+              fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-2)', letterSpacing: '0.04em',
+            }}>
+              <Icons.plus size={14} /> Add goal
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Tab bar */}
+      <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
+        <Seg value={tab} setValue={v => setTab(v as typeof tab)} options={[
+          { v: 'goals',  l: '🎯 Goals' },
+          { v: 'habits', l: '🔥 Habits' },
+        ]} />
+      </div>
+
       <div className="screen-scroll" style={{ padding: '16px 20px 40px' }}>
-        {goals.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-            <Icons.target size={40} style={{ color: 'var(--ink-4)', margin: '0 auto 16px', display: 'block' }} />
-            <div className="t-display" style={{ fontSize: 20, marginBottom: 8 }}>No goals yet</div>
-            <div style={{ color: 'var(--ink-3)', fontSize: 13, marginBottom: 20 }}>Set your first goal to start tracking progress.</div>
-            <button onClick={() => setShowAdd(true)} style={{
-              padding: '12px 24px', borderRadius: 12, background: 'var(--ink)', color: 'var(--paper)',
-              fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8,
-            }}>
-              <Icons.plus size={16} /> Set a goal
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {goals.map(goal => {
-              const hue         = getHue(goal.area, cats)
-              const linked      = allTasks?.filter(t => goal.linked.includes(t.id)) ?? []
-              const autoProgress = linked.length > 0
-                ? linked.filter(t => t.done).length / linked.length
-                : goal.progress
-              return (
-                <div key={goal.id} style={{
-                  background: 'var(--paper-2)', border: '1px solid var(--rule)',
-                  borderRadius: 16, padding: '16px', cursor: 'pointer',
-                }} onClick={() => setDetailGoal(goal)}>
-                  <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                    <ProgressRing progress={autoProgress} hue={hue} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{
-                            padding: '3px 8px', borderRadius: 20, fontSize: 10,
-                            fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
-                            background: `hsl(${hue},40%,92%)`, color: `hsl(${hue},55%,38%)`,
-                          }}>{goal.area.toUpperCase()}</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>{goal.horizon}</span>
+        {/* ── Goals tab ── */}
+        {tab === 'goals' && (
+          <>
+            {goals.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+                <Icons.target size={40} style={{ color: 'var(--ink-4)', margin: '0 auto 16px', display: 'block' }} />
+                <div className="t-display" style={{ fontSize: 20, marginBottom: 8 }}>No goals yet</div>
+                <div style={{ color: 'var(--ink-3)', fontSize: 13, marginBottom: 20 }}>Set your first goal to start tracking progress.</div>
+                <button onClick={() => setShowAdd(true)} style={{
+                  padding: '12px 24px', borderRadius: 12, background: 'var(--ink)', color: 'var(--paper)',
+                  fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8,
+                }}>
+                  <Icons.plus size={16} /> Set a goal
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {goals.map(goal => {
+                  const hue         = getHue(goal.area, cats)
+                  const linked      = allTasks.filter(t => goal.linked.includes(t.id))
+                  const autoProgress = linked.length > 0
+                    ? linked.filter(t => t.done).length / linked.length
+                    : goal.progress
+                  return (
+                    <div key={goal.id} style={{
+                      background: 'var(--paper-2)', border: '1px solid var(--rule)',
+                      borderRadius: 16, padding: '16px', cursor: 'pointer',
+                    }} onClick={() => setDetailGoal(goal)}>
+                      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                        <ProgressRing progress={autoProgress} hue={hue} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{
+                                padding: '3px 8px', borderRadius: 20, fontSize: 10,
+                                fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
+                                background: `hsl(${hue},40%,92%)`, color: `hsl(${hue},55%,38%)`,
+                              }}>{goal.area.toUpperCase()}</span>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>{goal.horizon}</span>
+                            </div>
+                            <button onClick={e => { e.stopPropagation(); if (confirm('Delete this goal?')) deleteGoal(goal.id) }}
+                              style={{ color: 'var(--ink-4)', padding: 4 }}>
+                              <Icons.close size={14} />
+                            </button>
+                          </div>
+                          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6, lineHeight: 1.3 }}>{goal.title}</div>
+                          {goal.why && (
+                            <div style={{ fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic', marginBottom: 10 }}>"{goal.why}"</div>
+                          )}
+                          <div style={{ height: 4, borderRadius: 2, background: 'var(--paper-3)', overflow: 'hidden' }}>
+                            <div style={{
+                              height: '100%', borderRadius: 2,
+                              background: `hsl(${hue},55%,42%)`,
+                              width: `${autoProgress * 100}%`,
+                              transition: 'width .5s ease',
+                            }} />
+                          </div>
+                          {linked.length > 0 && (
+                            <div style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
+                              {linked.filter(t => t.done).length}/{linked.length} TASKS DONE
+                            </div>
+                          )}
                         </div>
-                        <button onClick={e => { e.stopPropagation(); if (confirm('Delete this goal?')) deleteGoal(goal.id) }}
-                          style={{ color: 'var(--ink-4)', padding: 4 }}>
-                          <Icons.close size={14} />
-                        </button>
                       </div>
-                      <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6, lineHeight: 1.3 }}>{goal.title}</div>
-                      {goal.why && (
-                        <div style={{ fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic', marginBottom: 10 }}>"{goal.why}"</div>
-                      )}
-                      {/* Progress bar */}
-                      <div style={{ height: 4, borderRadius: 2, background: 'var(--paper-3)', overflow: 'hidden' }}>
-                        <div style={{
-                          height: '100%', borderRadius: 2,
-                          background: `hsl(${hue},55%,42%)`,
-                          width: `${autoProgress * 100}%`,
-                          transition: 'width .5s ease',
-                        }} />
-                      </div>
-                      {linked.length > 0 && (
-                        <div style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
-                          {linked.filter(t => t.done).length}/{linked.length} TASKS DONE
-                        </div>
-                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Summary stats */}
+            {goals.length > 0 && (
+              <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
+                {[
+                  { label: 'Active',       val: goals.length },
+                  { label: 'Avg progress', val: `${Math.round(goals.reduce((a, g) => a + g.progress, 0) / goals.length * 100)}%` },
+                  { label: 'On track',     val: goals.filter(g => g.progress >= 0.5).length },
+                ].map(s => (
+                  <div key={s.label} style={{
+                    flex: 1, padding: '14px 10px',
+                    background: 'var(--paper-2)', border: '1px solid var(--rule)',
+                    borderRadius: 12, textAlign: 'center',
+                  }}>
+                    <div className="t-display" style={{ fontSize: 22 }}>{s.val}</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', marginTop: 4, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                      {s.label}
                     </div>
                   </div>
-                </div>
-              )
-            })}
-          </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
-        {/* Summary stats */}
-        {goals.length > 0 && (
-          <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
-            {[
-              { label: 'Active',       val: goals.length },
-              { label: 'Avg progress', val: `${Math.round(goals.reduce((a, g) => a + g.progress, 0) / goals.length * 100)}%` },
-              { label: 'On track',     val: goals.filter(g => g.progress >= 0.5).length },
-            ].map(s => (
-              <div key={s.label} style={{
-                flex: 1, padding: '14px 10px',
-                background: 'var(--paper-2)', border: '1px solid var(--rule)',
-                borderRadius: 12, textAlign: 'center',
-              }}>
-                <div className="t-display" style={{ fontSize: 22 }}>{s.val}</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', marginTop: 4, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  {s.label}
-                </div>
-              </div>
-            ))}
-          </div>
+        {/* ── Habits tab ── */}
+        {tab === 'habits' && (
+          <HabitsTab habits={habits} cats={cats} navigate={navigate} />
         )}
       </div>
 
@@ -160,12 +191,174 @@ export const GoalsScreen = ({ navigate }: Props) => {
       {detailGoal && (
         <GoalDetail
           goal={detailGoal}
-          allTasks={allTasks ?? []}
+          allTasks={allTasks}
           categories={cats}
           onClose={() => setDetailGoal(null)}
           navigate={navigate}
         />
       )}
+    </div>
+  )
+}
+
+// ── Habits tab ────────────────────────────────────────────────────────────────
+function HabitsTab({ habits, cats, navigate }: { habits: Task[]; cats: { id: string; name: string; hue: number }[]; navigate: (s: Screen) => void }) {
+  const logs = useLiveQuery(() => db.habitLog.toArray(), [])
+
+  if (!logs) return null
+
+  if (habits.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>🔁</div>
+        <div className="t-display" style={{ fontSize: 20, marginBottom: 8 }}>No habits yet</div>
+        <div style={{ color: 'var(--ink-3)', fontSize: 13, marginBottom: 20 }}>
+          Tasks with a recurring schedule appear here as habits.
+        </div>
+        <button onClick={() => navigate({ name: 'add' })} style={{
+          padding: '12px 24px', borderRadius: 12, background: 'var(--ink)', color: 'var(--paper)',
+          fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8,
+        }}>
+          <Icons.plus size={16} /> Add a recurring task
+        </button>
+      </div>
+    )
+  }
+
+  // Build set of logged dates per task for fast lookup
+  const logSet = new Set(logs.map(l => l.id)) // `${taskId}:${date}`
+
+  // Build the 16-week date grid (112 days, oldest first)
+  const DAYS = 112
+  const grid: string[] = []
+  for (let i = DAYS - 1; i >= 0; i--) grid.push(isoDateOffset(i))
+
+  // Group by week for display (16 weeks × 7 days)
+  const weeks: string[][] = []
+  for (let w = 0; w < 16; w++) weeks.push(grid.slice(w * 7, w * 7 + 7))
+
+  const dayLabels = ['S','M','T','W','T','F','S']
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {habits.map(task => {
+        const hue = cats.find(c => c.id === task.cat)?.hue ?? 200
+        const completedToday = task.done && logSet.has(`${task.id}:${TODAY_ISO}`)
+        const streak = task.streak
+
+        async function handleDone() {
+          if (task.done) return
+          await completeTask(task.id)
+        }
+
+        return (
+          <div key={task.id} style={{
+            background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 16, padding: '16px',
+          }}>
+            {/* Habit header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <button
+                  onClick={() => navigate({ name: 'task', taskId: task.id })}
+                  style={{ textAlign: 'left', display: 'block', width: '100%' }}
+                >
+                  <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 3, textDecoration: task.done ? 'line-through' : 'none', color: task.done ? 'var(--ink-3)' : 'var(--ink)' }}>
+                    {task.title}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: 20, fontSize: 9,
+                      fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
+                      background: `hsl(${hue},40%,92%)`, color: `hsl(${hue},55%,38%)`,
+                    }}>{task.cat.toUpperCase()}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.04em' }}>
+                      {task.recurring}
+                    </span>
+                  </div>
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingLeft: 10 }}>
+                {/* Streak */}
+                {streak > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Icons.flame size={16} style={{ color: 'var(--warn)' }} />
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 700, color: 'var(--warn)' }}>
+                      {streak}
+                    </span>
+                  </div>
+                )}
+
+                {/* Complete today button */}
+                <button
+                  onClick={handleDone}
+                  disabled={task.done}
+                  style={{
+                    width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                    border: `2px solid ${task.done ? `hsl(${hue},55%,42%)` : 'var(--rule)'}`,
+                    background: task.done ? `hsl(${hue},55%,42%)` : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: task.done ? 'white' : 'var(--ink-3)',
+                    transition: 'all .2s',
+                  }}
+                >
+                  <Icons.check size={16} sw={2.5} />
+                </button>
+              </div>
+            </div>
+
+            {/* Heatmap */}
+            <div style={{ overflowX: 'auto' }}>
+              <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end' }}>
+                {/* Day-of-week labels */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginRight: 2 }}>
+                  {dayLabels.map((d, i) => (
+                    <div key={i} style={{
+                      width: 10, height: 10,
+                      fontFamily: 'var(--font-mono)', fontSize: 7,
+                      color: 'var(--ink-4)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {i % 2 === 0 ? d : ''}
+                    </div>
+                  ))}
+                </div>
+                {/* Week columns */}
+                {weeks.map((week, wi) => (
+                  <div key={wi} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {week.map((date, di) => {
+                      const logged = logSet.has(`${task.id}:${date}`)
+                      const isToday = date === TODAY_ISO
+                      return (
+                        <div
+                          key={di}
+                          title={date}
+                          style={{
+                            width: 10, height: 10, borderRadius: 2,
+                            background: logged
+                              ? `hsl(${hue},55%,42%)`
+                              : isToday
+                                ? 'var(--rule)'
+                                : 'var(--paper-3)',
+                            opacity: isToday && !logged ? 0.5 : 1,
+                            outline: isToday ? `1.5px solid hsl(${hue},55%,60%)` : 'none',
+                            outlineOffset: 1,
+                          }}
+                        />
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Streak summary */}
+            <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
+              <span>{streak > 0 ? `${streak}-DAY STREAK` : 'NO STREAK YET'}</span>
+              <span>{logs.filter(l => l.taskId === task.id).length} TOTAL COMPLETIONS</span>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -198,6 +391,7 @@ function AddGoalModal({ categories, onClose }: { categories: { id: string; name:
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <Field label="Goal">
             <input autoFocus value={title} onChange={e => setTitle(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
               placeholder="Run a 10km under 50 minutes…"
               style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--rule)', background: 'var(--paper-2)', fontSize: 15, color: 'var(--ink)' }} />
           </Field>
@@ -453,7 +647,6 @@ function GoalDetail({
                       display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px',
                       background: 'var(--paper-2)', borderRadius: 10, border: '1px solid var(--rule)',
                     }}>
-                      {/* Tap circle to complete task */}
                       <button
                         onClick={() => !t.done && completeTask(t.id)}
                         style={{
@@ -468,12 +661,10 @@ function GoalDetail({
                       <span style={{ flex: 1, fontSize: 13, textDecoration: t.done ? 'line-through' : 'none', color: t.done ? 'var(--ink-3)' : 'var(--ink)' }}>
                         {t.title}
                       </span>
-                      {/* Navigate to task */}
                       <button onClick={() => { onClose(); navigate({ name: 'task', taskId: t.id }) }}
                         style={{ color: 'var(--ink-4)', padding: '0 2px' }}>
                         <Icons.arrow size={14} />
                       </button>
-                      {/* Unlink */}
                       <button onClick={() => unlinkTask(t.id)} style={{ color: 'var(--ink-4)' }}>
                         <Icons.close size={13} />
                       </button>

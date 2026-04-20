@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../data/db'
+import { db, saveJournalEntry } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { Seg } from '../components/ui'
 import type { Screen, JournalEntry } from '../types'
@@ -16,6 +16,16 @@ export const JournalScreen = ({ navigate, phase: initPhase }: Props) => {
   const today = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
   const todayMorning = entries.find(e => e.date === today && e.kind === 'morning')
   const todayEvening = entries.find(e => e.date === today && e.kind === 'evening')
+
+  async function handleSaveMorning(entry: Partial<JournalEntry>) {
+    const id = todayMorning?.id ?? `j${Date.now()}`
+    await saveJournalEntry({ id, date: today, kind: 'morning', ...todayMorning, ...entry })
+  }
+
+  async function handleSaveEvening(entry: Partial<JournalEntry>) {
+    const id = todayEvening?.id ?? `j${Date.now()}`
+    await saveJournalEntry({ id, date: today, kind: 'evening', ...todayEvening, ...entry })
+  }
 
   return (
     <div className="screen">
@@ -36,28 +46,10 @@ export const JournalScreen = ({ navigate, phase: initPhase }: Props) => {
 
       <div className="screen-scroll" style={{ padding: '16px 20px 40px' }}>
         {tab === 'morning' && (
-          <MorningForm
-            existing={todayMorning}
-            onSave={async (entry) => {
-              if (todayMorning) {
-                await db.journal.update(todayMorning.id, entry)
-              } else {
-                await db.journal.add({ id: `j${Date.now()}`, date: today, kind: 'morning', ...entry })
-              }
-            }}
-          />
+          <MorningForm existing={todayMorning} onSave={handleSaveMorning} />
         )}
         {tab === 'evening' && (
-          <EveningForm
-            existing={todayEvening}
-            onSave={async (entry) => {
-              if (todayEvening) {
-                await db.journal.update(todayEvening.id, entry)
-              } else {
-                await db.journal.add({ id: `j${Date.now()}`, date: today, kind: 'evening', ...entry })
-              }
-            }}
-          />
+          <EveningForm existing={todayEvening} onSave={handleSaveEvening} />
         )}
         {tab === 'history' && (
           <HistoryView entries={entries} />
@@ -68,14 +60,21 @@ export const JournalScreen = ({ navigate, phase: initPhase }: Props) => {
 }
 
 // ── Morning form ─────────────────────────────────────────────────────────────
-function MorningForm({ existing, onSave }: { existing?: JournalEntry; onSave: (e: Partial<JournalEntry>) => void }) {
-  const [gratitude, setGratitude] = useState(existing?.gratitude?.join('\n') ?? '')
-  const [intention, setIntention] = useState(existing?.intention ?? '')
+function MorningForm({ existing, onSave }: { existing?: JournalEntry; onSave: (e: Partial<JournalEntry>) => Promise<void> }) {
+  const [gratitude,  setGratitude]  = useState(existing?.gratitude?.join('\n') ?? '')
+  const [intention,  setIntention]  = useState(existing?.intention ?? '')
   const [priorities, setPriorities] = useState(existing?.priorities?.join('\n') ?? '')
   const [saved, setSaved] = useState(false)
 
-  function handleSave() {
-    onSave({
+  // Re-hydrate form when existing entry loads or changes from outside
+  useEffect(() => {
+    setGratitude(existing?.gratitude?.join('\n') ?? '')
+    setIntention(existing?.intention ?? '')
+    setPriorities(existing?.priorities?.join('\n') ?? '')
+  }, [existing?.id])
+
+  async function handleSave() {
+    await onSave({
       gratitude: gratitude.split('\n').map(s => s.trim()).filter(Boolean),
       intention,
       priorities: priorities.split('\n').map(s => s.trim()).filter(Boolean),
@@ -111,15 +110,23 @@ function MorningForm({ existing, onSave }: { existing?: JournalEntry; onSave: (e
 }
 
 // ── Evening form ─────────────────────────────────────────────────────────────
-function EveningForm({ existing, onSave }: { existing?: JournalEntry; onSave: (e: Partial<JournalEntry>) => void }) {
-  const [win, setWin] = useState(existing?.win ?? '')
-  const [diff, setDiff] = useState(existing?.diff ?? '')
-  const [lesson, setLesson] = useState(existing?.lesson ?? '')
+function EveningForm({ existing, onSave }: { existing?: JournalEntry; onSave: (e: Partial<JournalEntry>) => Promise<void> }) {
+  const [win,      setWin]      = useState(existing?.win ?? '')
+  const [diff,     setDiff]     = useState(existing?.diff ?? '')
+  const [lesson,   setLesson]   = useState(existing?.lesson ?? '')
   const [tomorrow, setTomorrow] = useState(existing?.tomorrow ?? '')
   const [saved, setSaved] = useState(false)
 
-  function handleSave() {
-    onSave({ win, diff, lesson, tomorrow })
+  // Re-hydrate form when existing entry loads or changes from outside
+  useEffect(() => {
+    setWin(existing?.win ?? '')
+    setDiff(existing?.diff ?? '')
+    setLesson(existing?.lesson ?? '')
+    setTomorrow(existing?.tomorrow ?? '')
+  }, [existing?.id])
+
+  async function handleSave() {
+    await onSave({ win, diff, lesson, tomorrow })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -159,7 +166,7 @@ function HistoryView({ entries }: { entries: JournalEntry[] }) {
     </div>
   )
 
-  // Group by date
+  // Group by date, most recent first
   const byDate: Record<string, JournalEntry[]> = {}
   entries.forEach(e => {
     if (!byDate[e.date]) byDate[e.date] = []

@@ -11,6 +11,13 @@ import {
   pushSettings,
 } from '../lib/sync'
 
+// ── Habit log entry ──────────────────────────────────────────────────────────
+export interface HabitLog {
+  id: string      // `${taskId}:${dateStr}`
+  taskId: string
+  date: string    // 'YYYY-MM-DD'
+}
+
 export class LifeAdminDB extends Dexie {
   tasks!:      Table<Task>
   categories!: Table<Category>
@@ -18,6 +25,7 @@ export class LifeAdminDB extends Dexie {
   journal!:    Table<JournalEntry>
   inbox!:      Table<InboxItem>
   settings!:   Table<AppSettings>
+  habitLog!:   Table<HabitLog>
 
   constructor() {
     super('LifeAdminDB')
@@ -28,6 +36,16 @@ export class LifeAdminDB extends Dexie {
       journal:    'id, date, kind',
       inbox:      'id, kind, processed',
       settings:   'id',
+    })
+    // Version 2 adds habit completion log for heatmap
+    this.version(2).stores({
+      tasks:      'id, cat, due, done, effort, quad, createdAt',
+      categories: 'id',
+      goals:      'id, area',
+      journal:    'id, date, kind',
+      inbox:      'id, kind, processed',
+      settings:   'id',
+      habitLog:   'id, taskId, date',
     })
   }
 }
@@ -49,7 +67,7 @@ db.on('ready', async () => {
   })
 })
 
-// ── Helper: complete a task (award XP + update streak) ──────────────────────
+// ── Helper: complete a task (award XP + update streak + log habit) ──────────
 export async function completeTask(taskId: string): Promise<number> {
   const task = await db.tasks.get(taskId)
   if (!task || task.done) return 0
@@ -63,7 +81,18 @@ export async function completeTask(taskId: string): Promise<number> {
     const newSettings = await db.settings.get(1)
     if (newSettings) pushSettings(newSettings)
   }
+  // Log habit completion for recurring tasks
+  if (task.recurring) {
+    const today = new Date().toISOString().slice(0, 10)
+    await logHabitCompletion(taskId, today)
+  }
   return gained
+}
+
+// ── Helper: log a habit completion ───────────────────────────────────────────
+export async function logHabitCompletion(taskId: string, date: string) {
+  const id = `${taskId}:${date}`
+  await db.habitLog.put({ id, taskId, date })
 }
 
 // ── Helper: toggle a subtask ─────────────────────────────────────────────────
@@ -125,6 +154,11 @@ export async function addCategory(cat: Category) {
   pushCategory(cat)
 }
 
+// ── Helper: delete a custom area/category ────────────────────────────────────
+export async function deleteCategory(catId: string) {
+  await db.categories.delete(catId)
+}
+
 // ── Helper: save a journal entry ─────────────────────────────────────────────
 export async function saveJournalEntry(entry: JournalEntry) {
   await db.journal.put(entry)
@@ -139,13 +173,14 @@ export async function saveInboxItem(item: InboxItem) {
 
 // ── Helper: nuclear reset — wipe everything and re-seed ──────────────────────
 export async function resetAllData() {
-  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.goals, db.journal, db.inbox], async () => {
+  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.goals, db.journal, db.inbox, db.habitLog], async () => {
     await db.settings.clear()
     await db.categories.clear()
     await db.tasks.clear()
     await db.goals.clear()
     await db.journal.clear()
     await db.inbox.clear()
+    await db.habitLog.clear()
     await db.settings.add(DEFAULT_SETTINGS)
     await db.categories.bulkAdd(DEFAULT_CATEGORIES)
     await db.tasks.bulkAdd(SEED_TASKS)

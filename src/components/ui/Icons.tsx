@@ -56,12 +56,13 @@ export const Icons: Record<string, (p: IconProps) => JSX.Element> = {
   layers:    (p) => <Icon {...p} d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 18l9 5 9-5" />,
   // Boston Terrier / French Bulldog — round head, upright bat ears, flat snout
   pet: (p) => <Icon {...p} d={<>
-    <circle cx="12" cy="13" r="8" />
-    <path d="M5.5 8L3 2L10 7" />
-    <path d="M18.5 8L21 2L14 7" />
-    <circle cx="9.5" cy="11.5" r="1.5" fill="currentColor" stroke="none" />
-    <circle cx="14.5" cy="11.5" r="1.5" fill="currentColor" stroke="none" />
-    <rect x="9.5" y="14" width="5" height="3" rx="1.5" />
-    <path d="M10.5 17.5Q12 19.5 13.5 17.5" />
+    {/* Central pad */}
+    <ellipse cx="12" cy="15" rx="4" ry="3.5" />
+    {/* Top two toe pads */}
+    <ellipse cx="7.5" cy="11" rx="2" ry="2.5" />
+    <ellipse cx="16.5" cy="11" rx="2" ry="2.5" />
+    {/* Bottom two toe pads */}
+    <ellipse cx="5.5" cy="15.5" rx="1.8" ry="2.2" />
+    <ellipse cx="18.5" cy="15.5" rx="1.8" ry="2.2" />
   </>} />,
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, deleteTask, addCategory } from '../data/db'
+import { db, completeTask, addCategory, deleteCategory } from '../data/db'
 import { EFFORT, DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { EffortPip, SectionHeader, ConfettiBurst, Chip } from '../components/ui'
@@ -8,7 +8,9 @@ import type { Screen, Task, Category } from '../types'
 
 // ── Area icons available for custom areas ─────────────────────────────────────
 const AREA_ICONS = ['home','heart','briefcase','book','dollar','family','leaf','drop','bolt','star','bell','layers','pet']
-const AREA_EMOJI = ['🏠','🐕','🏊','🌱','💪','🧘','⚽','🎮','🎨','🎵','✈️','🍳']
+
+// Built-in category IDs — these cannot be deleted
+const BUILTIN_IDS = new Set(['home','work','health','finance','learning','family'])
 
 // ── Add Area Modal ────────────────────────────────────────────────────────────
 function AddAreaModal({ onClose }: { onClose: () => void }) {
@@ -34,6 +36,7 @@ function AddAreaModal({ onClose }: { onClose: () => void }) {
           <div>
             <div className="eyebrow" style={{ marginBottom: 8 }}>Name</div>
             <input autoFocus value={name} onChange={e => setName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
               placeholder="e.g. Pets, Pool, Mindfulness…"
               style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--rule)', background: 'var(--paper-2)', fontSize: 15, color: 'var(--ink)' }} />
           </div>
@@ -74,6 +77,40 @@ function AddAreaModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+// ── Delete Area confirm sheet ─────────────────────────────────────────────────
+function DeleteAreaSheet({ cat, onConfirm, onCancel }: { cat: Category; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 110, display: 'flex', alignItems: 'flex-end' }}
+      onClick={e => { if (e.target === e.currentTarget) onCancel() }}
+    >
+      <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '24px 20px 44px', width: '100%' }}>
+        <div style={{ marginBottom: 16, textAlign: 'center' }}>
+          <div style={{ fontSize: 36, marginBottom: 8 }}>🗑️</div>
+          <div className="t-display" style={{ fontSize: 20, marginBottom: 8 }}>Delete "{cat.name}"?</div>
+          <div style={{ fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+            Tasks in this area will move to Home. This can't be undone.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button onClick={onCancel} style={{
+            flex: 1, padding: '14px', borderRadius: 12, fontSize: 14, fontWeight: 500,
+            background: 'var(--paper-2)', color: 'var(--ink)', border: '1px solid var(--rule)',
+          }}>
+            Cancel
+          </button>
+          <button onClick={onConfirm} style={{
+            flex: 1, padding: '14px', borderRadius: 12, fontSize: 14, fontWeight: 600,
+            background: 'var(--warn)', color: 'white',
+          }}>
+            Delete area
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface Props {
   navigate: (s: Screen) => void
 }
@@ -85,18 +122,15 @@ const DAY = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturd
 const DATE = today.toLocaleDateString('en-AU', { day: 'numeric', month: 'long' })
 
 export const DashboardScreen = ({ navigate }: Props) => {
-  const [bursts, setBursts] = useState<Burst[]>([])
+  const [bursts, setBursts]           = useState<Burst[]>([])
   const [showAddArea, setShowAddArea] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null)
   const tasks    = useLiveQuery(() => db.tasks.toArray(), [])
   const settings = useLiveQuery(() => db.settings.get(1), [])
   const cats     = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
+  const inboxCount = useLiveQuery(() => db.inbox.where('processed').equals(0).count(), [])
 
   if (!tasks || !settings) return null
-
-  const todayTasks = tasks.filter(t =>
-    t.due === 'Today' || t.due === 'Tomorrow' === false
-  ).filter(t => ['Today', 'Tomorrow', 'Mon','Tue','Wed','Thu','Fri','Sat','Sun'].includes(t.due) || t.due.includes('Today'))
-    .filter(t => t.due === 'Today')
 
   const allTodayTasks = tasks.filter(t => t.due === 'Today')
   const doneTodayCount = allTodayTasks.filter(t => t.done).length
@@ -114,6 +148,14 @@ export const DashboardScreen = ({ navigate }: Props) => {
       setBursts(b => [...b, burst])
       setTimeout(() => setBursts(b => b.filter(x => x.id !== burst.id)), 1400)
     }
+  }
+
+  async function handleDeleteArea(cat: Category) {
+    // Move tasks from deleted area to 'home'
+    const areaTasks = await db.tasks.where('cat').equals(cat.id).toArray()
+    await Promise.all(areaTasks.map(t => db.tasks.update(t.id, { cat: 'home' })))
+    await deleteCategory(cat.id)
+    setDeleteTarget(null)
   }
 
   return (
@@ -135,9 +177,6 @@ export const DashboardScreen = ({ navigate }: Props) => {
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>
               {xp.toLocaleString()} XP
             </div>
-            <button onClick={() => navigate({ name: 'inbox' })} style={{ position: 'relative', color: 'var(--ink-2)' }}>
-              <Icons.inbox size={20} />
-            </button>
             <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
               <Icons.settings size={20} />
             </button>
@@ -159,43 +198,99 @@ export const DashboardScreen = ({ navigate }: Props) => {
       </div>
 
       <div className="screen-scroll" style={{ padding: '0 0 16px' }}>
-        {/* Category grid */}
+        {/* Area grid — Inbox first, then categories */}
         <div style={{ padding: '16px 20px 0' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+
+            {/* ── Inbox card — always first ── */}
+            <button
+              onClick={() => navigate({ name: 'inbox' })}
+              style={{
+                padding: '12px 10px', borderRadius: 12, textAlign: 'left',
+                background: 'var(--paper-2)', border: '1px solid var(--rule)',
+                display: 'flex', flexDirection: 'column', gap: 8, position: 'relative',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ color: `hsl(200, 55%, 42%)` }}>
+                  <Icons.inbox size={16} />
+                </div>
+                {(inboxCount ?? 0) > 0 && (
+                  <span style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 9, color: 'white', letterSpacing: '0.06em',
+                    background: 'var(--warn)', borderRadius: 10, padding: '1px 6px', fontWeight: 600,
+                  }}>
+                    {inboxCount}
+                  </span>
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4 }}>Inbox</div>
+                {(inboxCount ?? 0) > 0 && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.04em' }}>
+                    {inboxCount} uncategorised
+                  </div>
+                )}
+              </div>
+            </button>
+
+            {/* ── Area cards ── */}
             {cats.map((cat: Category) => {
               const catTasks = tasks.filter(t => t.cat === cat.id)
               const catDone  = catTasks.filter(t => t.done).length
               const catTotal = catTasks.length
               const I = Icons[cat.icon] ?? Icons.home
+              const isCustom = !BUILTIN_IDS.has(cat.id)
+
               return (
-                <button key={cat.id}
-                  onClick={() => navigate({ name: 'category', catId: cat.id })}
-                  style={{
-                    padding: '12px 10px', borderRadius: 12, textAlign: 'left',
-                    background: 'var(--paper-2)', border: '1px solid var(--rule)',
-                    display: 'flex', flexDirection: 'column', gap: 8,
-                  }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ color: `hsl(${cat.hue}, 55%, 42%)` }}>
-                      <I size={16} />
-                    </div>
-                    {catTotal > 0 && (
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
-                        {catDone}/{catTotal}
-                      </span>
-                    )}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4 }}>{cat.name}</div>
-                    {catTotal > 0 && (
-                      <div style={{ height: 2, borderRadius: 1, background: 'var(--paper-3)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', borderRadius: 1, background: `hsl(${cat.hue}, 55%, 42%)`, width: `${(catDone/catTotal)*100}%` }} />
+                <div key={cat.id} style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => navigate({ name: 'category', catId: cat.id })}
+                    style={{
+                      width: '100%', padding: '12px 10px', borderRadius: 12, textAlign: 'left',
+                      background: 'var(--paper-2)', border: '1px solid var(--rule)',
+                      display: 'flex', flexDirection: 'column', gap: 8,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ color: `hsl(${cat.hue}, 55%, 42%)` }}>
+                        <I size={16} />
                       </div>
-                    )}
-                  </div>
-                </button>
+                      {catTotal > 0 && (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
+                          {catDone}/{catTotal}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4 }}>{cat.name}</div>
+                      {catTotal > 0 && (
+                        <div style={{ height: 2, borderRadius: 1, background: 'var(--paper-3)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', borderRadius: 1, background: `hsl(${cat.hue}, 55%, 42%)`, width: `${(catDone/catTotal)*100}%` }} />
+                        </div>
+                      )}
+                    </div>
+                  </button>
+
+                  {/* Delete button — custom areas only, top-right corner */}
+                  {isCustom && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setDeleteTarget(cat) }}
+                      style={{
+                        position: 'absolute', top: 4, right: 4,
+                        width: 20, height: 20, borderRadius: '50%',
+                        background: 'var(--paper-3)', border: '1px solid var(--rule)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: 'var(--ink-4)',
+                      }}
+                    >
+                      <Icons.close size={9} />
+                    </button>
+                  )}
+                </div>
               )
             })}
+
             {/* Add Area button */}
             <button onClick={() => setShowAddArea(true)} style={{
               padding: '12px 10px', borderRadius: 12, textAlign: 'left',
@@ -235,6 +330,13 @@ export const DashboardScreen = ({ navigate }: Props) => {
       {/* Confetti bursts */}
       {bursts.map(b => <ConfettiBurst key={b.id} x={b.x} y={b.y} xp={b.xp} />)}
       {showAddArea && <AddAreaModal onClose={() => setShowAddArea(false)} />}
+      {deleteTarget && (
+        <DeleteAreaSheet
+          cat={deleteTarget}
+          onConfirm={() => handleDeleteArea(deleteTarget)}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   )
 }
