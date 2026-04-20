@@ -7,10 +7,10 @@ import { ConfettiBurst, Seg } from '../components/ui'
 import { TaskRow } from './DashboardScreen'
 import type { Screen, Task } from '../types'
 
-interface Props { navigate: (s: Screen) => void }
+interface Props { navigate: (s: Screen) => void; back: () => void }
 interface Burst { id: number; x: number; y: number; xp: number }
 
-export const AllTasksScreen = ({ navigate }: Props) => {
+export const AllTasksScreen = ({ navigate, back }: Props) => {
   const [filter, setFilter]       = useState<'all' | 'open' | 'done'>('open')
   const [catFilter, setCatFilter] = useState<string>('all')
   const [bursts, setBursts]       = useState<Burst[]>([])
@@ -62,7 +62,7 @@ export const AllTasksScreen = ({ navigate }: Props) => {
     <div className="screen">
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <button onClick={() => selectMode ? exitSelectMode() : navigate({ name: 'dashboard' })} style={{ color: 'var(--ink-2)' }}>
+        <button onClick={() => selectMode ? exitSelectMode() : back()} style={{ color: 'var(--ink-2)' }}>
           {selectMode ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>Cancel</span> : <Icons.back size={20} />}
         </button>
         <div style={{ flex: 1 }}>

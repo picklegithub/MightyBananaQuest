@@ -4,6 +4,8 @@ import { db } from './data/db'
 import { supabase } from './lib/supabase'
 import { pullAll, startRealtime, stopRealtime, pushAllLocal } from './lib/sync'
 import { BottomNav } from './components/layout/BottomNav'
+import { QuickCapture } from './components/QuickCapture'
+import { GlobalPomodoro } from './components/GlobalPomodoro'
 import { DashboardScreen }  from './screens/DashboardScreen'
 import { TaskDetailScreen } from './screens/TaskDetailScreen'
 import { AddScreen }        from './screens/AddScreen'
@@ -46,7 +48,8 @@ type AuthState = 'loading' | 'authed' | 'unauthed'
 
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [screen, setScreen]     = useState<Screen>({ name: 'dashboard' })
+  const [screenStack, setScreenStack] = useState<Screen[]>([{ name: 'dashboard' }])
+  const screen = screenStack[screenStack.length - 1]
   const [authState, setAuthState] = useState<AuthState>('loading')
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done'>('idle')
   const settings = useLiveQuery(() => db.settings.get(1), [])
@@ -103,8 +106,21 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [handleSignIn])
 
+  // Push a new screen onto the stack
   function navigate(s: Screen) {
-    setScreen(s)
+    setScreenStack(prev => [...prev, s])
+    window.scrollTo(0, 0)
+  }
+
+  // Pop back one screen (safe — never empties the stack)
+  function back() {
+    setScreenStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev)
+    window.scrollTo(0, 0)
+  }
+
+  // Replace the entire stack (used by bottom nav tabs)
+  function navigateTab(s: Screen) {
+    setScreenStack([s])
     window.scrollTo(0, 0)
   }
 
@@ -132,25 +148,31 @@ export default function App() {
       {/* Screen content */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {screen.name === 'dashboard'  && <DashboardScreen navigate={navigate} />}
-        {screen.name === 'task'       && <TaskDetailScreen taskId={screen.taskId} navigate={navigate} />}
-        {screen.name === 'add'        && <AddScreen navigate={navigate} />}
-        {screen.name === 'category'   && <CategoryScreen catId={screen.catId} navigate={navigate} />}
+        {screen.name === 'task'       && <TaskDetailScreen taskId={screen.taskId} navigate={navigate} back={back} />}
+        {screen.name === 'add'        && <AddScreen navigate={navigate} back={back} />}
+        {screen.name === 'category'   && <CategoryScreen catId={screen.catId} navigate={navigate} back={back} />}
         {screen.name === 'goals'      && <GoalsScreen navigate={navigate} />}
         {screen.name === 'journal'    && <JournalScreen navigate={navigate} phase={screen.phase} />}
-        {screen.name === 'settings'   && <SettingsScreen navigate={navigate} />}
+        {screen.name === 'settings'   && <SettingsScreen navigate={navigate} back={back} />}
         {screen.name === 'calendar'   && <CalendarScreen navigate={navigate} />}
-        {screen.name === 'inbox'      && <InboxScreen navigate={navigate} />}
-        {screen.name === 'all-tasks'  && <AllTasksScreen navigate={navigate} />}
-        {screen.name === 'schedule'   && <ScheduleScreen taskId={screen.taskId} navigate={navigate} />}
-        {screen.name === 'progress'   && <StubScreen title="Progress" navigate={navigate} />}
-        {screen.name === 'review'     && <StubScreen title="Weekly Review" navigate={navigate} />}
-        {screen.name === 'onboarding' && <StubScreen title="Welcome" navigate={navigate} />}
-        {screen.name === 'splash'     && <SplashScreen onDone={() => navigate({ name: 'dashboard' })} />}
+        {screen.name === 'inbox'      && <InboxScreen navigate={navigate} back={back} />}
+        {screen.name === 'all-tasks'  && <AllTasksScreen navigate={navigate} back={back} />}
+        {screen.name === 'schedule'   && <ScheduleScreen taskId={screen.taskId} navigate={navigate} back={back} />}
+        {screen.name === 'progress'   && <StubScreen title="Progress" back={back} />}
+        {screen.name === 'review'     && <StubScreen title="Weekly Review" back={back} />}
+        {screen.name === 'onboarding' && <StubScreen title="Welcome" back={back} />}
+        {screen.name === 'splash'     && <SplashScreen onDone={() => navigateTab({ name: 'dashboard' })} />}
       </div>
+
+      {/* Global floating Pomodoro — always visible, bottom-left */}
+      <GlobalPomodoro workMins={settings?.defaultPomodoroMins ?? 25} />
+
+      {/* Quick capture FAB — hidden on AddScreen to avoid double entry-points */}
+      <QuickCapture navigate={navigate} visible={screen.name !== 'add'} />
 
       {/* Bottom nav — only on main tabs */}
       {showsNav(screen) && (
-        <BottomNav active={activeTab(screen)} navigate={navigate} />
+        <BottomNav active={activeTab(screen)} navigate={navigate} navigateTab={navigateTab} />
       )}
     </div>
   )
@@ -179,11 +201,11 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
 }
 
 // ── Stub screen for unimplemented screens ─────────────────────────────────────
-function StubScreen({ title, navigate }: { title: string; navigate: (s: Screen) => void }) {
+function StubScreen({ title, back }: { title: string; back: () => void }) {
   return (
     <div className="screen">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--rule)' }}>
-        <button onClick={() => navigate({ name: 'dashboard' })} style={{ color: 'var(--ink-2)' }}>
+        <button onClick={back} style={{ color: 'var(--ink-2)' }}>
           ← Back
         </button>
         <span className="t-display" style={{ fontSize: 20 }}>{title}</span>

@@ -4,7 +4,7 @@ import { db } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import type { Screen, InboxItem } from '../types'
 
-interface Props { navigate: (s: Screen) => void }
+interface Props { navigate: (s: Screen) => void; back: () => void }
 
 const KIND_ICON: Record<InboxItem['kind'], string> = {
   capture: 'mic',
@@ -18,7 +18,7 @@ const KIND_COLOR: Record<InboxItem['kind'], string> = {
   email:   'hsl(240,55%,55%)',
 }
 
-export const InboxScreen = ({ navigate }: Props) => {
+export const InboxScreen = ({ navigate, back }: Props) => {
   const items = useLiveQuery(() => db.inbox.toArray(), [])
 
   if (!items) return null
@@ -40,7 +40,7 @@ export const InboxScreen = ({ navigate }: Props) => {
     <div className="screen">
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <button onClick={() => navigate({ name: 'dashboard' })} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center' }}>
+        <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center' }}>
           <Icons.back size={20} />
         </button>
         <div>

@@ -7,7 +7,7 @@ import { EffortPip, SectionHeader, ConfettiBurst, Chip } from '../components/ui'
 import type { Screen, Task, Category } from '../types'
 
 // ── Area icons available for custom areas ─────────────────────────────────────
-const AREA_ICONS = ['home','heart','briefcase','book','dollar','family','leaf','drop','bolt','star','bell','layers']
+const AREA_ICONS = ['home','heart','briefcase','book','dollar','family','leaf','drop','bolt','star','bell','layers','pet']
 const AREA_EMOJI = ['🏠','🐕','🏊','🌱','💪','🧘','⚽','🎮','🎨','🎵','✈️','🍳']
 
 // ── Add Area Modal ────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, completeTask, toggleSubTask, deleteTask } from '../data/db'
+import { pushTask } from '../lib/sync'
 import { EFFORT, QUAD } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { EffortPip, Chip, ConfettiBurst } from '../components/ui'
@@ -9,15 +10,17 @@ import type { Screen } from '../types'
 interface Props {
   taskId: string
   navigate: (s: Screen) => void
+  back: () => void
 }
 
 interface Burst { id: number; x: number; y: number; xp: number }
 
 type TimerState = 'idle' | 'running' | 'paused' | 'done'
 
-export const TaskDetailScreen = ({ taskId, navigate }: Props) => {
+export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
   const task = useLiveQuery(() => db.tasks.get(taskId), [taskId])
   const settings = useLiveQuery(() => db.settings.get(1), [])
+  const categories = useLiveQuery(() => db.categories.toArray(), [])
 
   const defaultMins = settings?.defaultPomodoroMins ?? 25
   const pomMins = task?.pomodoroMins ?? defaultMins
@@ -52,10 +55,15 @@ export const TaskDetailScreen = ({ taskId, navigate }: Props) => {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [timerState])
 
+  // Derive breadcrumb label from the task's category
+  const areaName = task
+    ? (categories?.find(c => c.id === task.cat)?.name ?? task.cat)
+    : null
+
   if (!task) return (
     <div className="screen">
       <div style={{ padding: 20 }}>
-        <button onClick={() => navigate({ name: 'dashboard' })} style={{ color: 'var(--ink-2)' }}>
+        <button onClick={back} style={{ color: 'var(--ink-2)' }}>
           <Icons.back size={20} />
         </button>
       </div>
@@ -89,14 +97,19 @@ export const TaskDetailScreen = ({ taskId, navigate }: Props) => {
     <div className="screen">
       {/* Nav bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <button onClick={() => navigate({ name: 'dashboard' })} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
-          <Icons.back size={18} /> Back
+        <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
+          <Icons.back size={18} />
+          {areaName ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ color: 'var(--ink-3)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>{areaName}</span>
+            </span>
+          ) : 'Back'}
         </button>
         <div style={{ display: 'flex', gap: 12 }}>
           <button onClick={async () => {
             if (confirm('Delete this task?')) {
               await deleteTask(task.id)
-              navigate({ name: 'dashboard' })
+              back()
             }
           }} style={{ color: 'var(--warn)' }}>
             <Icons.close size={18} />
@@ -239,6 +252,9 @@ export const TaskDetailScreen = ({ taskId, navigate }: Props) => {
           </div>
         )}
 
+        {/* Move to area */}
+        <MoveToArea taskId={task.id} currentCat={task.cat} />
+
         {/* Complete button */}
         {!task.done && (
           <button onClick={handleComplete} style={{
@@ -258,6 +274,82 @@ export const TaskDetailScreen = ({ taskId, navigate }: Props) => {
       </div>
 
       {bursts.map(b => <ConfettiBurst key={b.id} x={b.x} y={b.y} xp={b.xp} />)}
+    </div>
+  )
+}
+
+// ── Move to area ──────────────────────────────────────────────────────────────
+function MoveToArea({ taskId, currentCat }: { taskId: string; currentCat: string }) {
+  const [open, setOpen]     = useState(false)
+  const [saving, setSaving] = useState(false)
+  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const currentName = categories?.find(c => c.id === currentCat)?.name ?? currentCat
+
+  async function moveTo(catId: string) {
+    if (catId === currentCat) { setOpen(false); return }
+    setSaving(true)
+    await db.tasks.update(taskId, { cat: catId })
+    const updated = await db.tasks.get(taskId)
+    if (updated) pushTask(updated)
+    setSaving(false)
+    setOpen(false)
+  }
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <button
+        onClick={() => setOpen(true)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 14px', borderRadius: 12, border: '1px solid var(--rule)',
+          background: 'var(--paper-2)', color: 'var(--ink)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icons.layers size={15} style={{ color: 'var(--ink-3)' }} />
+          <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>Area</span>
+          <span style={{ fontSize: 13, fontWeight: 500 }}>{currentName}</span>
+        </div>
+        {saving ? (
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>saving…</span>
+        ) : (
+          <Icons.arrow size={14} style={{ color: 'var(--ink-3)' }} />
+        )}
+      </button>
+
+      {open && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
+          onClick={e => { if (e.target === e.currentTarget) setOpen(false) }}
+        >
+          <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '20px 20px 44px', width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="t-display" style={{ fontSize: 18 }}>Move to area</div>
+              <button onClick={() => setOpen(false)} style={{ color: 'var(--ink-3)' }}>
+                <Icons.close size={20} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(categories ?? []).map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => moveTo(c.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '13px 16px', borderRadius: 10, textAlign: 'left', fontSize: 14,
+                    background: c.id === currentCat ? `hsl(${c.hue},40%,92%)` : 'var(--paper-2)',
+                    color:      c.id === currentCat ? `hsl(${c.hue},55%,35%)` : 'var(--ink)',
+                    border: '1px solid', borderColor: c.id === currentCat ? `hsl(${c.hue},40%,80%)` : 'var(--rule)',
+                  }}
+                >
+                  <span>{c.name}</span>
+                  {c.id === currentCat && <Icons.check size={16} sw={2.5} />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -7,10 +7,10 @@ import { SectionHeader, ConfettiBurst, Seg } from '../components/ui'
 import { TaskRow } from './DashboardScreen'
 import type { Screen, Task } from '../types'
 
-interface Props { catId: string; navigate: (s: Screen) => void }
+interface Props { catId: string; navigate: (s: Screen) => void; back: () => void }
 interface Burst { id: number; x: number; y: number; xp: number }
 
-export const CategoryScreen = ({ catId, navigate }: Props) => {
+export const CategoryScreen = ({ catId, navigate, back }: Props) => {
   const [filter, setFilter] = useState<'all' | 'open' | 'done'>('open')
   const [bursts, setBursts] = useState<Burst[]>([])
 
@@ -44,7 +44,7 @@ export const CategoryScreen = ({ catId, navigate }: Props) => {
       {/* Header */}
       <div style={{ padding: '16px 20px 14px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <button onClick={() => navigate({ name: 'dashboard' })} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
+          <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
             <Icons.back size={18} /> Back
           </button>
           <button onClick={() => navigate({ name: 'add' })} style={{

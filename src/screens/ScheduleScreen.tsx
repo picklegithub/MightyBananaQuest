@@ -4,23 +4,24 @@ import { db } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { EFFORT } from '../constants'
 import { EffortPip } from '../components/ui'
+import { DueDatePicker } from '../components/ui/DueDatePicker'
+import { RecurringPicker } from '../components/ui/RecurringPicker'
 import type { Screen } from '../types'
 
-interface Props { taskId: string; navigate: (s: Screen) => void }
+interface Props {
+  taskId: string
+  navigate: (s: Screen) => void
+  back: () => void
+}
 
-const RECUR_OPTIONS = [
-  null, 'Daily', 'Weekdays', 'Weekends', 'Weekly',
-  'Biweekly', 'Monthly', 'Bimonthly', 'Yearly',
-]
-
-export const ScheduleScreen = ({ taskId, navigate }: Props) => {
-  const task = useLiveQuery(() => db.tasks.get(taskId), [taskId])
+export const ScheduleScreen = ({ taskId, navigate, back }: Props) => {
+  const task     = useLiveQuery(() => db.tasks.get(taskId), [taskId])
   const settings = useLiveQuery(() => db.settings.get(1), [])
 
-  const [due, setDue] = useState(task?.due ?? 'Today')
+  const [due,       setDue]       = useState(task?.due ?? 'Today')
   const [recurring, setRecurring] = useState<string | null>(task?.recurring ?? null)
-  const [pomMins, setPomMins] = useState(task?.pomodoroMins ?? settings?.defaultPomodoroMins ?? 25)
-  const [saved, setSaved] = useState(false)
+  const [pomMins,   setPomMins]   = useState(task?.pomodoroMins ?? settings?.defaultPomodoroMins ?? 25)
+  const [saved,     setSaved]     = useState(false)
 
   if (!task) return null
 
@@ -29,14 +30,14 @@ export const ScheduleScreen = ({ taskId, navigate }: Props) => {
   async function handleSave() {
     await db.tasks.update(taskId, { due, recurring, pomodoroMins: pomMins })
     setSaved(true)
-    setTimeout(() => navigate({ name: 'task', taskId }), 1000)
+    setTimeout(back, 900)
   }
 
   return (
     <div className="screen">
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <button onClick={() => navigate({ name: 'task', taskId })} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
+        <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
           <Icons.back size={18} /> Back
         </button>
         <div className="t-display" style={{ fontSize: 18 }}>Schedule</div>
@@ -50,45 +51,16 @@ export const ScheduleScreen = ({ taskId, navigate }: Props) => {
           <EffortPip effort={task.effort} mono />
         </div>
 
-        {/* Due date */}
+        {/* Due date — smart presets */}
         <div style={{ marginBottom: 24 }}>
           <div className="eyebrow" style={{ marginBottom: 10 }}>Due date</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            {['Today', 'Tomorrow'].map(d => (
-              <button key={d} onClick={() => setDue(d)} style={{
-                padding: '8px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
-                background: due === d ? 'var(--ink)' : 'var(--paper-2)',
-                color: due === d ? 'var(--paper)' : 'var(--ink-2)',
-                border: '1px solid', borderColor: due === d ? 'var(--ink)' : 'var(--rule)',
-              }}>{d}</button>
-            ))}
-            <input type="date" value={/^\d{4}-\d{2}-\d{2}$/.test(due) ? due : ''}
-              onChange={e => e.target.value && setDue(e.target.value)}
-              style={{
-                flex: 1, minWidth: 140, padding: '8px 12px', borderRadius: 8, fontSize: 12,
-                border: `1px solid ${/^\d{4}-\d{2}-\d{2}$/.test(due) ? 'var(--ink)' : 'var(--rule)'}`,
-                background: /^\d{4}-\d{2}-\d{2}$/.test(due) ? 'var(--ink)' : 'var(--paper-2)',
-                color: /^\d{4}-\d{2}-\d{2}$/.test(due) ? 'var(--paper)' : 'var(--ink-2)',
-                colorScheme: 'light',
-              }} />
-          </div>
+          <DueDatePicker value={due} onChange={setDue} />
         </div>
 
-        {/* Recurring */}
+        {/* Recurring — calendar-first picker */}
         <div style={{ marginBottom: 24 }}>
           <div className="eyebrow" style={{ marginBottom: 10 }}>Repeat</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {RECUR_OPTIONS.map(r => (
-              <button key={String(r)} onClick={() => setRecurring(r)} style={{
-                padding: '8px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
-                background: recurring === r ? 'var(--ink)' : 'var(--paper-2)',
-                color: recurring === r ? 'var(--paper)' : 'var(--ink-2)',
-                border: '1px solid', borderColor: recurring === r ? 'var(--ink)' : 'var(--rule)',
-              }}>
-                {r ?? 'One-off'}
-              </button>
-            ))}
-          </div>
+          <RecurringPicker value={recurring} onChange={setRecurring} />
         </div>
 
         {/* Pomodoro override */}
@@ -118,9 +90,10 @@ export const ScheduleScreen = ({ taskId, navigate }: Props) => {
             <div style={{ marginTop: 12, display: 'flex', gap: 6 }}>
               {[15, 20, 25, 30, 45, 60].map(m => (
                 <button key={m} onClick={() => setPomMins(m)} style={{
-                  flex: 1, padding: '6px 4px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 10,
+                  flex: 1, padding: '6px 4px', borderRadius: 6,
+                  fontFamily: 'var(--font-mono)', fontSize: 10,
                   background: pomMins === m ? 'var(--ink)' : 'var(--paper-3)',
-                  color: pomMins === m ? 'var(--paper)' : 'var(--ink-3)',
+                  color:      pomMins === m ? 'var(--paper)' : 'var(--ink-3)',
                   border: '1px solid', borderColor: pomMins === m ? 'var(--ink)' : 'transparent',
                 }}>
                   {m}m

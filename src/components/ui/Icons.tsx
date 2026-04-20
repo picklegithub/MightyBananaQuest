@@ -54,4 +54,14 @@ export const Icons: Record<string, (p: IconProps) => JSX.Element> = {
   bell:      (p) => <Icon {...p} d="M6 16V11a6 6 0 1112 0v5l1.5 2h-15L6 16zM10 21a2 2 0 004 0" />,
   download:  (p) => <Icon {...p} d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />,
   layers:    (p) => <Icon {...p} d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 18l9 5 9-5" />,
+  // Boston Terrier / French Bulldog — round head, upright bat ears, flat snout
+  pet: (p) => <Icon {...p} d={<>
+    <circle cx="12" cy="13" r="8" />
+    <path d="M5.5 8L3 2L10 7" />
+    <path d="M18.5 8L21 2L14 7" />
+    <circle cx="9.5" cy="11.5" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="14.5" cy="11.5" r="1.5" fill="currentColor" stroke="none" />
+    <rect x="9.5" y="14" width="5" height="3" rx="1.5" />
+    <path d="M10.5 17.5Q12 19.5 13.5 17.5" />
+  </>} />,
 }

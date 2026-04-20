@@ -7,9 +7,9 @@ import { Toggle, Seg } from '../components/ui'
 import { supabase } from '../lib/supabase'
 import type { Screen, AppSettings } from '../types'
 
-interface Props { navigate: (s: Screen) => void }
+interface Props { navigate: (s: Screen) => void; back: () => void }
 
-export const SettingsScreen = ({ navigate }: Props) => {
+export const SettingsScreen = ({ navigate, back }: Props) => {
   const settings = useLiveQuery(() => db.settings.get(1), [])
 
   if (!settings) return null
@@ -30,7 +30,7 @@ export const SettingsScreen = ({ navigate }: Props) => {
     <div className="screen">
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <button onClick={() => navigate({ name: 'dashboard' })} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center' }}>
+        <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center' }}>
           <Icons.back size={20} />
         </button>
         <h1 className="t-display" style={{ fontSize: 22 }}>Settings</h1>

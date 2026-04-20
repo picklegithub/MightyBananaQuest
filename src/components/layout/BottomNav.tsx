@@ -5,10 +5,11 @@ type TabId = 'dashboard' | 'journal' | 'add' | 'goals' | 'calendar'
 
 interface BottomNavProps {
   active: string
-  navigate: (s: Screen) => void
+  navigate: (s: Screen) => void       // push (used for + button)
+  navigateTab: (s: Screen) => void    // reset stack (used for tab buttons)
 }
 
-export const BottomNav = ({ active, navigate }: BottomNavProps) => {
+export const BottomNav = ({ active, navigate, navigateTab }: BottomNavProps) => {
   const items: { id: TabId; label: string; icon: string; big?: boolean }[] = [
     { id: 'dashboard', label: 'Today',   icon: 'home' },
     { id: 'journal',   label: 'Journal', icon: 'journal' },
@@ -28,7 +29,7 @@ export const BottomNav = ({ active, navigate }: BottomNavProps) => {
         const I = Icons[it.icon]
         if (it.big) {
           return (
-            <button key={it.id} onClick={() => navigate({ name: 'add' })} style={{
+            <button key={it.id} onClick={() => navigate({ name: 'add' })} style={{  // + pushes so back returns to origin
               width: 54, height: 54, borderRadius: '50%',
               background: 'var(--ink)', color: 'var(--paper)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -41,7 +42,7 @@ export const BottomNav = ({ active, navigate }: BottomNavProps) => {
         const isActive = active === it.id
         return (
           <button key={it.id}
-            onClick={() => navigate({ name: it.id as Screen['name'] } as Screen)}
+            onClick={() => navigateTab({ name: it.id as Screen['name'] } as Screen)}
             style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
               color: isActive ? 'var(--ink)' : 'var(--ink-3)', width: 56, padding: '4px 0',
