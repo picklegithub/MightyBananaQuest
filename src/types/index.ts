@@ -74,6 +74,8 @@ export interface JournalEntry {
   diff?: string
   lesson?: string
   tomorrow?: string
+  // shared free-form notes
+  notes?: string
 }
 
 // ── Inbox item ───────────────────────────────────────────────────────────────

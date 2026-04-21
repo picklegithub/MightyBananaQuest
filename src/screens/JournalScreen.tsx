@@ -236,6 +236,7 @@ function MorningForm({
   const [p0, setP0] = useState(existing?.priorities?.[0] ?? '')
   const [p1, setP1] = useState(existing?.priorities?.[1] ?? '')
   const [p2, setP2] = useState(existing?.priorities?.[2] ?? '')
+  const [notes,      setNotes]      = useState(existing?.notes ?? '')
   const [saved, setSaved] = useState(false)
   const inited   = useRef(false)
   const onSaveRef = useRef(onSave)
@@ -251,6 +252,7 @@ function MorningForm({
     setP0(existing.priorities?.[0] ?? '')
     setP1(existing.priorities?.[1] ?? '')
     setP2(existing.priorities?.[2] ?? '')
+    setNotes(existing.notes ?? '')
     inited.current = true
   }, [existing?.id])
 
@@ -258,14 +260,14 @@ function MorningForm({
   useEffect(() => {
     const gratitude  = [g0, g1, g2].filter(Boolean)
     const priorities = [p0, p1, p2].filter(Boolean)
-    if (gratitude.length === 0 && !intention && priorities.length === 0) return
+    if (gratitude.length === 0 && !intention && priorities.length === 0 && !notes) return
     const t = setTimeout(async () => {
-      await onSaveRef.current({ gratitude, intention, priorities })
+      await onSaveRef.current({ gratitude, intention, priorities, notes: notes || undefined })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     }, 800)
     return () => clearTimeout(t)
-  }, [g0, g1, g2, intention, p0, p1, p2])
+  }, [g0, g1, g2, intention, p0, p1, p2, notes])
 
   const GRATITUDE_PLACEHOLDERS = [
     'Something that made you smile…',
@@ -348,6 +350,20 @@ function MorningForm({
         </div>
       </section>
 
+      {/* Free-form notes */}
+      <section>
+        <div className="eyebrow" style={{ marginBottom: 10 }}>Notes</div>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Anything else on your mind…"
+          style={{
+            ...inputStyle, width: '100%', minHeight: 88,
+            resize: 'none', lineHeight: 1.6,
+          }}
+        />
+      </section>
+
       <SavedIndicator saved={saved} />
     </div>
   )
@@ -364,6 +380,7 @@ function EveningForm({
   const [diff,     setDiff]     = useState(existing?.diff ?? '')
   const [lesson,   setLesson]   = useState(existing?.lesson ?? '')
   const [tomorrow, setTomorrow] = useState(existing?.tomorrow ?? '')
+  const [notes,    setNotes]    = useState(existing?.notes ?? '')
   const [saved,    setSaved]    = useState(false)
   const inited    = useRef(false)
   const onSaveRef = useRef(onSave)
@@ -375,18 +392,19 @@ function EveningForm({
     setDiff(existing.diff ?? '')
     setLesson(existing.lesson ?? '')
     setTomorrow(existing.tomorrow ?? '')
+    setNotes(existing.notes ?? '')
     inited.current = true
   }, [existing?.id])
 
   useEffect(() => {
-    if (!win && !diff && !lesson && !tomorrow) return
+    if (!win && !diff && !lesson && !tomorrow && !notes) return
     const t = setTimeout(async () => {
-      await onSaveRef.current({ win, diff, lesson, tomorrow })
+      await onSaveRef.current({ win, diff, lesson, tomorrow, notes: notes || undefined })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     }, 800)
     return () => clearTimeout(t)
-  }, [win, diff, lesson, tomorrow])
+  }, [win, diff, lesson, tomorrow, notes])
 
   const FIELDS = [
     {
@@ -438,6 +456,20 @@ function EveningForm({
           />
         </section>
       ))}
+
+      {/* Free-form notes */}
+      <section>
+        <div className="eyebrow" style={{ marginBottom: 10 }}>Notes</div>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Anything else worth capturing…"
+          style={{
+            ...inputStyle, width: '100%', minHeight: 88,
+            resize: 'none', lineHeight: 1.6,
+          }}
+        />
+      </section>
 
       <SavedIndicator saved={saved} />
     </div>
@@ -597,6 +629,15 @@ function HistoryView({ entries }: { entries: JournalEntry[] }) {
                         ))}
                       </div>
                     )}
+
+                    {morning.notes && (
+                      <div style={{ marginTop: 10 }}>
+                        <HistoryLabel>Notes</HistoryLabel>
+                        <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                          {morning.notes}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -628,6 +669,15 @@ function HistoryView({ entries }: { entries: JournalEntry[] }) {
                         </div>
                       </div>
                     ))}
+
+                    {evening.notes && (
+                      <div style={{ marginTop: 2 }}>
+                        <HistoryLabel>Notes</HistoryLabel>
+                        <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                          {evening.notes}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

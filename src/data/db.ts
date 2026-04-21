@@ -101,6 +101,65 @@ db.on('ready', async () => {
   })
 })
 
+// ── Helper: calculate next occurrence date for a recurring rule ───────────────
+function nextOccurrenceISO(currentDue: string, recurring: string): string {
+  // Parse the current due date (or today if missing/relative)
+  let base: Date
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(currentDue)) {
+    base = new Date(currentDue + 'T00:00:00')
+  } else {
+    base = new Date(today)
+  }
+
+  const r = recurring.toLowerCase()
+
+  if (r === 'daily') {
+    base.setDate(base.getDate() + 1)
+  } else if (r === 'weekdays') {
+    do { base.setDate(base.getDate() + 1) } while ([0, 6].includes(base.getDay()))
+  } else if (r === 'weekends') {
+    do { base.setDate(base.getDate() + 1) } while (![0, 6].includes(base.getDay()))
+  } else if (r === 'weekly' || r.startsWith('weekly on')) {
+    // "Weekly on Mon" → find next occurrence of that day
+    const dowMatch = r.match(/weekly on (\w+)/)
+    if (dowMatch) {
+      const dowNames = ['sun','mon','tue','wed','thu','fri','sat']
+      const target = dowNames.indexOf(dowMatch[1].toLowerCase().slice(0, 3))
+      if (target >= 0) {
+        do { base.setDate(base.getDate() + 1) } while (base.getDay() !== target)
+      } else {
+        base.setDate(base.getDate() + 7)
+      }
+    } else {
+      base.setDate(base.getDate() + 7)
+    }
+  } else if (r === 'biweekly') {
+    base.setDate(base.getDate() + 14)
+  } else if (r === 'monthly') {
+    base.setMonth(base.getMonth() + 1)
+  } else {
+    // "Every N days/weeks/months"
+    const m = r.match(/every (\d+) (day|days|week|weeks|month|months)/)
+    if (m) {
+      const n = parseInt(m[1], 10)
+      const unit = m[2]
+      if (unit.startsWith('day'))   base.setDate(base.getDate() + n)
+      else if (unit.startsWith('week'))  base.setDate(base.getDate() + n * 7)
+      else if (unit.startsWith('month')) base.setMonth(base.getMonth() + n)
+    } else {
+      // Fallback: +1 day
+      base.setDate(base.getDate() + 1)
+    }
+  }
+
+  const y = base.getFullYear()
+  const mo = String(base.getMonth() + 1).padStart(2, '0')
+  const d  = String(base.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${d}`
+}
+
 // ── Helper: complete a task (award XP + update streak + log habit) ──────────
 export async function completeTask(taskId: string): Promise<number> {
   const task = await db.tasks.get(taskId)
@@ -119,11 +178,29 @@ export async function completeTask(taskId: string): Promise<number> {
     const newSettings = await db.settings.get(1)
     if (newSettings) pushSettings(newSettings)
   }
-  // Log habit completion for habits (isHabit flag) and recurring tasks
+
+  // Log habit completion
   if (task.isHabit || task.recurring) {
     const today = new Date().toISOString().slice(0, 10)
     await logHabitCompletion(taskId, today)
   }
+
+  // For non-habit recurring tasks: create a fresh copy with the next occurrence date
+  if (task.recurring && !task.isHabit) {
+    const nextDue = nextOccurrenceISO(task.due, task.recurring)
+    const copy: Task = {
+      ...task,
+      id: `t${Date.now()}`,
+      done: false,
+      streak: newStreak,
+      due: nextDue,
+      sub: task.sub.map(s => ({ ...s, done: false })),
+      updatedAt: Date.now(),
+    }
+    await db.tasks.add(copy)
+    pushTask(copy)
+  }
+
   return gained
 }
 

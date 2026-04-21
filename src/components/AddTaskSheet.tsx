@@ -3,8 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addTask } from '../data/db'
 import { EFFORT_ORDER, DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from './ui/Icons'
-import { DueDatePicker } from './ui/DueDatePicker'
-import { RecurringPicker } from './ui/RecurringPicker'
+import { UnifiedDuePicker } from './ui/UnifiedDuePicker'
 import type { EffortKey, QuadKey, Task } from '../types'
 
 interface Props {
@@ -167,10 +166,14 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
             </div>
           </div>
 
-          {/* Due date */}
+          {/* Due date + Repeat — unified */}
           <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Due</div>
-            <DueDatePicker value={due} onChange={setDue} />
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Due &amp; Repeat</div>
+            <UnifiedDuePicker
+              due={due}
+              recurring={recurring}
+              onChange={(d, r) => { setDue(d); setRecurring(r) }}
+            />
           </div>
 
           {/* Priority — compact 4-button row */}
@@ -197,12 +200,6 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
                 )
               })}
             </div>
-          </div>
-
-          {/* Recurring */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Repeat</div>
-            <RecurringPicker value={recurring} onChange={setRecurring} />
           </div>
 
           {/* Context label */}

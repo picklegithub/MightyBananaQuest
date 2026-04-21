@@ -4,8 +4,7 @@ import { db, completeTask, toggleSubTask, deleteTask, updateTask, countActiveTas
 import { EFFORT, QUAD, EFFORT_ORDER } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
-import { DueDatePicker } from '../components/ui/DueDatePicker'
-import { RecurringPicker } from '../components/ui/RecurringPicker'
+import { UnifiedDuePicker } from '../components/ui/UnifiedDuePicker'
 import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Task, EffortKey, QuadKey } from '../types'
 
@@ -416,9 +415,12 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             onClick={() => toggleField('effort')}
           />
 
-          {/* Due */}
+          {/* Due + Repeat */}
           <Pill
-            label={task.due || 'No date'}
+            label={task.recurring
+              ? `${task.due || 'No date'} · ${task.recurring}`
+              : (task.due || 'No date')
+            }
             active={editingField === 'due'}
             accent={task.due === 'Today'}
             warn={task.due === 'Overdue'}
@@ -434,14 +436,16 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             onClick={() => toggleField('priority')}
           />
 
-          {/* Habit toggle */}
-          <Pill
-            icon={<Icons.flame size={10} />}
-            label={task.isHabit ? 'Habit' : 'Habit?'}
-            active={!!task.isHabit}
-            warn={!!task.isHabit}
-            onClick={() => save({ isHabit: !task.isHabit })}
-          />
+          {/* Habit pill — only shown when this IS a habit */}
+          {!!task.isHabit && (
+            <Pill
+              icon={<Icons.flame size={10} />}
+              label="Habit"
+              active
+              warn
+              onClick={() => save({ isHabit: false })}
+            />
+          )}
 
           {/* Status — Slow Productivity workflow state */}
           <Pill
@@ -470,7 +474,11 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
 
         {editingField === 'due' && (
           <div style={{ padding: '8px 0 12px' }}>
-            <DueDatePicker value={task.due} onChange={v => { save({ due: v }); setEditingField(null) }} />
+            <UnifiedDuePicker
+              due={task.due}
+              recurring={task.recurring}
+              onChange={(d, r) => { save({ due: d, recurring: r }); setEditingField(null) }}
+            />
           </div>
         )}
 
@@ -581,14 +589,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             background: 'var(--paper-2)', borderRadius: 12, border: '1px solid var(--rule)',
             display: 'flex', flexDirection: 'column', gap: 16,
           }}>
-            {/* Repeat */}
-            <div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 7 }}>
-                Repeat
-              </div>
-              <RecurringPicker value={task.recurring} onChange={v => save({ recurring: v })} />
-            </div>
-
             {/* Context */}
             <div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 7 }}>
@@ -605,6 +605,38 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
                 }}
               />
             </div>
+
+            {/* Habit — shown in Advanced only when task is NOT a habit */}
+            {!task.isHabit && (
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 7 }}>
+                  Habit tracking
+                </div>
+                <button
+                  onClick={() => save({ isHabit: true })}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '9px 12px', borderRadius: 10, width: '100%',
+                    background: 'var(--paper)', border: '1px solid var(--rule)',
+                  }}
+                >
+                  <span style={{
+                    width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                    background: 'var(--paper-3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: 'var(--ink-3)',
+                  }}>
+                    <Icons.flame size={13} />
+                  </span>
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)' }}>Mark as habit</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', marginTop: 1, letterSpacing: '0.04em' }}>
+                      Tracks daily check-ins &amp; streaks
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )}
 
             {/* Pomodoro override */}
             <div>

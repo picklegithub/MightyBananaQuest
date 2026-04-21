@@ -98,7 +98,7 @@ export function GlobalPomodoro({ workMins }: Props) {
 
     return (
       <button onClick={() => setExpanded(true)} style={{
-        position: 'fixed', bottom: 82, left: 20, zIndex: 50,
+        position: 'fixed', bottom: 'calc(82px + env(safe-area-inset-bottom))', right: 16, zIndex: 60,
         display: 'flex', alignItems: 'center', gap: 7,
         padding: '9px 14px', borderRadius: 20,
         background: pillBg, color: pillFg,
@@ -133,7 +133,7 @@ export function GlobalPomodoro({ workMins }: Props) {
 
     return (
       <div style={{
-        position: 'fixed', bottom: 82, left: 16, zIndex: 50,
+        position: 'fixed', bottom: 'calc(82px + env(safe-area-inset-bottom))', right: 16, zIndex: 60,
         background: 'var(--paper)', border: '1px solid var(--rule)',
         borderRadius: 20, padding: '16px 16px 14px',
         boxShadow: 'var(--shadow-pop)', width: 230,
@@ -215,7 +215,7 @@ export function GlobalPomodoro({ workMins }: Props) {
   // ── Expanded panel (idle / running / paused) ──────────────────────────────
   return (
     <div style={{
-      position: 'fixed', bottom: 82, left: 16, zIndex: 50,
+      position: 'fixed', bottom: 'calc(82px + env(safe-area-inset-bottom))', right: 16, zIndex: 60,
       background: 'var(--paper)', border: '1px solid var(--rule)',
       borderRadius: 20, padding: '16px 16px 14px',
       boxShadow: 'var(--shadow-pop)', width: 230,
