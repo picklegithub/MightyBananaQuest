@@ -128,13 +128,13 @@ export function RecurringPicker({ value, onChange }: Props) {
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em', marginBottom: 14 }}>
                   TAP TO SELECT DAY(S)
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 16 }}>
                   {MONTH_DAYS.map(d => (
                     <button
                       key={d}
                       onClick={() => toggleDay(d)}
                       style={{
-                        aspectRatio: '1', borderRadius: 8, fontSize: 12,
+                        height: 32, borderRadius: 6, fontSize: 11,
                         fontFamily: 'var(--font-mono)',
                         background: monthDays.includes(d) ? 'var(--ink)' : 'var(--paper-2)',
                         color:      monthDays.includes(d) ? 'var(--paper)' : 'var(--ink-2)',

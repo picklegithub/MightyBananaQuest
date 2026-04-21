@@ -11,12 +11,12 @@ interface MenuItem {
 }
 
 const ITEMS: MenuItem[] = [
-  { action: 'capture',  label: 'Quick capture',  icon: 'bolt'    },
-  { action: 'task',     label: 'New task',        icon: 'plus'    },
+  { action: 'journal',  label: 'Journal entry',  icon: 'journal' },
   { action: 'goal',     label: 'New goal',        icon: 'target'  },
   { action: 'habit',    label: 'New habit',       icon: 'flame', accent: true },
-  { action: 'journal',  label: 'Journal entry',   icon: 'journal' },
-  { action: 'pomodoro', label: 'Pomodoro',         icon: 'timer'   },
+  { action: 'task',     label: 'New task',        icon: 'plus'    },
+  { action: 'pomodoro', label: 'Pomodoro',        icon: 'timer'   },
+  { action: 'capture',  label: 'Quick capture',   icon: 'bolt'    },
 ]
 
 interface Props {

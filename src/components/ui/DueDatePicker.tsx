@@ -60,20 +60,30 @@ export function DueDatePicker({ value, onChange }: Props) {
         </button>
       ))}
 
-      {/* Custom — native date picker overlaid on a styled button */}
+      {/* Custom — styled native date input */}
       <div style={{ position: 'relative' }}>
-        <button style={btnStyle(isCustom)} tabIndex={-1}>
-          {isCustom ? formatCustom(value) : '📅 Custom'}
-        </button>
         <input
           type="date"
           value={isCustom ? value : ''}
           onChange={e => e.target.value && onChange(e.target.value)}
           style={{
-            position: 'absolute', inset: 0, opacity: 0,
-            cursor: 'pointer', width: '100%', height: '100%',
+            ...btnStyle(isCustom),
+            cursor: 'pointer',
+            colorScheme: 'light dark',
+            // hide the default chrome — show our label on top
+            color: isCustom ? undefined : 'transparent',
           }}
         />
+        {!isCustom && (
+          <span style={{
+            position: 'absolute', inset: 0, pointerEvents: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            ...btnStyle(false),
+            border: 'none', background: 'transparent',
+          }}>
+            📅 Custom
+          </span>
+        )}
       </div>
     </div>
   )

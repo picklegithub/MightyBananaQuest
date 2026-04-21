@@ -3,7 +3,6 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addTask } from '../data/db'
 import { EFFORT_ORDER, DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from './ui/Icons'
-import { EisenhowerMatrix } from './ui'
 import { DueDatePicker } from './ui/DueDatePicker'
 import { RecurringPicker } from './ui/RecurringPicker'
 import type { EffortKey, QuadKey, Task } from '../types'
@@ -174,10 +173,30 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
             <DueDatePicker value={due} onChange={setDue} />
           </div>
 
-          {/* Priority matrix */}
+          {/* Priority — compact 4-button row */}
           <div>
-            <div className="eyebrow" style={{ marginBottom: 2 }}>Priority</div>
-            <EisenhowerMatrix quad={quad} onChange={v => setQuad(v as QuadKey)} />
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Priority</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {([
+                { id: 'q1', label: 'Do',       sub: 'Urgent',    color: 'var(--warn)'   },
+                { id: 'q2', label: 'Plan',      sub: 'Important', color: 'var(--accent)' },
+                { id: 'q3', label: 'Delegate',  sub: 'Low-urg',   color: 'var(--ink-3)'  },
+                { id: 'q4', label: 'Drop',      sub: 'Neither',   color: 'var(--ink-4)'  },
+              ] as const).map(c => {
+                const active = c.id === quad
+                return (
+                  <button key={c.id} onClick={() => setQuad(c.id)} style={{
+                    flex: 1, padding: '9px 4px', borderRadius: 10, textAlign: 'center',
+                    background: active ? 'var(--ink)' : 'var(--paper-2)',
+                    color: active ? 'var(--paper)' : 'var(--ink)',
+                    border: '1px solid', borderColor: active ? 'var(--ink)' : 'var(--rule)',
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>{c.label}</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, opacity: 0.6, marginTop: 2 }}>{c.sub}</div>
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           {/* Recurring */}
