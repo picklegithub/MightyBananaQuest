@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, addTask } from '../data/db'
+import { db, completeTask, addTask, deleteTask } from '../data/db'
 import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst, Seg } from '../components/ui'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { TaskCard } from '../components/TaskCard'
+import { SwipeableRow } from '../components/SwipeableRow'
 import type { Screen, Task } from '../types'
 
 interface Props { catId: string; navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void }
@@ -367,13 +368,14 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
             {filteredRegular.map(task => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                hue={hue}
-                onTap={() => navigate({ name: 'task', taskId: task.id })}
-                onComplete={e => handleComplete(e, task)}
-              />
+              <SwipeableRow key={task.id} onDelete={() => deleteTask(task.id)}>
+                <TaskCard
+                  task={task}
+                  hue={hue}
+                  onTap={() => navigate({ name: 'task', taskId: task.id })}
+                  onComplete={e => handleComplete(e, task)}
+                />
+              </SwipeableRow>
             ))}
           </div>
         )}

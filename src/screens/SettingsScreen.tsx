@@ -6,6 +6,7 @@ import { ThemeToggle } from '../components/ThemeToggle'
 import { Toggle, Seg } from '../components/ui'
 import { supabase } from '../lib/supabase'
 import { notificationsSupported, requestPermission } from '../lib/notifications'
+import { pullAll, pushAllLocal } from '../lib/sync'
 import type { Screen, AppSettings } from '../types'
 
 interface Props { navigate: (s: Screen) => void; back: () => void }
@@ -16,6 +17,7 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() =>
     notificationsSupported() ? Notification.permission : 'denied'
   )
+  const [syncing, setSyncing] = useState(false)
 
   if (!settings) return null
 
@@ -134,9 +136,7 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
           )}
 
           {([
-            ['due',     'Due reminders',    'Notify when tasks are due'],
             ['overdue', 'Overdue alerts',   'Notify when tasks are overdue'],
-            ['pom',     'Timer complete',   'Notify when Pomodoro ends'],
             ['journal', 'Journal reminders','Morning & evening prompts'],
             ['streak',  'Streak alerts',    'Warn before breaking a streak'],
             ['weekly',  'Weekly review',    'Sunday wrap-up prompt'],
@@ -175,6 +175,25 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
 
         {/* Data */}
         <Section title="Data">
+          <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--rule)' }}>
+            <button
+              onClick={async () => {
+                setSyncing(true)
+                try { await Promise.all([pullAll(), pushAllLocal()]) } finally { setSyncing(false) }
+              }}
+              disabled={syncing}
+              style={{
+                width: '100%', padding: '13px', borderRadius: 12, fontSize: 13,
+                border: '1px solid var(--rule)', color: syncing ? 'var(--ink-4)' : 'var(--ink)',
+                fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+                background: 'var(--paper-2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}
+            >
+              <Icons.reset size={14} style={{ opacity: syncing ? 0.4 : 1 }} />
+              {syncing ? 'Syncing…' : 'Sync now'}
+            </button>
+          </div>
           <Row label="XP earned">
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600 }}>
               {settings.xp.toLocaleString()}

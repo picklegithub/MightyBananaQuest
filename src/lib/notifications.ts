@@ -31,6 +31,8 @@ export async function requestPermission(): Promise<NotificationPermission> {
 export interface NotifyOptions extends NotificationOptions {
   /** Which settings key gates this notification */
   key: keyof AppSettings['notifications']
+  /** Skip the per-channel pref check — always fire when permission is granted */
+  alwaysOn?: boolean
 }
 
 export function notify(
@@ -41,8 +43,8 @@ export function notify(
   if (!notificationsSupported()) return
   if (Notification.permission !== 'granted') return
 
-  // Per-channel pref check
-  if (!settings.notifications[opts.key]) return
+  // Per-channel pref check (skipped for always-on channels)
+  if (!opts.alwaysOn && !settings.notifications[opts.key]) return
 
   // Quiet hours: 10pm (22) – 7am (7)
   if (settings.notifications.quiet) {

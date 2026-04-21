@@ -29,13 +29,13 @@ export function useNotifications(
       const { phase } = (e as CustomEvent<{ phase: string }>).detail
       if (phase === 'work') {
         notify('Focus session complete! 🎉', {
-          key:  'pom',
+          key: 'pom', alwaysOn: true,
           body: 'Time to take a short break.',
           tag:  'pom-done',
         }, settings)
       } else {
         notify('Break over! 💪', {
-          key:  'pom',
+          key: 'pom', alwaysOn: true,
           body: 'Ready for another focus session?',
           tag:  'pom-done',
         }, settings)
@@ -78,7 +78,7 @@ export function useNotifications(
         notify(
           `${dueToday.length} task${dueToday.length > 1 ? 's' : ''} due today`,
           {
-            key:  'due',
+            key: 'due', alwaysOn: true,
             body: dueToday.length > 3 ? `${preview} + ${dueToday.length - 3} more` : preview,
             tag:  'due-today',
           },

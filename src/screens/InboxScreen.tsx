@@ -4,6 +4,7 @@ import { db, completeTask, deleteTask, updateTask } from '../data/db'
 import { EFFORT } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
+import { SwipeableRow } from '../components/SwipeableRow'
 import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Task, Category } from '../types'
 
@@ -34,18 +35,16 @@ function InboxTaskCard({
   onDelete: () => void
   onAssign: (catId: string) => void
 }) {
-  const [confirmDelete, setConfirmDelete] = useState(false)
   const eDef = EFFORT[task.effort]
 
   return (
     <div style={{
-      background: 'var(--paper-2)', border: '1px solid var(--rule)',
-      borderRadius: 14, overflow: 'hidden',
-      opacity: task.done ? 0.5 : 1,
-      transition: 'opacity .2s',
+      border: '1px solid var(--rule)', borderRadius: 14, overflow: 'hidden',
+      opacity: task.done ? 0.5 : 1, transition: 'opacity .2s',
     }}>
-      {/* Main row */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 14px 12px' }}>
+      {/* Main row — swipeable for delete */}
+      <SwipeableRow onDelete={onDelete}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 14px 12px', background: 'var(--paper-2)' }}>
 
         {/* Complete button */}
         <button
@@ -103,27 +102,8 @@ function InboxTaskCard({
           </div>
         </button>
 
-        {/* Delete */}
-        {confirmDelete ? (
-          <button
-            onClick={onDelete}
-            style={{
-              flexShrink: 0, padding: '4px 8px', borderRadius: 6,
-              background: 'var(--warn)', color: 'white',
-              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.04em',
-            }}
-          >
-            DELETE
-          </button>
-        ) : (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            style={{ flexShrink: 0, color: 'var(--ink-4)', padding: 4 }}
-          >
-            <Icons.close size={15} />
-          </button>
-        )}
       </div>
+      </SwipeableRow>
 
       {/* Area assign row — always visible, scrollable */}
       {!task.done && (

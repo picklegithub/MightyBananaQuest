@@ -18,7 +18,7 @@ interface Props {
 interface Burst { id: number; x: number; y: number; xp: number }
 
 // ── Which pill is currently expanded for editing ──────────────────────────────
-type EditingField = null | 'area' | 'effort' | 'due' | 'priority' | 'recurring' | 'isHabit' | 'status'
+type EditingField = null | 'area' | 'effort' | 'priority' | 'isHabit' | 'status'
 
 // ── Compact quadrant colours ──────────────────────────────────────────────────
 const QUAD_COLOR: Record<QuadKey, string> = {
@@ -201,7 +201,8 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
   const [localTitle,   setLocalTitle]   = useState('')
   const [localNotes,   setLocalNotes]   = useState('')
   const [advanced,     setAdvanced]     = useState(false)
-  const [capWarning,   setCapWarning]   = useState(false)
+  const [capWarning,    setCapWarning]   = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Sub-task entry
   const [addingSub, setAddingSub] = useState(false)
@@ -348,17 +349,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             {areaName}
           </span>
         </button>
-        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-          <ThemeToggle />
-          <button onClick={() => navigate({ name: 'schedule', taskId: task.id })} style={{ color: 'var(--ink-3)' }}>
-            <Icons.calendar size={17} />
-          </button>
-          <button onClick={async () => {
-            if (confirm('Delete this task?')) { await deleteTask(taskId); back() }
-          }} style={{ color: 'var(--warn)' }}>
-            <Icons.close size={17} />
-          </button>
-        </div>
+        <ThemeToggle />
       </div>
 
       <div className="screen-scroll" style={{ padding: '18px 18px 48px' }}>
@@ -416,18 +407,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             onClick={() => toggleField('effort')}
           />
 
-          {/* Due + Time + Repeat */}
-          <Pill
-            label={[
-              task.due ? formatDueLabel(task.due) : 'No date',
-              task.time ? formatTime(task.time) : null,
-              task.recurring ?? null,
-            ].filter(Boolean).join(' · ')}
-            active={editingField === 'due'}
-            accent={task.due === 'Today'}
-            warn={task.due === 'Overdue'}
-            onClick={() => toggleField('due')}
-          />
 
           {/* Priority */}
           <Pill
@@ -474,16 +453,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
           </div>
         )}
 
-        {editingField === 'due' && (
-          <div style={{ padding: '8px 0 12px' }}>
-            <UnifiedDuePicker
-              due={task.due}
-              recurring={task.recurring}
-              time={task.time}
-              onChange={(d, r, t) => { save({ due: d, recurring: r, time: t }); setEditingField(null) }}
-            />
-          </div>
-        )}
 
         {editingField === 'priority' && (
           <div style={{ padding: '0 0 12px' }}>
@@ -543,6 +512,19 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             )}
           </div>
         )}
+
+        {/* ── Schedule — always visible ── */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
+            Schedule
+          </div>
+          <UnifiedDuePicker
+            due={task.due}
+            recurring={task.recurring}
+            time={task.time}
+            onChange={(d, r, t) => save({ due: d, recurring: r, time: t })}
+          />
+        </div>
 
         {/* ── Notes — always visible inline textarea ── */}
         <div style={{ marginTop: 12, marginBottom: 16 }}>
@@ -855,6 +837,45 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
               </button>
             )}
           </div>
+        </div>
+
+        {/* ── Delete task ── */}
+        <div style={{ marginTop: 24, paddingBottom: 8, display: 'flex', justifyContent: 'center' }}>
+          {confirmDelete ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={async () => { await deleteTask(taskId); back() }}
+                style={{
+                  padding: '9px 20px', borderRadius: 10, fontSize: 12, fontWeight: 600,
+                  background: 'var(--warn)', color: 'white',
+                  fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+                }}
+              >
+                Yes, delete
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                style={{
+                  padding: '9px 16px', borderRadius: 10, fontSize: 12,
+                  background: 'var(--paper-2)', color: 'var(--ink-3)',
+                  border: '1px solid var(--rule)', fontFamily: 'var(--font-mono)',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)',
+                letterSpacing: '0.06em', padding: '8px 16px', borderRadius: 8,
+                border: '1px solid var(--rule)',
+              }}
+            >
+              Delete task
+            </button>
+          )}
         </div>
       </div>
 
