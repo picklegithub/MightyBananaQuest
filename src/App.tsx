@@ -40,7 +40,7 @@ function applyTheme(settings: AppSettings) {
 }
 
 // ── Nav screens that show BottomNav ───────────────────────────────────────────
-const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar', 'category'])
+const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar', 'category', 'inbox'])
 function showsNav(screen: Screen): boolean { return NAV_SCREENS.has(screen.name) }
 function activeTab(screen: Screen): string {
   if (screen.name === 'journal')  return 'journal'
@@ -158,6 +158,10 @@ export default function App() {
     if (screen.name === 'category') {
       // Inside an Area — open quick capture pre-filled with that area
       openAddTask({ catId: screen.catId })
+      return
+    }
+    if (screen.name === 'inbox') {
+      setFabSheet('capture')
       return
     }
     const tab = activeTab(screen)
