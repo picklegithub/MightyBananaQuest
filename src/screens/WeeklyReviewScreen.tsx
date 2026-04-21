@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../data/db'
 import { EFFORT } from '../constants'
 import { Icons } from '../components/ui/Icons'
+import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Goal, WeeklyReview, GoalPulse, GoalPulseStatus } from '../types'
 
 // ── Week helpers ──────────────────────────────────────────────────────────────
@@ -811,18 +812,21 @@ export const WeeklyReviewScreen = ({ back }: Props) => {
           </div>
         </div>
 
-        <button
-          onClick={() => setView(v => v === 'history' ? (review?.completedAt ? 'done' : 'wizard') : 'history')}
-          style={{
-            padding: '6px 12px', borderRadius: 20,
-            background: view === 'history' ? 'var(--ink)' : 'var(--paper-2)',
-            color:      view === 'history' ? 'var(--paper)' : 'var(--ink-3)',
-            border: '1px solid var(--rule)',
-            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
-          }}
-        >
-          {view === 'history' ? 'This week' : 'Archive'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ThemeToggle />
+          <button
+            onClick={() => setView(v => v === 'history' ? (review?.completedAt ? 'done' : 'wizard') : 'history')}
+            style={{
+              padding: '6px 12px', borderRadius: 20,
+              background: view === 'history' ? 'var(--ink)' : 'var(--paper-2)',
+              color:      view === 'history' ? 'var(--paper)' : 'var(--ink-3)',
+              border: '1px solid var(--rule)',
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
+            }}
+          >
+            {view === 'history' ? 'This week' : 'Archive'}
+          </button>
+        </div>
       </div>
 
       {/* ── History ── */}

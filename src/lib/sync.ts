@@ -357,6 +357,12 @@ export async function pushCategory(cat: Category): Promise<void> {
   await supabase.from('categories').upsert(categoryToRow(cat, userId), { onConflict: 'id' })
 }
 
+export async function pushCategoryDelete(catId: string): Promise<void> {
+  const userId = await getUserIdAsync()
+  if (!userId) return
+  await supabase.from('categories').delete().eq('id', catId).eq('user_id', userId)
+}
+
 export async function pushSettings(settings: AppSettings): Promise<void> {
   const userId = await getUserIdAsync()
   if (!userId) return

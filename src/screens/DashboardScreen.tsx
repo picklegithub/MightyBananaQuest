@@ -91,7 +91,7 @@ function DeleteAreaSheet({ cat, onConfirm, onCancel }: { cat: Category; onConfir
           <div style={{ fontSize: 36, marginBottom: 8 }}>🗑️</div>
           <div className="t-display" style={{ fontSize: 20, marginBottom: 8 }}>Delete "{cat.name}"?</div>
           <div style={{ fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-            Tasks in this area will move to Home. This can't be undone.
+            Tasks in this area will move to your Inbox. This can't be undone.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
@@ -156,9 +156,9 @@ export const DashboardScreen = ({ navigate }: Props) => {
   }
 
   async function handleDeleteArea(cat: Category) {
-    // Move tasks from deleted area to 'home' (stamp updatedAt + sync each)
+    // Move tasks from deleted area to Inbox (stamp updatedAt + sync each)
     const areaTasks = await db.tasks.where('cat').equals(cat.id).toArray()
-    await Promise.all(areaTasks.map(t => updateTask(t.id, { cat: 'home' })))
+    await Promise.all(areaTasks.map(t => updateTask(t.id, { cat: 'inbox' })))
     await deleteCategory(cat.id)
     setDeleteTarget(null)
   }
@@ -242,38 +242,71 @@ export const DashboardScreen = ({ navigate }: Props) => {
 
             {/* ── Area cards ── */}
             {cats.map((cat: Category) => {
-              const catTasks = tasks.filter(t => t.cat === cat.id)
-              const catDone  = catTasks.filter(t => t.done).length
-              const catTotal = catTasks.length
+              const catTasks  = tasks.filter(t => t.cat === cat.id)
+              const catDone   = catTasks.filter(t => t.done).length
+              const catOpen   = catTasks.filter(t => !t.done).length
+              const catTotal  = catTasks.length
+              const habitCount = catTasks.filter(t => t.isHabit || t.recurring).length
+              const progress  = catTotal > 0 ? catDone / catTotal : 0
               const I = Icons[cat.icon] ?? Icons.home
               const isCustom = !BUILTIN_IDS.has(cat.id)
+              const hue = cat.hue
+              // Mini ring SVG values
+              const R = 11, C = 2 * Math.PI * R
 
               return (
                 <div key={cat.id} style={{ position: 'relative' }}>
                   <button
                     onClick={() => navigate({ name: 'category', catId: cat.id })}
                     style={{
-                      width: '100%', padding: '12px 10px', borderRadius: 12, textAlign: 'left',
+                      width: '100%', padding: '11px 10px 10px', borderRadius: 12, textAlign: 'left',
                       background: 'var(--paper-2)', border: '1px solid var(--rule)',
-                      display: 'flex', flexDirection: 'column', gap: 8,
+                      display: 'flex', flexDirection: 'column', gap: 7,
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div style={{ color: `hsl(${cat.hue}, 55%, 42%)` }}>
-                        <I size={16} />
+                    {/* Top row: icon + mini progress ring */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: 8,
+                        background: `hsl(${hue}, 40%, 92%)`,
+                        color: `hsl(${hue}, 55%, 38%)`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <I size={14} />
                       </div>
                       {catTotal > 0 && (
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
-                          {catDone}/{catTotal}
-                        </span>
+                        <svg width={26} height={26} style={{ flexShrink: 0 }}>
+                          <circle cx={13} cy={13} r={R} fill="none" stroke="var(--rule)" strokeWidth={2.5} />
+                          <circle cx={13} cy={13} r={R} fill="none"
+                            stroke={`hsl(${hue}, 55%, 42%)`} strokeWidth={2.5}
+                            strokeDasharray={C} strokeDashoffset={C * (1 - progress)}
+                            strokeLinecap="round" transform="rotate(-90 13 13)" />
+                        </svg>
                       )}
                     </div>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4 }}>{cat.name}</div>
-                      {catTotal > 0 && (
-                        <div style={{ height: 2, borderRadius: 1, background: 'var(--paper-3)', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', borderRadius: 1, background: `hsl(${cat.hue}, 55%, 42%)`, width: `${(catDone/catTotal)*100}%` }} />
-                        </div>
+
+                    {/* Name */}
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.2 }}>{cat.name}</div>
+
+                    {/* Stats row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {catOpen > 0 ? (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.04em' }}>
+                          {catOpen} open
+                        </span>
+                      ) : catTotal > 0 ? (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: `hsl(${hue}, 55%, 42%)`, letterSpacing: '0.04em' }}>
+                          ✓ all done
+                        </span>
+                      ) : (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.04em' }}>
+                          empty
+                        </span>
+                      )}
+                      {habitCount > 0 && (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--warn)', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <Icons.flame size={8} />{habitCount}
+                        </span>
                       )}
                     </div>
                   </button>
@@ -284,13 +317,13 @@ export const DashboardScreen = ({ navigate }: Props) => {
                       onClick={e => { e.stopPropagation(); setDeleteTarget(cat) }}
                       style={{
                         position: 'absolute', top: 5, right: 5,
-                        width: 22, height: 22, borderRadius: '50%',
+                        width: 18, height: 18, borderRadius: '50%',
                         background: 'var(--paper-3)', border: '1px solid var(--rule)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        color: 'var(--ink-3)',
+                        color: 'var(--ink-4)',
                       }}
                     >
-                      <Icons.close size={10} />
+                      <Icons.close size={8} />
                     </button>
                   )}
                 </div>

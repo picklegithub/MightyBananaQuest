@@ -4,6 +4,7 @@ import { db, completeTask, deleteTask, updateTask } from '../data/db'
 import { EFFORT } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
+import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Task, Category } from '../types'
 
 interface Props {
@@ -215,6 +216,7 @@ export const InboxScreen = ({ navigate, back }: Props) => {
             </div>
           )}
         </div>
+        <ThemeToggle />
       </div>
 
       <div className="screen-scroll" style={{ padding: '16px 20px 40px' }}>

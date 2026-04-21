@@ -35,6 +35,8 @@ export interface Task {
   pomodoroMins?: number
   time?: string
   notes?: string
+  isHabit?: boolean   // first-class habit flag — logs to habitLog on completion
+  status?: 'backlog' | 'someday' | 'active'  // Slow Productivity workflow state (undefined = backlog)
   createdAt?: number
   updatedAt?: number
 }

@@ -55,6 +55,7 @@ export const Icons: Record<string, (p: IconProps) => JSX.Element> = {
   download:  (p) => <Icon {...p} d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />,
   layers:    (p) => <Icon {...p} d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 18l9 5 9-5" />,
   repeat:    (p) => <Icon {...p} d="M17 2l4 4-4 4M3 11V9a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 01-4 4H3" />,
+  folder:    (p) => <Icon {...p} d="M4 20h16a2 2 0 002-2V8a2 2 0 00-2-2h-8L10 4H4a2 2 0 00-2 2v12a2 2 0 002 2z" />,
   // Boston Terrier / French Bulldog — round head, upright bat ears, flat snout
   pet: (p) => <Icon {...p} d={<>
     {/* Central pad */}

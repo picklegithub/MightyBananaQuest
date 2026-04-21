@@ -39,8 +39,8 @@ export const DEFAULT_SETTINGS = {
   intensity: 'loud' as const,
   defaultPomodoroMins: 25,
   notifications: {
-    due: true, overdue: false, pom: true,
-    journal: false, streak: true, weekly: true, quiet: true,
+    due: true, overdue: true, pom: true,
+    journal: true, streak: true, weekly: true, quiet: false,
   },
   onboarded: false,
   xp: 0,

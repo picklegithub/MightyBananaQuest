@@ -59,6 +59,28 @@ export class LifeAdminDB extends Dexie {
       habitLog:      'id, taskId, date',
       weeklyReviews: 'id, weekStart, completedAt',
     })
+    // Version 4 adds isHabit index for first-class habit support
+    this.version(4).stores({
+      tasks:         'id, cat, due, done, effort, quad, createdAt, isHabit',
+      categories:    'id',
+      goals:         'id, area',
+      journal:       'id, date, kind',
+      inbox:         'id, kind, processed',
+      settings:      'id',
+      habitLog:      'id, taskId, date',
+      weeklyReviews: 'id, weekStart, completedAt',
+    })
+    // Version 5 adds status index for Slow Productivity active-task cap
+    this.version(5).stores({
+      tasks:         'id, cat, due, done, effort, quad, createdAt, isHabit, status',
+      categories:    'id',
+      goals:         'id, area',
+      journal:       'id, date, kind',
+      inbox:         'id, kind, processed',
+      settings:      'id',
+      habitLog:      'id, taskId, date',
+      weeklyReviews: 'id, weekStart, completedAt',
+    })
   }
 }
 
@@ -97,8 +119,8 @@ export async function completeTask(taskId: string): Promise<number> {
     const newSettings = await db.settings.get(1)
     if (newSettings) pushSettings(newSettings)
   }
-  // Log habit completion for recurring tasks
-  if (task.recurring) {
+  // Log habit completion for habits (isHabit flag) and recurring tasks
+  if (task.isHabit || task.recurring) {
     const today = new Date().toISOString().slice(0, 10)
     await logHabitCompletion(taskId, today)
   }
@@ -106,12 +128,12 @@ export async function completeTask(taskId: string): Promise<number> {
 }
 
 // ── Helper: reset recurring tasks that weren't completed today ───────────────
-// Call on app start (after auth). Finds recurring tasks that are done=true but
-// have no habitLog entry for today — meaning they were completed on a prior day
-// and should be reset so the user can complete them again today.
+// Call on app start (after auth). Finds recurring/habit tasks that are done=true
+// but have no habitLog entry for today — meaning they were completed on a prior
+// day and should be reset so the user can complete them again today.
 export async function resetRecurringTasks(): Promise<void> {
   const today    = new Date().toISOString().slice(0, 10)
-  const recurring = await db.tasks.filter(t => !!t.recurring && t.done).toArray()
+  const recurring = await db.tasks.filter(t => (!!t.recurring || !!t.isHabit) && t.done).toArray()
   if (recurring.length === 0) return
 
   const resetIds: string[] = []
@@ -132,6 +154,11 @@ export async function resetRecurringTasks(): Promise<void> {
 export async function logHabitCompletion(taskId: string, date: string) {
   const id = `${taskId}:${date}`
   await db.habitLog.put({ id, taskId, date })
+}
+
+// ── Helper: count active tasks (for Slow Productivity cap) ───────────────────
+export async function countActiveTasks(): Promise<number> {
+  return db.tasks.where('status').equals('active').count()
 }
 
 // ── Helper: toggle a subtask ─────────────────────────────────────────────────
@@ -204,6 +231,8 @@ export async function addCategory(cat: Category) {
 // ── Helper: delete a custom area/category ────────────────────────────────────
 export async function deleteCategory(catId: string) {
   await db.categories.delete(catId)
+  // Fire-and-forget sync — import lazily to avoid circular dep
+  import('../lib/sync').then(({ pushCategoryDelete }) => pushCategoryDelete?.(catId)).catch(() => {})
 }
 
 // ── Helper: save a journal entry ─────────────────────────────────────────────

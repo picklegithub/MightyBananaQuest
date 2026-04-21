@@ -3,6 +3,17 @@ import { Icons } from './ui/Icons'
 import { EffortPip } from './ui'
 import type { Task } from '../types'
 
+// ── Priority dot colour map ───────────────────────────────────────────────────
+const QUAD_COLOR: Record<string, string> = {
+  q1: 'var(--warn)',      // Do — urgent + important
+  q2: 'var(--accent)',    // Schedule — important
+  q3: 'var(--ink-3)',     // Delegate
+  q4: 'var(--ink-4)',     // Drop
+}
+const QUAD_LABEL: Record<string, string> = {
+  q1: 'Do', q2: 'Plan', q3: 'Delegate', q4: 'Drop',
+}
+
 // ── Mini sub-task progress ring ───────────────────────────────────────────────
 function MiniRing({ progress, hue }: { progress: number; hue?: number }) {
   const r = 8, c = 2 * Math.PI * r
@@ -35,9 +46,13 @@ interface Props {
   hue?: number
   /** Area name displayed as a small label; useful in cross-area list views */
   areaName?: string
+  /** Show area-assign toggle button (AllTasks / Calendar contexts) */
+  onAreaToggle?: (e: React.MouseEvent) => void
+  /** Show reschedule toggle button (Calendar context) */
+  onRescheduleToggle?: (e: React.MouseEvent) => void
 }
 
-export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName }: Props) {
+export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onAreaToggle, onRescheduleToggle }: Props) {
   const subDone = task.sub.filter(s => s.d).length
   const subProg = task.sub.length > 0
     ? subDone / task.sub.length
@@ -91,38 +106,69 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName }: P
 
         {/* Meta row */}
         <div style={{
-          marginTop: 4,
-          display: 'flex', alignItems: 'center', gap: 7,
+          marginTop: 3,
+          display: 'flex', alignItems: 'center', gap: 6,
           flexWrap: 'nowrap', overflow: 'hidden',
         }}>
+          {/* Effort */}
           <EffortPip effort={task.effort} mono />
 
+          {/* Separator dot */}
+          {showDue && <span style={{ width: 2, height: 2, borderRadius: '50%', background: 'var(--rule)', flexShrink: 0 }} />}
+
+          {/* Due date */}
           {showDue && (
             <span style={{
               fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
-              color: dueColor(task.due), flexShrink: 0,
+              color: dueColor(task.due), flexShrink: 0, fontWeight: task.due === 'Today' ? 600 : 400,
             }}>
               {task.due}
             </span>
           )}
 
-          {task.recurring && (
-            <span style={{ color: 'var(--ink-4)', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-              <Icons.repeat size={9} />
+          {/* Priority pill — only show q1/q2 to keep it calm */}
+          {(task.quad === 'q1' || task.quad === 'q2') && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 2,
+              fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.06em',
+              color: QUAD_COLOR[task.quad], flexShrink: 0,
+            }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: QUAD_COLOR[task.quad], flexShrink: 0 }} />
+              {QUAD_LABEL[task.quad]}
             </span>
           )}
 
+          {/* Active status dot */}
+          {task.status === 'active' && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 3,
+              fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.06em',
+              color: 'var(--accent)', flexShrink: 0,
+            }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0 }} />
+              Active
+            </span>
+          )}
+
+          {/* Habit / recurring */}
+          {(task.isHabit || task.recurring) && (
+            <span style={{ color: task.isHabit ? 'var(--warn)' : 'var(--ink-4)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 2 }}>
+              {task.isHabit ? <Icons.flame size={9} /> : <Icons.repeat size={9} />}
+            </span>
+          )}
+
+          {/* Streak */}
           {task.streak > 0 && (
             <span style={{
               display: 'flex', alignItems: 'center', gap: 2,
               fontFamily: 'var(--font-mono)', fontSize: 9,
               color: 'var(--warn)', letterSpacing: '0.06em', flexShrink: 0,
             }}>
-              <Icons.flame size={9} />
               {task.streak}
             </span>
           )}
 
+          {/* Sub-task count */}
           {task.sub.length > 0 && (
             <span style={{
               fontFamily: 'var(--font-mono)', fontSize: 9,
@@ -132,6 +178,7 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName }: P
             </span>
           )}
 
+          {/* Area label (cross-area views) */}
           {areaName && (
             <span style={{
               fontFamily: 'var(--font-mono)', fontSize: 9,
@@ -144,18 +191,28 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName }: P
         </div>
       </div>
 
-      {/* ── Right side: sub ring, delete, or arrow ── */}
-      {task.sub.length > 0 && (
-        <MiniRing progress={subProg} hue={hue} />
+      {/* ── Right side ── */}
+      {task.sub.length > 0 && <MiniRing progress={subProg} hue={hue} />}
+
+      {/* Reschedule toggle (Calendar context) */}
+      {onRescheduleToggle && (
+        <button onClick={onRescheduleToggle} style={{ flexShrink: 0, padding: 4, color: 'var(--ink-4)' }}>
+          <Icons.calendar size={13} />
+        </button>
       )}
+
+      {/* Area assign toggle */}
+      {onAreaToggle && (
+        <button onClick={onAreaToggle} style={{ flexShrink: 0, padding: 4, color: 'var(--ink-4)' }}>
+          <Icons.folder size={13} />
+        </button>
+      )}
+
       {onDelete ? (
-        <button
-          onClick={onDelete}
-          style={{ flexShrink: 0, padding: '4px', color: 'var(--ink-4)' }}
-        >
+        <button onClick={onDelete} style={{ flexShrink: 0, padding: '4px', color: 'var(--ink-4)' }}>
           <Icons.close size={14} />
         </button>
-      ) : task.sub.length === 0 && (
+      ) : !onAreaToggle && !onRescheduleToggle && task.sub.length === 0 && (
         <Icons.arrow size={14} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
       )}
     </button>

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addGoal, updateGoal, deleteGoal, completeTask } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { Seg } from '../components/ui'
+import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Goal, Task } from '../types'
 
 interface Props { navigate: (s: Screen) => void; onAddTask?: () => void }
@@ -60,10 +61,13 @@ export const GoalsScreen = ({ navigate, onAddTask }: Props) => {
   return (
     <div className="screen">
       {/* Header */}
-      <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 4 }}>Long game</div>
-          <h1 className="t-display" style={{ fontSize: 28 }}>Goals</h1>
+      <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 4 }}>Long game</div>
+            <h1 className="t-display" style={{ fontSize: 26 }}>Goals</h1>
+          </div>
+          <ThemeToggle />
         </div>
       </div>
 

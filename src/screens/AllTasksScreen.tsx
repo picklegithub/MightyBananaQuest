@@ -1,10 +1,12 @@
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, deleteTask, deleteTasks } from '../data/db'
+import { db, completeTask, deleteTask, deleteTasks, updateTask } from '../data/db'
 import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst, Seg } from '../components/ui'
+import { ThemeToggle } from '../components/ThemeToggle'
 import { TaskCard } from '../components/TaskCard'
+import { SwipeableRow } from '../components/SwipeableRow'
 import type { Screen, Task } from '../types'
 
 interface Props { navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void }
@@ -16,6 +18,7 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
   const [bursts, setBursts]       = useState<Burst[]>([])
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected]   = useState<Set<string>>(new Set())
+  const [expandedArea, setExpandedArea] = useState<string | null>(null)
 
   const tasks = useLiveQuery(() => db.tasks.toArray(), [])
   const cats  = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
@@ -58,6 +61,11 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
     setSelected(new Set())
   }
 
+  async function handleAssign(taskId: string, catId: string) {
+    await updateTask(taskId, { cat: catId })
+    setExpandedArea(null)
+  }
+
   return (
     <div className="screen">
       {/* Header */}
@@ -83,7 +91,8 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
             Delete {selected.size > 0 ? selected.size : ''}
           </button>
         ) : (
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <ThemeToggle />
             <button onClick={() => setSelectMode(true)} style={{ color: 'var(--ink-2)', fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}>
               Select
             </button>
@@ -124,11 +133,11 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {filtered.map(task => (
-              <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div key={task.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                 {/* Checkbox in select mode */}
                 {selectMode && (
                   <button onClick={() => toggleSelect(task.id)} style={{
-                    flexShrink: 0, width: 22, height: 22, borderRadius: 6,
+                    flexShrink: 0, marginTop: 10, width: 22, height: 22, borderRadius: 6,
                     border: `2px solid ${selected.has(task.id) ? 'var(--ink)' : 'var(--rule)'}`,
                     background: selected.has(task.id) ? 'var(--ink)' : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -136,14 +145,57 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
                     {selected.has(task.id) && <Icons.check size={12} sw={3} style={{ color: 'var(--paper)' }} />}
                   </button>
                 )}
-                <div style={{ flex: 1 }} onClick={selectMode ? () => toggleSelect(task.id) : undefined}>
-                  <TaskCard task={task}
-                    hue={cats.find(c => c.id === task.cat)?.hue}
-                    areaName={catFilter === 'all' ? (cats.find(c => c.id === task.cat)?.name) : undefined}
-                    onTap={selectMode ? () => toggleSelect(task.id) : () => navigate({ name: 'task', taskId: task.id })}
-                    onComplete={(e) => handleComplete(e, task)}
-                    onDelete={!selectMode ? async (e) => { e.stopPropagation(); await deleteTask(task.id) } : undefined}
-                  />
+                <div style={{ flex: 1 }}>
+                  <SwipeableRow
+                    disabled={selectMode || task.done}
+                    onComplete={() => handleComplete({ stopPropagation: () => {}, target: document.body } as unknown as React.MouseEvent, task)}
+                    onDelete={!selectMode ? () => deleteTask(task.id) : undefined}
+                  >
+                    <TaskCard task={task}
+                      hue={cats.find(c => c.id === task.cat)?.hue}
+                      areaName={catFilter === 'all' ? (cats.find(c => c.id === task.cat)?.name) : undefined}
+                      onTap={selectMode ? () => toggleSelect(task.id) : () => navigate({ name: 'task', taskId: task.id })}
+                      onComplete={(e) => handleComplete(e, task)}
+                      onDelete={!selectMode ? async (e) => { e.stopPropagation(); await deleteTask(task.id) } : undefined}
+                      onAreaToggle={!selectMode ? (e) => { e.stopPropagation(); setExpandedArea(expandedArea === task.id ? null : task.id) } : undefined}
+                    />
+                  </SwipeableRow>
+                  {/* MOVE TO area strip */}
+                  {expandedArea === task.id && (
+                    <div style={{
+                      borderTop: '1px solid var(--rule)', padding: '8px 12px',
+                      display: 'flex', gap: 5, overflowX: 'auto', alignItems: 'center',
+                      background: 'var(--paper-2)',
+                      borderRadius: '0 0 12px 12px',
+                      borderLeft: '1px solid var(--rule)',
+                      borderRight: '1px solid var(--rule)',
+                      borderBottom: '1px solid var(--rule)',
+                      marginTop: -1,
+                    }}>
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)',
+                        letterSpacing: '0.08em', flexShrink: 0, marginRight: 2,
+                      }}>MOVE TO</span>
+                      {cats.map(c => (
+                        <button key={c.id} onClick={() => handleAssign(task.id, c.id)} style={{
+                          flexShrink: 0, padding: '5px 10px', borderRadius: 20,
+                          fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                          background: task.cat === c.id ? `hsl(${c.hue},45%,55%)` : 'var(--paper-3)',
+                          color: task.cat === c.id ? 'white' : 'var(--ink-2)',
+                          border: '1px solid var(--rule)', whiteSpace: 'nowrap',
+                        }}>
+                          {c.name}
+                        </button>
+                      ))}
+                      <button onClick={() => handleAssign(task.id, 'inbox')} style={{
+                        flexShrink: 0, padding: '5px 10px', borderRadius: 20,
+                        fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                        background: task.cat === 'inbox' ? 'var(--ink)' : 'var(--paper-3)',
+                        color: task.cat === 'inbox' ? 'var(--paper)' : 'var(--ink-2)',
+                        border: '1px solid var(--rule)', whiteSpace: 'nowrap',
+                      }}>Inbox</button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

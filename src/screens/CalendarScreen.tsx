@@ -1,9 +1,12 @@
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask } from '../data/db'
+import { db, completeTask, updateTask } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
 import { TaskCard } from '../components/TaskCard'
+import { SwipeableRow } from '../components/SwipeableRow'
+import { DueDatePicker } from '../components/ui/DueDatePicker'
+import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Task } from '../types'
 
 interface Props { navigate: (s: Screen) => void; onAddTask?: (due?: string) => void }
@@ -12,8 +15,10 @@ interface Burst { id: number; x: number; y: number; xp: number }
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 export const CalendarScreen = ({ navigate, onAddTask }: Props) => {
-  const [selected, setSelected] = useState('Today')
-  const [bursts, setBursts]     = useState<Burst[]>([])
+  const [selected,          setSelected]          = useState('Today')
+  const [bursts,            setBursts]            = useState<Burst[]>([])
+  const [expandedReschedule, setExpandedReschedule] = useState<string | null>(null)
+  const [expandedArea,       setExpandedArea]       = useState<string | null>(null)
 
   const tasks = useLiveQuery(() => db.tasks.toArray(), [])
   const cats  = useLiveQuery(() => db.categories.toArray(), []) ?? []
@@ -77,9 +82,14 @@ export const CalendarScreen = ({ navigate, onAddTask }: Props) => {
   return (
     <div className="screen">
       {/* Header */}
-      <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <div className="eyebrow" style={{ marginBottom: 4 }}>Week ahead</div>
-        <h1 className="t-display" style={{ fontSize: 28 }}>Calendar</h1>
+      <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 4 }}>Week ahead</div>
+            <h1 className="t-display" style={{ fontSize: 26 }}>Calendar</h1>
+          </div>
+          <ThemeToggle />
+        </div>
       </div>
 
       {/* Day strip */}
@@ -166,11 +176,60 @@ export const CalendarScreen = ({ navigate, onAddTask }: Props) => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {dayTasks.map(task => (
-              <TaskCard key={task.id} task={task}
-                hue={hueFor(task)}
-                onTap={() => navigate({ name: 'task', taskId: task.id })}
-                onComplete={(e: React.MouseEvent) => handleComplete(e, task)}
-              />
+              <div key={task.id}>
+                <SwipeableRow
+                  disabled={task.done}
+                  onComplete={() => handleComplete({ stopPropagation: () => {}, target: document.body } as unknown as React.MouseEvent, task)}
+                >
+                  <TaskCard task={task}
+                    hue={hueFor(task)}
+                    onTap={() => navigate({ name: 'task', taskId: task.id })}
+                    onComplete={(e: React.MouseEvent) => handleComplete(e, task)}
+                    onRescheduleToggle={(e) => { e.stopPropagation(); setExpandedReschedule(expandedReschedule === task.id ? null : task.id); setExpandedArea(null) }}
+                    onAreaToggle={(e) => { e.stopPropagation(); setExpandedArea(expandedArea === task.id ? null : task.id); setExpandedReschedule(null) }}
+                  />
+                </SwipeableRow>
+
+                {/* Reschedule inline picker */}
+                {expandedReschedule === task.id && (
+                  <div style={{
+                    padding: '10px 12px', background: 'var(--paper-2)',
+                    border: '1px solid var(--rule)', borderTop: 'none',
+                    borderRadius: '0 0 12px 12px', marginTop: -1,
+                  }}>
+                    <DueDatePicker
+                      value={task.due}
+                      onChange={v => { updateTask(task.id, { due: v }); setExpandedReschedule(null) }}
+                    />
+                  </div>
+                )}
+
+                {/* MOVE TO area strip */}
+                {expandedArea === task.id && (
+                  <div style={{
+                    padding: '8px 12px', display: 'flex', gap: 5, overflowX: 'auto',
+                    alignItems: 'center', background: 'var(--paper-2)',
+                    border: '1px solid var(--rule)', borderTop: 'none',
+                    borderRadius: '0 0 12px 12px', marginTop: -1,
+                  }}>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)',
+                      letterSpacing: '0.08em', flexShrink: 0, marginRight: 2,
+                    }}>MOVE TO</span>
+                    {cats.map(c => (
+                      <button key={c.id} onClick={() => { updateTask(task.id, { cat: c.id }); setExpandedArea(null) }} style={{
+                        flexShrink: 0, padding: '5px 10px', borderRadius: 20,
+                        fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                        background: task.cat === c.id ? `hsl(${c.hue},45%,55%)` : 'var(--paper-3)',
+                        color: task.cat === c.id ? 'white' : 'var(--ink-2)',
+                        border: '1px solid var(--rule)', whiteSpace: 'nowrap',
+                      }}>
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}

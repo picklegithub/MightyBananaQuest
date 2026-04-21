@@ -1,20 +1,22 @@
 import React, { useEffect } from 'react'
 import { Icons } from './ui/Icons'
 
-export type FabAction = 'capture' | 'task' | 'journal' | 'pomodoro'
+export type FabAction = 'capture' | 'task' | 'goal' | 'habit' | 'journal' | 'pomodoro'
 
 interface MenuItem {
   action: FabAction
   label: string
   icon: string
-  color?: string
+  accent?: boolean
 }
 
 const ITEMS: MenuItem[] = [
-  { action: 'capture',  label: 'Quick capture', icon: 'bolt'    },
-  { action: 'task',     label: 'New task',       icon: 'plus'    },
-  { action: 'journal',  label: 'Journal entry',  icon: 'journal' },
-  { action: 'pomodoro', label: 'Pomodoro',        icon: 'timer'   },
+  { action: 'capture',  label: 'Quick capture',  icon: 'bolt'    },
+  { action: 'task',     label: 'New task',        icon: 'plus'    },
+  { action: 'goal',     label: 'New goal',        icon: 'target'  },
+  { action: 'habit',    label: 'New habit',       icon: 'flame', accent: true },
+  { action: 'journal',  label: 'Journal entry',   icon: 'journal' },
+  { action: 'pomodoro', label: 'Pomodoro',         icon: 'timer'   },
 ]
 
 interface Props {
@@ -23,7 +25,6 @@ interface Props {
 }
 
 export function FabMenu({ onSelect, onClose }: Props) {
-  // Close on outside tap (escape key too)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
@@ -48,7 +49,7 @@ export function FabMenu({ onSelect, onClose }: Props) {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: 8,
+        gap: 7,
       }}>
         {[...ITEMS].reverse().map((item, i) => {
           const I = Icons[item.icon]
@@ -58,21 +59,21 @@ export function FabMenu({ onSelect, onClose }: Props) {
               onClick={() => { onSelect(item.action); onClose() }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10,
-                padding: '11px 18px 11px 14px',
+                padding: '10px 18px 10px 12px',
                 background: 'var(--paper)', border: '1px solid var(--rule)',
                 borderRadius: 999, boxShadow: 'var(--shadow-2)',
                 fontSize: 13, fontWeight: 500, color: 'var(--ink)',
                 whiteSpace: 'nowrap',
-                animation: `fabMenuItemIn 0.18s ease ${i * 0.04}s both`,
+                animation: `fabMenuItemIn 0.16s ease ${i * 0.035}s both`,
               }}
             >
               <span style={{
                 width: 28, height: 28, borderRadius: '50%',
-                background: 'var(--paper-2)',
+                background: item.accent ? 'var(--warn-soft)' : 'var(--paper-2)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'var(--ink-2)',
+                color: item.accent ? 'var(--warn)' : 'var(--ink-2)',
               }}>
-                <I size={14} />
+                <I size={13} />
               </span>
               {item.label}
             </button>
@@ -83,7 +84,7 @@ export function FabMenu({ onSelect, onClose }: Props) {
       <style>{`
         @keyframes fabMenuItemIn {
           from { opacity: 0; transform: translateY(8px) scale(0.95); }
-          to   { opacity: 1; transform: translateY(0)   scale(1);    }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
         }
       `}</style>
     </>

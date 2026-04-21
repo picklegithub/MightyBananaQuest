@@ -13,6 +13,7 @@ interface Props {
   defaultTitle?: string
   defaultCatId?: string
   defaultDue?: string
+  defaultIsHabit?: boolean
 }
 
 const EFFORT_DISPLAY: Record<EffortKey, { label: string; range: string }> = {
@@ -24,7 +25,7 @@ const EFFORT_DISPLAY: Record<EffortKey, { label: string; range: string }> = {
   xxl: { label: 'Gargantuan', range: '1d+'   },
 }
 
-export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, defaultDue }: Props) {
+export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, defaultDue, defaultIsHabit = false }: Props) {
   const [title,     setTitle]     = useState(defaultTitle)
   const [effort,    setEffort]    = useState<EffortKey>('m')
   const [due,       setDue]       = useState(defaultDue ?? 'Today')
@@ -32,6 +33,7 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
   const [quad,      setQuad]      = useState<QuadKey>('q2')
   const [recurring, setRecurring] = useState<string | null>(null)
   const [notes,     setNotes]     = useState('')
+  const [isHabit,   setIsHabit]   = useState(defaultIsHabit)
 
   const liveCategories = useLiveQuery(() => db.categories.toArray(), [])
   const cats = liveCategories ?? DEFAULT_CATEGORIES
@@ -44,6 +46,7 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
       title: title.trim(),
       cat, effort, due, ctx, quad, recurring,
       notes: notes.trim() || undefined,
+      isHabit: isHabit || undefined,
       done: false, streak: 0, sub: [],
     }
     await addTask(task)
@@ -69,7 +72,7 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
             <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--rule)' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 16, borderBottom: '1px solid var(--rule)' }}>
-            <h2 className="t-display" style={{ fontSize: 20 }}>New Task</h2>
+            <h2 className="t-display" style={{ fontSize: 20 }}>{isHabit ? '🔥 New Habit' : 'New Task'}</h2>
             <button onClick={onClose} style={{ color: 'var(--ink-3)' }}>
               <Icons.close size={20} />
             </button>
@@ -95,6 +98,36 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
               }}
             />
           </div>
+
+          {/* Habit toggle */}
+          <button
+            onClick={() => setIsHabit(h => !h)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '12px 14px', borderRadius: 12,
+              background: isHabit ? 'var(--warn-soft)' : 'var(--paper-2)',
+              border: `1px solid ${isHabit ? 'var(--warn)' : 'var(--rule)'}`,
+              marginTop: -8,
+            }}
+          >
+            <span style={{
+              width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+              background: isHabit ? 'var(--warn)' : 'var(--paper-3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: isHabit ? 'white' : 'var(--ink-3)',
+              transition: 'all .15s',
+            }}>
+              <Icons.flame size={15} />
+            </span>
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: isHabit ? 'var(--warn)' : 'var(--ink)' }}>
+                {isHabit ? 'Habit' : 'Mark as habit'}
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', marginTop: 2, letterSpacing: '0.04em' }}>
+                {isHabit ? 'Tracks check-ins daily · resets each day' : 'Recurring check-in, logs to streak'}
+              </div>
+            </div>
+          </button>
 
           {/* Area */}
           <div>

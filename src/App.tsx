@@ -24,6 +24,8 @@ import { InboxScreen }        from './screens/InboxScreen'
 import { AllTasksScreen }     from './screens/AllTasksScreen'
 import { ScheduleScreen }      from './screens/ScheduleScreen'
 import { WeeklyReviewScreen }  from './screens/WeeklyReviewScreen'
+import { ProgressScreen }      from './screens/ProgressScreen'
+import { OnboardingScreen }    from './screens/OnboardingScreen'
 import { AuthScreen }          from './screens/AuthScreen'
 import type { Screen, AppSettings, Category } from './types'
 
@@ -38,17 +40,20 @@ function applyTheme(settings: AppSettings) {
 }
 
 // ── Nav screens that show BottomNav ───────────────────────────────────────────
-const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar'])
+const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar', 'category'])
 function showsNav(screen: Screen): boolean { return NAV_SCREENS.has(screen.name) }
 function activeTab(screen: Screen): string {
   if (screen.name === 'journal')  return 'journal'
   if (screen.name === 'goals')    return 'goals'
   if (screen.name === 'calendar') return 'calendar'
-  return 'dashboard'
+  return 'dashboard'  // category + dashboard both highlight Today tab
 }
 
 type AuthState = 'loading' | 'authed' | 'unauthed'
 type FabSheet  = 'none' | 'capture' | 'task' | 'goal' | 'menu'
+
+// Label cache for breadcrumbs (populated as screens are pushed)
+const crumbLabelCache = new Map<string, string>()
 
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -58,8 +63,8 @@ export default function App() {
   const [authState,  setAuthState]  = useState<AuthState>('loading')
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done'>('idle')
   const [isOnline,   setIsOnline]   = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true)
-  const [fabSheet,   setFabSheet]   = useState<FabSheet>('none')
-  const [taskPrefill, setTaskPrefill] = useState<{ title?: string; catId?: string; due?: string } | null>(null)
+  const [fabSheet,    setFabSheet]    = useState<FabSheet>('none')
+  const [taskPrefill, setTaskPrefill] = useState<{ title?: string; catId?: string; due?: string; isHabit?: boolean } | null>(null)
 
   const settings   = useLiveQuery(() => db.settings.get(1), [])
   const categories = useLiveQuery(() => db.categories.toArray(), []) as Category[] | undefined
@@ -135,16 +140,29 @@ export default function App() {
   }, [])
 
   // Navigation
-  function navigate(s: Screen)    { setScreenStack(prev => [...prev, s]); window.scrollTo(0, 0) }
+  function navigate(s: Screen) {
+    // Cache task titles for breadcrumb display
+    if (s.name === 'task') {
+      db.tasks.get(s.taskId).then(t => {
+        if (t) crumbLabelCache.set(t.id, t.title.length > 22 ? t.title.slice(0, 22) + '…' : t.title)
+      }).catch(() => {})
+    }
+    setScreenStack(prev => [...prev, s])
+    window.scrollTo(0, 0)
+  }
   function back()                 { setScreenStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev); window.scrollTo(0, 0) }
   function navigateTab(s: Screen) { setScreenStack([s]); window.scrollTo(0, 0) }
 
   // ── FAB logic ─────────────────────────────────────────────────────────────
   function handleFabTap() {
+    if (screen.name === 'category') {
+      // Inside an Area — open quick capture pre-filled with that area
+      openAddTask({ catId: screen.catId })
+      return
+    }
     const tab = activeTab(screen)
     if (tab === 'goals')   { setFabSheet('goal') }
     else if (tab === 'journal') {
-      // If already on journal, do nothing extra — it handles its own entry flow
       if (screen.name !== 'journal') navigate({ name: 'journal' })
     }
     else { setFabSheet('capture') }  // dashboard, calendar
@@ -155,12 +173,14 @@ export default function App() {
   function handleFabMenuSelect(action: FabAction) {
     if (action === 'capture')  { setFabSheet('capture') }
     if (action === 'task')     { setTaskPrefill(null); setFabSheet('task') }
+    if (action === 'goal')     { setFabSheet('goal') }
+    if (action === 'habit')    { setTaskPrefill({ isHabit: true }); setFabSheet('task') }
     if (action === 'journal')  { navigate({ name: 'journal' }) }
     if (action === 'pomodoro') { window.dispatchEvent(new CustomEvent('pom:expand')) }
   }
 
   // Open full task sheet (called from screens that had navigate({name:'add'}))
-  function openAddTask(prefill?: { title?: string; catId?: string; due?: string }) {
+  function openAddTask(prefill?: { title?: string; catId?: string; due?: string; isHabit?: boolean }) {
     setTaskPrefill(prefill ?? null)
     setFabSheet('task')
   }
@@ -206,49 +226,65 @@ export default function App() {
 
       {/* Screen content */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {screen.name === 'dashboard'  && <DashboardScreen navigate={navigate} />}
-        {screen.name === 'task'       && <TaskDetailScreen taskId={screen.taskId} navigate={navigate} back={back} />}
-        {screen.name === 'category'   && (
-          <CategoryScreen
-            catId={screen.catId}
-            navigate={navigate}
-            back={back}
-            onAddTask={() => openAddTask({ catId: screen.catId })}
+
+        {/* ── Crumb bar — visible when stack depth > 1 ── */}
+        {screenStack.length > 1 && (
+          <CrumbBar
+            stack={screenStack}
+            categories={categories ?? []}
+            onNavigateTo={idx => {
+              setScreenStack(prev => prev.slice(0, idx + 1))
+              window.scrollTo(0, 0)
+            }}
           />
         )}
-        {screen.name === 'goals'      && (
-          <GoalsScreen
-            navigate={navigate}
-            onAddTask={() => openAddTask()}
-          />
-        )}
-        {screen.name === 'journal'    && <JournalScreen navigate={navigate} phase={screen.phase} />}
-        {screen.name === 'settings'   && <SettingsScreen navigate={navigate} back={back} />}
-        {screen.name === 'calendar'   && (
-          <CalendarScreen
-            navigate={navigate}
-            onAddTask={(due?: string) => openAddTask(due ? { due } : undefined)}
-          />
-        )}
-        {screen.name === 'inbox'      && (
-          <InboxScreen
-            navigate={navigate}
-            back={back}
-            onAddTask={(title?: string) => openAddTask(title ? { title } : undefined)}
-          />
-        )}
-        {screen.name === 'all-tasks'  && (
-          <AllTasksScreen
-            navigate={navigate}
-            back={back}
-            onAddTask={() => openAddTask()}
-          />
-        )}
-        {screen.name === 'schedule'   && <ScheduleScreen taskId={screen.taskId} navigate={navigate} back={back} />}
-        {screen.name === 'progress'   && <StubScreen title="Progress" back={back} />}
-        {screen.name === 'review'     && <WeeklyReviewScreen navigate={navigate} back={back} />}
-        {screen.name === 'onboarding' && <StubScreen title="Welcome" back={back} />}
-        {screen.name === 'splash'     && <SplashScreen onDone={() => navigateTab({ name: 'dashboard' })} />}
+
+        {/* Screen mount area — flex: 1 so crumb bar takes its space first */}
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          {screen.name === 'dashboard'  && <DashboardScreen navigate={navigate} />}
+          {screen.name === 'task'       && <TaskDetailScreen taskId={screen.taskId} navigate={navigate} back={back} />}
+          {screen.name === 'category'   && (
+            <CategoryScreen
+              catId={screen.catId}
+              navigate={navigate}
+              back={back}
+              onAddTask={() => openAddTask({ catId: screen.catId })}
+            />
+          )}
+          {screen.name === 'goals'      && (
+            <GoalsScreen
+              navigate={navigate}
+              onAddTask={() => openAddTask()}
+            />
+          )}
+          {screen.name === 'journal'    && <JournalScreen navigate={navigate} phase={screen.phase} />}
+          {screen.name === 'settings'   && <SettingsScreen navigate={navigate} back={back} />}
+          {screen.name === 'calendar'   && (
+            <CalendarScreen
+              navigate={navigate}
+              onAddTask={(due?: string) => openAddTask(due ? { due } : undefined)}
+            />
+          )}
+          {screen.name === 'inbox'      && (
+            <InboxScreen
+              navigate={navigate}
+              back={back}
+              onAddTask={(title?: string) => openAddTask(title ? { title } : undefined)}
+            />
+          )}
+          {screen.name === 'all-tasks'  && (
+            <AllTasksScreen
+              navigate={navigate}
+              back={back}
+              onAddTask={() => openAddTask()}
+            />
+          )}
+          {screen.name === 'schedule'   && <ScheduleScreen taskId={screen.taskId} navigate={navigate} back={back} />}
+          {screen.name === 'progress'   && <ProgressScreen navigate={navigate} back={back} />}
+          {screen.name === 'review'     && <WeeklyReviewScreen navigate={navigate} back={back} />}
+          {screen.name === 'onboarding' && <OnboardingScreen onDone={() => navigateTab({ name: 'dashboard' })} />}
+          {screen.name === 'splash'     && <SplashScreen onDone={() => navigateTab(settings?.onboarded ? { name: 'dashboard' } : { name: 'onboarding' })} />}
+        </div>
       </div>
 
       {/* Global Pomodoro */}
@@ -307,6 +343,7 @@ export default function App() {
           defaultTitle={taskPrefill?.title}
           defaultCatId={taskPrefill?.catId}
           defaultDue={taskPrefill?.due}
+          defaultIsHabit={taskPrefill?.isHabit}
         />
       )}
 
@@ -338,6 +375,76 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, opacity: 0.4, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
         Life admin, gamified
       </div>
+    </div>
+  )
+}
+
+// ── Crumb bar ─────────────────────────────────────────────────────────────────
+function crumbLabel(s: Screen, cats: Category[]): string {
+  switch (s.name) {
+    case 'dashboard':  return 'Today'
+    case 'category':   return cats.find(c => c.id === (s as { catId: string }).catId)?.name ?? 'Area'
+    case 'task':       return crumbLabelCache.get((s as { taskId: string }).taskId) ?? 'Task'
+    case 'goals':      return 'Goals'
+    case 'journal':    return 'Journal'
+    case 'calendar':   return 'Calendar'
+    case 'inbox':      return 'Inbox'
+    case 'all-tasks':  return 'All Tasks'
+    case 'settings':   return 'Settings'
+    case 'progress':   return 'Progress'
+    case 'schedule':   return 'Schedule'
+    case 'review':     return 'Review'
+    default:           return s.name
+  }
+}
+
+function CrumbBar({
+  stack, categories, onNavigateTo,
+}: {
+  stack: Screen[]
+  categories: Category[]
+  onNavigateTo: (idx: number) => void
+}) {
+  // Show all ancestors (not the current screen — it shows in its own header)
+  const ancestors = stack.slice(0, -1)
+  if (ancestors.length === 0) return null
+
+  return (
+    <div style={{
+      flexShrink: 0,
+      display: 'flex', alignItems: 'center',
+      padding: '0 18px',
+      height: 30,
+      background: 'var(--paper-2)',
+      borderBottom: '1px solid var(--rule)',
+      gap: 4,
+      overflowX: 'auto',
+    }}>
+      {ancestors.map((s, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && (
+            <span style={{ color: 'var(--ink-4)', fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0 }}>›</span>
+          )}
+          <button
+            onClick={() => onNavigateTo(i)}
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
+              color: 'var(--ink-3)', whiteSpace: 'nowrap', flexShrink: 0,
+              padding: '2px 4px', borderRadius: 4,
+              transition: 'color .1s',
+            }}
+            onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--ink)' }}
+            onMouseLeave={e => { (e.target as HTMLElement).style.color = 'var(--ink-3)' }}
+          >
+            {crumbLabel(s, categories)}
+          </button>
+        </React.Fragment>
+      ))}
+      {/* Current screen label (non-tappable) */}
+      <span style={{ color: 'var(--ink-4)', fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0 }}>›</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-2)', fontWeight: 600, letterSpacing: '0.05em', whiteSpace: 'nowrap', flexShrink: 0 }}>
+        {crumbLabel(stack[stack.length - 1], categories)}
+      </span>
     </div>
   )
 }

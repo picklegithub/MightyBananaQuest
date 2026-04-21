@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addTask } from '../data/db'
 import { EFFORT_ORDER } from '../constants'
 import { Icons } from './ui/Icons'
+import { parseNL, nlSummary } from '../lib/nlParse'
 import type { Task } from '../types'
 
 interface Props {
@@ -12,35 +13,74 @@ interface Props {
   defaultTitle?: string               // pre-fill title (e.g. from Inbox)
 }
 
+// ── Web Speech API types ──────────────────────────────────────────────────────
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList
+}
+interface SpeechRecognitionInstance extends EventTarget {
+  lang: string
+  interimResults: boolean
+  maxAlternatives: number
+  onresult: ((e: SpeechRecognitionEvent) => void) | null
+  onerror: (() => void) | null
+  onend: (() => void) | null
+  start(): void
+  stop(): void
+}
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognitionInstance
+    webkitSpeechRecognition: new () => SpeechRecognitionInstance
+  }
+}
+
 export function QuickCaptureSheet({ onClose, onExpand, defaultCatId, defaultTitle }: Props) {
-  const [title,  setTitle]  = useState(defaultTitle ?? '')
-  const [effort, setEffort] = useState<string>('s')
-  const [catId,  setCatId]  = useState<string | null>(defaultCatId ?? null)
-  const [saved,  setSaved]  = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const [title,     setTitle]     = useState(defaultTitle ?? '')
+  const [effort,    setEffort]    = useState<string>('s')
+  const [catId,     setCatId]     = useState<string | null>(defaultCatId ?? null)
+  const [saved,     setSaved]     = useState(false)
+  const [listening, setListening] = useState(false)
+  const [micError,  setMicError]  = useState(false)
+  const inputRef  = useRef<HTMLInputElement>(null)
+  const recognRef = useRef<SpeechRecognitionInstance | null>(null)
+
+  const categories = useLiveQuery(() => db.categories.toArray(), []) ?? []
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 80) }, [])
+  useEffect(() => () => { recognRef.current?.stop() }, [])
 
-  function reset() { setTitle(''); setEffort('s'); setCatId(null); setSaved(false) }
+  // ── NL parse on every title change ───────────────────────────────────────
+  const parsed  = title.trim() ? parseNL(title, categories) : null
+  const summary = parsed && categories ? nlSummary(parsed, categories) : ''
+
+  // Auto-apply parsed area and effort to pickers (non-destructive)
+  useEffect(() => {
+    if (!parsed) return
+    if (parsed.catId && !defaultCatId) setCatId(parsed.catId)
+    if (parsed.effort)                 setEffort(parsed.effort)
+  }, [parsed?.catId, parsed?.effort])
+
+  function reset() { setTitle(''); setEffort('s'); setCatId(defaultCatId ?? null); setSaved(false) }
 
   async function handleCapture() {
     const trimmed = title.trim()
     if (!trimmed) return
 
-    // All captures create a real task. No area → cat:'inbox' (unassigned)
+    // Merge NL parse with manual picker state
+    const p = parseNL(trimmed, categories)
+
     const task: Task = {
-      id: `t${Date.now()}`,
-      title: trimmed,
-      cat: catId ?? 'inbox',
-      effort: effort as Task['effort'],
-      due: catId ? 'Today' : '',
-      ctx: '@anywhere',
-      quad: 'q2',
+      id:        `t${Date.now()}`,
+      title:     p.title || trimmed,
+      cat:       catId ?? p.catId ?? 'inbox',
+      effort:    (p.effort ?? effort) as Task['effort'],
+      due:       p.due ?? (catId ? 'Today' : ''),
+      ctx:       '@anywhere',
+      quad:      p.quad ?? 'q2',
       recurring: null,
-      done: false,
-      streak: 0,
-      sub: [],
+      done:      false,
+      streak:    0,
+      sub:       [],
     }
     await addTask(task)
 
@@ -48,7 +88,37 @@ export function QuickCaptureSheet({ onClose, onExpand, defaultCatId, defaultTitl
     setTimeout(() => { reset(); onClose() }, 600)
   }
 
-  const selectedCat  = catId ? categories?.find(c => c.id === catId) : null
+  // ── Voice input ───────────────────────────────────────────────────────────
+  function toggleVoice() {
+    setMicError(false)
+    const SR: (new () => SpeechRecognitionInstance) | undefined = window.SpeechRecognition ?? window.webkitSpeechRecognition
+    if (!SR) { setMicError(true); return }
+
+    if (listening) {
+      recognRef.current?.stop()
+      setListening(false)
+      return
+    }
+
+    const recog: SpeechRecognitionInstance = new SR()
+    recog.lang        = 'en-AU'
+    recog.interimResults = false
+    recog.maxAlternatives = 1
+
+    recog.onresult = (e: SpeechRecognitionEvent) => {
+      const transcript = e.results[0][0].transcript
+      setTitle(transcript)
+      setListening(false)
+    }
+    recog.onerror = () => { setListening(false); setMicError(true) }
+    recog.onend   = () => setListening(false)
+
+    recognRef.current = recog
+    recog.start()
+    setListening(true)
+  }
+
+  const selectedCat  = catId ? categories.find(c => c.id === catId) : null
   const destination  = selectedCat ? selectedCat.name : 'Inbox'
   const effortLabels: Record<string, string> = {
     xs: '5m', s: '15m', m: '1h', l: '2h', xl: '6h', xxl: '1d',
@@ -75,24 +145,54 @@ export function QuickCaptureSheet({ onClose, onExpand, defaultCatId, defaultTitl
               → {destination.toUpperCase()}
             </div>
           </div>
-          <button onClick={onClose} style={{ color: 'var(--ink-3)' }}>
-            <Icons.close size={20} />
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {/* Voice button */}
+            <button
+              onClick={toggleVoice}
+              title={listening ? 'Stop listening' : 'Voice input'}
+              style={{
+                width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: listening ? 'var(--warn)' : 'var(--paper-2)',
+                color:      listening ? 'white' : micError ? 'var(--warn)' : 'var(--ink-3)',
+                border: `1px solid ${listening ? 'var(--warn)' : 'var(--rule)'}`,
+                animation: listening ? 'pulse 1.2s ease-in-out infinite' : 'none',
+              }}
+            >
+              <Icons.mic size={16} />
+            </button>
+            <button onClick={onClose} style={{ color: 'var(--ink-3)' }}>
+              <Icons.close size={20} />
+            </button>
+          </div>
         </div>
 
-        {/* Title */}
-        <input
-          ref={inputRef}
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && title.trim() && handleCapture()}
-          placeholder="What needs doing?"
-          style={{
-            width: '100%', padding: '13px 16px', borderRadius: 12,
-            border: '1px solid var(--rule)', background: 'var(--paper-2)',
-            fontSize: 15, color: 'var(--ink)', marginBottom: 14,
-          }}
-        />
+        {/* Title + NL hint */}
+        <div style={{ position: 'relative', marginBottom: summary ? 6 : 14 }}>
+          <input
+            ref={inputRef}
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && title.trim() && handleCapture()}
+            placeholder={listening ? '🎙 Listening…' : 'What needs doing? Try "call dentist tomorrow #health"'}
+            style={{
+              width: '100%', padding: '13px 16px', borderRadius: 12,
+              border: `1px solid ${listening ? 'var(--warn)' : 'var(--rule)'}`,
+              background: 'var(--paper-2)',
+              fontSize: 15, color: 'var(--ink)',
+              transition: 'border-color .15s',
+            }}
+          />
+        </div>
+
+        {/* NL parse summary */}
+        {summary && (
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)',
+            letterSpacing: '0.06em', marginBottom: 12, paddingLeft: 4,
+          }}>
+            ✦ {summary}
+          </div>
+        )}
 
         {/* Effort — compact pill row */}
         <div style={{ display: 'flex', gap: 5, marginBottom: 14 }}>
@@ -110,7 +210,7 @@ export function QuickCaptureSheet({ onClose, onExpand, defaultCatId, defaultTitl
         </div>
 
         {/* Area — optional */}
-        {categories && categories.length > 0 && (
+        {categories.length > 0 && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.1em', marginBottom: 8 }}>
               AREA (OPTIONAL)
@@ -129,6 +229,13 @@ export function QuickCaptureSheet({ onClose, onExpand, defaultCatId, defaultTitl
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* mic error nudge */}
+        {micError && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--warn)', marginBottom: 10, letterSpacing: '0.04em' }}>
+            Voice input isn't available in this browser.
           </div>
         )}
 

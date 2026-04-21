@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, saveJournalEntry } from '../data/db'
 import { Icons } from '../components/ui/Icons'
+import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, JournalEntry } from '../types'
 
 // ── Quote pools ───────────────────────────────────────────────────────────────
@@ -112,17 +113,19 @@ export const JournalScreen = ({ phase: initPhase }: Props) => {
             <div className="eyebrow" style={{ marginBottom: 4 }}>Daily Reflection</div>
             <h1 className="t-display" style={{ fontSize: 28 }}>Journal</h1>
           </div>
-          {streak > 0 && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              fontFamily: 'var(--font-mono)', fontSize: 12,
-              color: 'var(--warn)', paddingTop: 8,
-            }}>
-              <Icons.flame size={16} />
-              <span style={{ fontWeight: 600 }}>{streak}</span>
-              <span style={{ color: 'var(--ink-3)', fontSize: 10 }}>day streak</span>
-            </div>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 4 }}>
+            {streak > 0 && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--warn)',
+              }}>
+                <Icons.flame size={15} />
+                <span style={{ fontWeight: 600 }}>{streak}</span>
+                <span style={{ color: 'var(--ink-3)', fontSize: 10 }}>d</span>
+              </div>
+            )}
+            <ThemeToggle />
+          </div>
         </div>
 
         {/* Today's completion status */}
