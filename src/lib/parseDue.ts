@@ -18,6 +18,7 @@ import * as chrono from 'chrono-node'
 export interface ParsedDue {
   due: string        // 'Today' | 'Tomorrow' | 'YYYY-MM-DD'
   recurring: string | null
+  time?: string      // 'HH:MM' 24-hour, only when explicitly typed
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -150,6 +151,19 @@ function detectRecurrence(raw: string): RecurResult | null {
   return null
 }
 
+// ── Time extraction ───────────────────────────────────────────────────────────
+
+function extractTime(raw: string): string | undefined {
+  const results = chrono.parse(raw)
+  if (results.length > 0 && results[0].start.isCertain('hour')) {
+    const s = results[0].start
+    const h = s.get('hour') ?? 0
+    const m = s.get('minute') ?? 0
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  }
+  return undefined
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function parseDue(raw: string): ParsedDue {
@@ -159,30 +173,42 @@ export function parseDue(raw: string): ParsedDue {
     return { due: 'Today', recurring: null }
   }
 
+  const time = extractTime(trimmed)
+
   // Check for recurrence first
   const recur = detectRecurrence(trimmed)
   if (recur) {
     const due = recur.startDate ? dateLabel(recur.startDate) : 'Today'
-    return { due, recurring: recur.recurring }
+    return { due, recurring: recur.recurring, time }
   }
 
   // No recurrence — try chrono for one-off date
   const parsed = chrono.parseDate(trimmed)
   if (parsed) {
-    return { due: dateLabel(parsed), recurring: null }
+    return { due: dateLabel(parsed), recurring: null, time }
   }
 
   // Fallback — return as-is label
-  return { due: trimmed, recurring: null }
+  return { due: trimmed, recurring: null, time }
 }
 
 // ── Human-readable summary for UI preview ────────────────────────────────────
 
-export function dueSummary(due: string, recurring: string | null): string {
+export function formatTime(t: string): string {
+  const [hStr, mStr] = t.split(':')
+  const h = parseInt(hStr, 10)
+  const m = parseInt(mStr, 10)
+  const ampm = h >= 12 ? 'pm' : 'am'
+  const h12 = h % 12 || 12
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2, '0')}${ampm}`
+}
+
+export function dueSummary(due: string, recurring: string | null, time?: string): string {
   const parts: string[] = []
-  if (due && due !== 'Today') parts.push(due)
-  if (recurring)              parts.push(recurring)
-  if (parts.length === 0)     return 'Today'
+  if (due) parts.push(due === 'Today' ? 'Today' : formatDueLabel(due))
+  if (time) parts.push(formatTime(time))
+  if (recurring) parts.push(recurring)
+  if (parts.length === 0) return 'No date'
   return parts.join(' · ')
 }
 

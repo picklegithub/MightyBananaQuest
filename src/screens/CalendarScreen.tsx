@@ -5,7 +5,7 @@ import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
 import { TaskCard } from '../components/TaskCard'
 import { SwipeableRow } from '../components/SwipeableRow'
-import { DueDatePicker } from '../components/ui/DueDatePicker'
+import { UnifiedDuePicker } from '../components/ui/UnifiedDuePicker'
 import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Task } from '../types'
 
@@ -197,9 +197,11 @@ export const CalendarScreen = ({ navigate, onAddTask }: Props) => {
                     border: '1px solid var(--rule)', borderTop: 'none',
                     borderRadius: '0 0 12px 12px', marginTop: -1,
                   }}>
-                    <DueDatePicker
-                      value={task.due}
-                      onChange={v => { updateTask(task.id, { due: v }); setExpandedReschedule(null) }}
+                    <UnifiedDuePicker
+                      due={task.due}
+                      recurring={task.recurring ?? null}
+                      time={task.time}
+                      onChange={(d, r, t) => { updateTask(task.id, { due: d, recurring: r, time: t }); setExpandedReschedule(null) }}
                     />
                   </div>
                 )}

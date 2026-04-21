@@ -4,8 +4,7 @@ import { db } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { EFFORT } from '../constants'
 import { EffortPip } from '../components/ui'
-import { DueDatePicker } from '../components/ui/DueDatePicker'
-import { RecurringPicker } from '../components/ui/RecurringPicker'
+import { UnifiedDuePicker } from '../components/ui/UnifiedDuePicker'
 import type { Screen } from '../types'
 
 interface Props {
@@ -19,6 +18,7 @@ export const ScheduleScreen = ({ taskId, navigate, back }: Props) => {
   const settings = useLiveQuery(() => db.settings.get(1), [])
 
   const [due,       setDue]       = useState(task?.due ?? 'Today')
+  const [time,      setTime]      = useState<string | undefined>(task?.time)
   const [recurring, setRecurring] = useState<string | null>(task?.recurring ?? null)
   const [pomMins,   setPomMins]   = useState(task?.pomodoroMins ?? settings?.defaultPomodoroMins ?? 25)
   const [saved,     setSaved]     = useState(false)
@@ -28,7 +28,7 @@ export const ScheduleScreen = ({ taskId, navigate, back }: Props) => {
   const e = EFFORT[task.effort]
 
   async function handleSave() {
-    await db.tasks.update(taskId, { due, recurring, pomodoroMins: pomMins })
+    await db.tasks.update(taskId, { due, time, recurring, pomodoroMins: pomMins })
     setSaved(true)
     setTimeout(back, 900)
   }
@@ -51,16 +51,15 @@ export const ScheduleScreen = ({ taskId, navigate, back }: Props) => {
           <EffortPip effort={task.effort} mono />
         </div>
 
-        {/* Due date — smart presets */}
+        {/* Due date + recurrence */}
         <div style={{ marginBottom: 24 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>Due date</div>
-          <DueDatePicker value={due} onChange={setDue} />
-        </div>
-
-        {/* Recurring — calendar-first picker */}
-        <div style={{ marginBottom: 24 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>Repeat</div>
-          <RecurringPicker value={recurring} onChange={setRecurring} />
+          <div className="eyebrow" style={{ marginBottom: 10 }}>Due date &amp; repeat</div>
+          <UnifiedDuePicker
+            due={due}
+            recurring={recurring}
+            time={time}
+            onChange={(d, r, t) => { setDue(d); setRecurring(r); setTime(t) }}
+          />
         </div>
 
         {/* Pomodoro override */}

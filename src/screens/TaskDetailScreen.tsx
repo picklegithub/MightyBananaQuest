@@ -5,6 +5,7 @@ import { EFFORT, QUAD, EFFORT_ORDER } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
 import { UnifiedDuePicker } from '../components/ui/UnifiedDuePicker'
+import { formatTime, formatDueLabel } from '../lib/parseDue'
 import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Task, EffortKey, QuadKey } from '../types'
 
@@ -415,12 +416,13 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             onClick={() => toggleField('effort')}
           />
 
-          {/* Due + Repeat */}
+          {/* Due + Time + Repeat */}
           <Pill
-            label={task.recurring
-              ? `${task.due || 'No date'} · ${task.recurring}`
-              : (task.due || 'No date')
-            }
+            label={[
+              task.due ? formatDueLabel(task.due) : 'No date',
+              task.time ? formatTime(task.time) : null,
+              task.recurring ?? null,
+            ].filter(Boolean).join(' · ')}
             active={editingField === 'due'}
             accent={task.due === 'Today'}
             warn={task.due === 'Overdue'}
@@ -477,7 +479,8 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             <UnifiedDuePicker
               due={task.due}
               recurring={task.recurring}
-              onChange={(d, r) => { save({ due: d, recurring: r }); setEditingField(null) }}
+              time={task.time}
+              onChange={(d, r, t) => { save({ due: d, recurring: r, time: t }); setEditingField(null) }}
             />
           </div>
         )}

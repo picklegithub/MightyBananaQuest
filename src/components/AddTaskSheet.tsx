@@ -27,6 +27,7 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
   const [title,     setTitle]     = useState(defaultTitle)
   const [effort,    setEffort]    = useState<EffortKey>('m')
   const [due,       setDue]       = useState(defaultDue ?? 'Today')
+  const [time,      setTime]      = useState<string | undefined>(undefined)
   const [ctx,       setCtx]       = useState('@anywhere')
   const [quad,      setQuad]      = useState<QuadKey>('q2')
   const [recurring, setRecurring] = useState<string | null>(null)
@@ -42,7 +43,7 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
     const task: Task = {
       id: `t${Date.now()}`,
       title: title.trim(),
-      cat, effort, due, ctx, quad, recurring,
+      cat, effort, due, time, ctx, quad, recurring,
       notes: notes.trim() || undefined,
       isHabit: isHabit || undefined,
       done: false, streak: 0, sub: [],
@@ -172,7 +173,8 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
             <UnifiedDuePicker
               due={due}
               recurring={recurring}
-              onChange={(d, r) => { setDue(d); setRecurring(r) }}
+              time={time}
+              onChange={(d, r, t) => { setDue(d); setRecurring(r); setTime(t) }}
             />
           </div>
 

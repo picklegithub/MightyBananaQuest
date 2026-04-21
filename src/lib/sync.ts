@@ -37,6 +37,8 @@ function taskToRow(task: Task, userId: string) {
     recurring:     task.recurring,
     done:          task.done,
     sub:           task.sub,
+    is_habit:      task.isHabit ?? null,
+    status:        task.status ?? null,
     pomodoro_mins: task.pomodoroMins ?? null,
     time:          task.time ?? null,
     notes:         task.notes ?? null,
@@ -59,6 +61,8 @@ function rowToTask(row: Record<string, unknown>): Task {
     recurring:    (row.recurring as string | null) ?? null,
     done:         (row.done as boolean) ?? false,
     sub:          (row.sub as Task['sub']) ?? [],
+    isHabit:      (row.is_habit as boolean | undefined) ?? undefined,
+    status:       (row.status as Task['status'] | undefined) ?? undefined,
     pomodoroMins: (row.pomodoro_mins as number | undefined) ?? undefined,
     time:         (row.time as string | undefined) ?? undefined,
     notes:        (row.notes as string | undefined) ?? undefined,
@@ -110,6 +114,7 @@ function journalToRow(entry: JournalEntry, userId: string) {
     diff:       entry.diff ?? null,
     lesson:     entry.lesson ?? null,
     tomorrow:   entry.tomorrow ?? null,
+    notes:      entry.notes ?? null,
     updated_at: now(),
   }
 }
@@ -126,6 +131,7 @@ function rowToJournal(row: Record<string, unknown>): JournalEntry {
     diff:       (row.diff as string | undefined) ?? undefined,
     lesson:     (row.lesson as string | undefined) ?? undefined,
     tomorrow:   (row.tomorrow as string | undefined) ?? undefined,
+    notes:      (row.notes as string | undefined) ?? undefined,
   }
 }
 
