@@ -16,6 +16,7 @@ const Icon = ({ d, size = 18, fill = 'none', stroke, sw = 1.5, style }: IconProp
 
 export const Icons: Record<string, (p: IconProps) => JSX.Element> = {
   plus:      (p) => <Icon {...p} d="M12 5v14M5 12h14" />,
+  cart:      (p) => <Icon {...p} d={<><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></>} />,
   check:     (p) => <Icon {...p} d="M5 12.5l4.5 4.5L19 7.5" />,
   arrow:     (p) => <Icon {...p} d="M5 12h14M13 6l6 6-6 6" />,
   back:      (p) => <Icon {...p} d="M19 12H5M11 6l-6 6 6 6" />,

@@ -1,6 +1,9 @@
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, completeTask, addCategory, deleteCategory, updateTask } from '../data/db'
+
+// Feature flag — disable by setting localStorage key 'shopping_list_enabled' to 'false'
+const SHOPPING_LIST_ENABLED = localStorage.getItem('shopping_list_enabled') !== 'false'
 import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ThemeToggle } from '../components/ThemeToggle'
@@ -136,6 +139,10 @@ export const DashboardScreen = ({ navigate }: Props) => {
     () => db.tasks.where('cat').equals('inbox').filter(t => !t.done).count(),
     []
   )
+  const shoppingUnchecked = useLiveQuery(
+    () => db.shoppingItems.filter(i => !i.checked).count(),
+    []
+  )
 
   const { pullRatio, isPulling, containerProps } = usePullToRefresh(triggerSync, 72)
 
@@ -259,6 +266,44 @@ export const DashboardScreen = ({ navigate }: Props) => {
                 )}
               </div>
             </button>
+
+            {/* ── Shopping List card ── */}
+            {SHOPPING_LIST_ENABLED && (
+              <button
+                onClick={() => navigate({ name: 'shopping-list' })}
+                style={{
+                  padding: '12px 10px', borderRadius: 12, textAlign: 'left',
+                  background: 'var(--paper-2)', border: '1px solid var(--rule)',
+                  display: 'flex', flexDirection: 'column', gap: 8, position: 'relative',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ color: `hsl(140, 45%, 38%)` }}>
+                    <Icons.cart size={16} />
+                  </div>
+                  {(shoppingUnchecked ?? 0) > 0 && (
+                    <span style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 9, color: 'white', letterSpacing: '0.06em',
+                      background: `hsl(140, 45%, 38%)`, borderRadius: 10, padding: '1px 6px', fontWeight: 600,
+                    }}>
+                      {shoppingUnchecked}
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4 }}>Shopping</div>
+                  {(shoppingUnchecked ?? 0) > 0 ? (
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.04em' }}>
+                      {shoppingUnchecked} to get
+                    </div>
+                  ) : (
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.04em' }}>
+                      all clear
+                    </div>
+                  )}
+                </div>
+              </button>
+            )}
 
             {/* ── Area cards ── */}
             {cats.map((cat: Category) => {

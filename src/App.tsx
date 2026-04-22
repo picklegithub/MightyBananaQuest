@@ -29,6 +29,7 @@ import { WeeklyReviewScreen }  from './screens/WeeklyReviewScreen'
 import { ProgressScreen }      from './screens/ProgressScreen'
 import { OnboardingScreen }    from './screens/OnboardingScreen'
 import { AuthScreen }          from './screens/AuthScreen'
+import { ShoppingListScreen }  from './screens/ShoppingListScreen'
 import type { Screen, AppSettings, Category } from './types'
 
 // ── Theme application ─────────────────────────────────────────────────────────
@@ -289,9 +290,10 @@ export default function App() {
           )}
           {screen.name === 'schedule'   && <ScheduleScreen taskId={screen.taskId} navigate={navigate} back={back} />}
           {screen.name === 'progress'   && <ProgressScreen navigate={navigate} back={back} />}
-          {screen.name === 'review'     && <WeeklyReviewScreen navigate={navigate} back={back} />}
-          {screen.name === 'onboarding' && <OnboardingScreen onDone={() => navigateTab({ name: 'dashboard' })} />}
-          {screen.name === 'splash'     && <SplashScreen onDone={() => navigateTab(settings?.onboarded ? { name: 'dashboard' } : { name: 'onboarding' })} />}
+          {screen.name === 'review'         && <WeeklyReviewScreen navigate={navigate} back={back} />}
+          {screen.name === 'shopping-list'  && <ShoppingListScreen back={back} />}
+          {screen.name === 'onboarding'     && <OnboardingScreen onDone={() => navigateTab({ name: 'dashboard' })} />}
+          {screen.name === 'splash'         && <SplashScreen onDone={() => navigateTab(settings?.onboarded ? { name: 'dashboard' } : { name: 'onboarding' })} />}
         </div>
       </div>
 
@@ -397,8 +399,9 @@ function crumbLabel(s: Screen, cats: Category[]): string {
     case 'journal':    return 'Journal'
     case 'calendar':   return 'Calendar'
     case 'inbox':      return 'Inbox'
-    case 'all-tasks':  return 'All Tasks'
-    case 'settings':   return 'Settings'
+    case 'all-tasks':      return 'All Tasks'
+    case 'shopping-list':  return 'Shopping List'
+    case 'settings':       return 'Settings'
     case 'progress':   return 'Progress'
     case 'schedule':   return 'Schedule'
     case 'review':     return 'Review'

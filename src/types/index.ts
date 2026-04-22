@@ -137,6 +137,18 @@ export interface WeeklyReview {
   updatedAt?: number
 }
 
+// ── Shopping item ─────────────────────────────────────────────────────────────
+export interface ShoppingItem {
+  id: string
+  title: string
+  category: string   // user-defined grouping label (e.g. "Produce", "Dairy")
+  checked: boolean
+  quantity?: string  // free-form: "2", "500g", "a bunch of"
+  notes?: string
+  createdAt: number
+  updatedAt: number
+}
+
 // ── Navigation ───────────────────────────────────────────────────────────────
 export type Screen =
   | { name: 'splash' }
@@ -154,3 +166,4 @@ export type Screen =
   | { name: 'all-tasks' }
   | { name: 'inbox' }
   | { name: 'settings' }
+  | { name: 'shopping-list' }

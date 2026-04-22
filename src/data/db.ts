@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { Task, Category, Goal, JournalEntry, InboxItem, AppSettings, WeeklyReview } from '../types'
+import type { Task, Category, Goal, JournalEntry, InboxItem, AppSettings, WeeklyReview, ShoppingItem } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS, EFFORT } from '../constants'
 import { SEED_TASKS, SEED_GOALS, SEED_JOURNAL, SEED_INBOX } from './seeds'
 import {
@@ -25,15 +25,16 @@ export interface DeletedTask {
 }
 
 export class LifeAdminDB extends Dexie {
-  tasks!:         Table<Task>
-  categories!:    Table<Category>
-  goals!:         Table<Goal>
-  journal!:       Table<JournalEntry>
-  inbox!:         Table<InboxItem>
-  settings!:      Table<AppSettings>
-  habitLog!:      Table<HabitLog>
-  weeklyReviews!: Table<WeeklyReview>
-  deletedTasks!:  Table<DeletedTask>
+  tasks!:          Table<Task>
+  categories!:     Table<Category>
+  goals!:          Table<Goal>
+  journal!:        Table<JournalEntry>
+  inbox!:          Table<InboxItem>
+  settings!:       Table<AppSettings>
+  habitLog!:       Table<HabitLog>
+  weeklyReviews!:  Table<WeeklyReview>
+  deletedTasks!:   Table<DeletedTask>
+  shoppingItems!:  Table<ShoppingItem>
 
   constructor() {
     super('LifeAdminDB')
@@ -99,6 +100,19 @@ export class LifeAdminDB extends Dexie {
       habitLog:      'id, taskId, date',
       weeklyReviews: 'id, weekStart, completedAt',
       deletedTasks:  'id, deletedAt',
+    })
+    // Version 7 adds shopping list — separate store, no FK to tasks
+    this.version(7).stores({
+      tasks:         'id, cat, due, done, effort, quad, createdAt, isHabit, status',
+      categories:    'id',
+      goals:         'id, area',
+      journal:       'id, date, kind',
+      inbox:         'id, kind, processed',
+      settings:      'id',
+      habitLog:      'id, taskId, date',
+      weeklyReviews: 'id, weekStart, completedAt',
+      deletedTasks:  'id, deletedAt',
+      shoppingItems: 'id, category, createdAt',
     })
   }
 }
@@ -353,6 +367,27 @@ export async function saveJournalEntry(entry: JournalEntry) {
 export async function saveInboxItem(item: InboxItem) {
   await db.inbox.put(item)
   pushInbox(item)
+}
+
+// ── Shopping list helpers ─────────────────────────────────────────────────────
+export async function addShoppingItem(item: Omit<ShoppingItem, 'id' | 'createdAt' | 'updatedAt'>): Promise<ShoppingItem> {
+  const now = Date.now()
+  const full: ShoppingItem = { ...item, id: `s${now}`, createdAt: now, updatedAt: now }
+  await db.shoppingItems.add(full)
+  return full
+}
+
+export async function updateShoppingItem(id: string, patch: Partial<ShoppingItem>) {
+  await db.shoppingItems.update(id, { ...patch, updatedAt: Date.now() })
+}
+
+export async function deleteShoppingItem(id: string) {
+  await db.shoppingItems.delete(id)
+}
+
+export async function deleteCheckedShoppingItems() {
+  const checked = await db.shoppingItems.filter(i => i.checked).primaryKeys()
+  await db.shoppingItems.bulkDelete(checked)
 }
 
 // ── Helper: nuclear reset — wipe everything and re-seed ──────────────────────
