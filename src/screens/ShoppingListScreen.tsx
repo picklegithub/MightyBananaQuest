@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addShoppingItem, updateShoppingItem, deleteShoppingItem, deleteCheckedShoppingItems } from '../data/db'
 import { Icons } from '../components/ui/Icons'
+import { ThemeToggle } from '../components/ThemeToggle'
 import type { ShoppingItem, Screen } from '../types'
 
 // ── Add / Edit item sheet ─────────────────────────────────────────────────────
@@ -302,6 +303,7 @@ export function ShoppingListScreen({ back, navigate }: Props) {
                   CLEAR DONE
                 </button>
               )}
+              <ThemeToggle />
               {navigate && (
                 <button onClick={() => navigate({ name: 'settings' } as Screen)} style={{ color: 'var(--ink-2)' }}>
                   <Icons.settings size={20} />

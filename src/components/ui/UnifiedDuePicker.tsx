@@ -9,7 +9,7 @@
  * Three chip rows below let you tap-select without typing.
  */
 
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { parseDue, dueSummary, formatDueLabel, formatTime } from '../../lib/parseDue'
 
 export interface ScheduleValue {
@@ -48,10 +48,11 @@ const TIME_PRESETS = [
   { label: '12:00 PM', value: '12:00' },
   { label: '2:00 PM',  value: '14:00' },
   { label: '5:00 PM',  value: '17:00' },
+  { label: '8:00 PM',  value: '20:00' },
 ]
 
-// Full hour list for custom wheel (6am–10pm)
-const CUSTOM_HOURS = [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]
+// Full hour list for custom wheel (6am–11pm)
+const CUSTOM_HOURS = [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]
 const CUSTOM_MINUTES: { label: string; value: string }[] = [
   { label: ':00', value: '00' },
   { label: ':15', value: '15' },
@@ -109,6 +110,98 @@ const row: React.CSSProperties = {
 
 const scrollRow: React.CSSProperties = {
   display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2,
+}
+
+// ── iPhone-style scroll wheel picker ─────────────────────────────────────────
+
+const ITEM_H = 44
+
+function WheelPicker<T extends string | number>({
+  items, value, onChange,
+}: {
+  items: { label: string; value: T }[]
+  value: T | null
+  onChange: (v: T) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const PADDING = 2 // visible rows above/below centre
+
+  // Scroll to selected value
+  useEffect(() => {
+    if (!scrollRef.current) return
+    const idx = items.findIndex(i => i.value === value)
+    if (idx >= 0) {
+      scrollRef.current.scrollTop = idx * ITEM_H
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+
+  function handleScroll() {
+    if (!scrollRef.current) return
+    if (debounce.current) clearTimeout(debounce.current)
+    debounce.current = setTimeout(() => {
+      if (!scrollRef.current) return
+      const idx = Math.round(scrollRef.current.scrollTop / ITEM_H)
+      const clamped = Math.max(0, Math.min(items.length - 1, idx))
+      if (items[clamped].value !== value) onChange(items[clamped].value)
+    }, 80)
+  }
+
+  const containerH = (PADDING * 2 + 1) * ITEM_H
+
+  return (
+    <div ref={ref} style={{ position: 'relative', height: containerH, overflow: 'hidden', minWidth: 70 }}>
+      {/* Centre highlight band */}
+      <div style={{
+        position: 'absolute', top: PADDING * ITEM_H, height: ITEM_H,
+        left: 0, right: 0,
+        background: 'var(--paper-3)',
+        borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)',
+        pointerEvents: 'none', zIndex: 1,
+      }} />
+      {/* Scrollable track */}
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        style={{
+          height: '100%', overflowY: 'scroll',
+          scrollSnapType: 'y mandatory',
+          scrollbarWidth: 'none',
+          // hide webkit scrollbar
+          msOverflowStyle: 'none',
+        } as React.CSSProperties}
+      >
+        {/* Top padding */}
+        {Array.from({ length: PADDING }).map((_, i) => (
+          <div key={`tp-${i}`} style={{ height: ITEM_H, scrollSnapAlign: 'center' }} />
+        ))}
+        {items.map(item => (
+          <div key={String(item.value)} style={{
+            height: ITEM_H, scrollSnapAlign: 'center',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 15,
+            fontWeight: item.value === value ? 600 : 400,
+            color: item.value === value ? 'var(--ink)' : 'var(--ink-3)',
+            fontFamily: 'var(--font-mono)',
+            userSelect: 'none',
+          }}>
+            {item.label}
+          </div>
+        ))}
+        {/* Bottom padding */}
+        {Array.from({ length: PADDING }).map((_, i) => (
+          <div key={`bp-${i}`} style={{ height: ITEM_H, scrollSnapAlign: 'center' }} />
+        ))}
+      </div>
+      {/* Fade overlay top + bottom */}
+      <div style={{
+        position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2,
+        background: 'linear-gradient(to bottom, var(--paper) 0%, transparent 35%, transparent 65%, var(--paper) 100%)',
+      }} />
+    </div>
+  )
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -278,13 +371,13 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
         </div>
       </div>
 
-      {/* TIME — reminder time presets + custom wheel */}
+      {/* TIME — due time presets + custom iPhone-style wheel */}
       <div>
-        <div style={sectionLabel}>Reminder time</div>
+        <div style={sectionLabel}>Due time</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {/* Preset row */}
           <div style={scrollRow}>
-            <button onClick={() => { clearTime(); setShowCustomTime(false) }} style={chip(!time)}>
+            <button onClick={() => { clearTime(); setShowCustomTime(false) }} style={chip(!time && !showCustomTime)}>
               No time
             </button>
             {TIME_PRESETS.map(p => (
@@ -295,44 +388,44 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
               </button>
             ))}
             <button
-              onClick={() => setShowCustomTime(v => !v)}
+              onClick={() => {
+                if (!showCustomTime) {
+                  // Open with current time or a sensible default
+                  const h = selHour ?? 9
+                  const m = selMin ?? '00'
+                  setShowCustomTime(true)
+                  onChange(due, recurring, `${String(h).padStart(2, '0')}:${m}`)
+                } else {
+                  setShowCustomTime(false)
+                }
+              }}
               style={chip(showCustomTime || (!isPresetTime && !!time))}>
               Custom…
             </button>
           </div>
 
-          {/* Custom time wheel — two columns: hour + minute */}
+          {/* Custom time — iPhone-style scroll wheels */}
           {showCustomTime && (
             <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--paper-2)', border: '1px solid var(--accent)' }}>
-              <div style={{ ...sectionLabel, marginBottom: 10 }}>Pick a time</div>
-              <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-                {/* Hour column */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                  <div style={{ ...sectionLabel, marginBottom: 4 }}>Hour</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {CUSTOM_HOURS.map(h => (
-                      <button key={h} onClick={() => setHour(h)} style={{ ...chip(selHour === h), padding: '5px 8px', fontSize: 10 }}>
-                        {formatHourLabel(h)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {/* Minute column */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ ...sectionLabel, marginBottom: 4 }}>Min</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {CUSTOM_MINUTES.map(m => (
-                      <button key={m.value} onClick={() => setMinute(m.value)}
-                        style={chip(selMin === m.value)}>
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <div style={{ display: 'flex', gap: 0, alignItems: 'center', justifyContent: 'center' }}>
+                {/* Hour wheel */}
+                <WheelPicker<number>
+                  items={CUSTOM_HOURS.map(h => ({ label: formatHourLabel(h), value: h }))}
+                  value={selHour}
+                  onChange={h => setHour(h)}
+                />
+                {/* Separator */}
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: 'var(--ink-2)', padding: '0 6px', alignSelf: 'center' }}>:</div>
+                {/* Minute wheel */}
+                <WheelPicker<string>
+                  items={CUSTOM_MINUTES.map(m => ({ label: m.label.replace(':', ''), value: m.value }))}
+                  value={selMin}
+                  onChange={m => setMinute(m)}
+                />
               </div>
               {time && (
-                <div style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.05em' }}>
-                  → {formatTime(time)}
+                <div style={{ marginTop: 6, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.05em' }}>
+                  {formatTime(time)}
                 </div>
               )}
             </div>

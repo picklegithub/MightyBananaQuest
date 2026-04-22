@@ -100,6 +100,9 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
             <button onClick={() => setSelectMode(true)} style={{ color: 'var(--ink-2)', fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}>
               Select
             </button>
+            <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
+              <Icons.settings size={20} />
+            </button>
             <button onClick={() => onAddTask?.()} style={{ color: 'var(--ink-2)' }}>
               <Icons.plus size={22} />
             </button>

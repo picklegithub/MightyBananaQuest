@@ -164,6 +164,7 @@ export type Screen =
   | { name: 'goals' }
   | { name: 'journal'; phase?: 'morning' | 'evening' | 'history' }
   | { name: 'all-tasks' }
+  | { name: 'all-habits' }
   | { name: 'inbox' }
   | { name: 'settings' }
   | { name: 'shopping-list' }

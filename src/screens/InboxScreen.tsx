@@ -197,6 +197,9 @@ export const InboxScreen = ({ navigate, back }: Props) => {
           )}
         </div>
         <ThemeToggle />
+        <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
+          <Icons.settings size={20} />
+        </button>
       </div>
 
       <div className="screen-scroll" style={{ padding: '16px 20px 40px' }}>

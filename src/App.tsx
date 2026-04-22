@@ -24,6 +24,7 @@ import { SettingsScreen }     from './screens/SettingsScreen'
 import { CalendarScreen }     from './screens/CalendarScreen'
 import { InboxScreen }        from './screens/InboxScreen'
 import { AllTasksScreen }     from './screens/AllTasksScreen'
+import { AllHabitsScreen }    from './screens/AllHabitsScreen'
 import { ScheduleScreen }      from './screens/ScheduleScreen'
 import { WeeklyReviewScreen }  from './screens/WeeklyReviewScreen'
 import { ProgressScreen }      from './screens/ProgressScreen'
@@ -290,6 +291,9 @@ export default function App() {
               onAddTask={() => openAddTask()}
             />
           )}
+          {screen.name === 'all-habits' && (
+            <AllHabitsScreen navigate={navigate} back={back} />
+          )}
           {screen.name === 'schedule'   && <ScheduleScreen taskId={screen.taskId} navigate={navigate} back={back} />}
           {screen.name === 'progress'   && <ProgressScreen navigate={navigate} back={back} />}
           {screen.name === 'review'         && <WeeklyReviewScreen navigate={navigate} back={back} />}
@@ -402,6 +406,7 @@ function crumbLabel(s: Screen, cats: Category[]): string {
     case 'calendar':   return 'Calendar'
     case 'inbox':      return 'Inbox'
     case 'all-tasks':      return 'All Tasks'
+    case 'all-habits':     return 'All Habits'
     case 'shopping-list':  return 'Shopping List'
     case 'settings':       return 'Settings'
     case 'progress':   return 'Progress'

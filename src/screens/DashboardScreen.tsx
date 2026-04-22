@@ -112,6 +112,8 @@ export const DashboardScreen = ({ navigate }: Props) => {
 
   if (!tasks || !settings) return null
 
+  const habitTasks    = tasks.filter(t => t.isHabit)
+  const habitPending  = habitTasks.filter(t => !t.done).length
   const allTodayTasks = tasks.filter(t => t.due === 'Today')
   const doneTodayCount = allTodayTasks.filter(t => t.done).length
   const totalToday = allTodayTasks.length
@@ -257,6 +259,38 @@ export const DashboardScreen = ({ navigate }: Props) => {
                       all clear
                     </div>
                   )}
+                </div>
+              </button>
+            )}
+
+            {/* ── Habits card — only shown when habits exist ── */}
+            {habitTasks.length > 0 && (
+              <button
+                onClick={() => navigate({ name: 'all-habits' })}
+                style={{
+                  padding: '12px 10px', borderRadius: 12, textAlign: 'left',
+                  background: 'var(--paper-2)', border: '1px solid var(--rule)',
+                  display: 'flex', flexDirection: 'column', gap: 8, position: 'relative',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ color: `hsl(280, 55%, 48%)` }}>
+                    <Icons.repeat size={16} />
+                  </div>
+                  {habitPending > 0 && (
+                    <span style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 9, color: 'white', letterSpacing: '0.06em',
+                      background: `hsl(280, 55%, 48%)`, borderRadius: 10, padding: '1px 6px', fontWeight: 600,
+                    }}>
+                      {habitPending}
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4 }}>Habits</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.04em' }}>
+                    {habitPending > 0 ? `${habitPending} to log` : 'all logged'}
+                  </div>
                 </div>
               </button>
             )}

@@ -348,7 +348,12 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             {areaName}
           </span>
         </button>
-        <ThemeToggle />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ThemeToggle />
+          <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
+            <Icons.settings size={20} />
+          </button>
+        </div>
       </div>
 
       <div className="screen-scroll" style={{ padding: '18px 18px 48px' }}>

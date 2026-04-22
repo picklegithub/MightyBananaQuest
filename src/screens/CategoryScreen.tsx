@@ -17,7 +17,7 @@ const AREA_ICONS = ['home','heart','briefcase','book','dollar','family','leaf','
 const BUILTIN_IDS = new Set(['home'])
 
 // ── Edit Area Modal ───────────────────────────────────────────────────────────
-function EditAreaModal({ cat, onClose }: { cat: Category; onClose: () => void }) {
+function EditAreaModal({ cat, onClose, onDelete }: { cat: Category; onClose: () => void; onDelete?: () => void }) {
   const [name, setName] = useState(cat.name)
   const [icon, setIcon] = useState(cat.icon)
   const [hue,  setHue]  = useState(cat.hue)
@@ -75,6 +75,16 @@ function EditAreaModal({ cat, onClose }: { cat: Category; onClose: () => void })
           }}>
             Save changes
           </button>
+          {onDelete && (
+            <button onClick={onDelete} style={{
+              width: '100%', padding: '12px', borderRadius: 12, fontSize: 13,
+              fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+              color: 'var(--warn)', border: '1px solid var(--warn)',
+              background: 'transparent', marginTop: 4,
+            }}>
+              Delete area
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -383,19 +393,8 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
             <button onClick={() => setShowEdit(true)} style={{ color: 'var(--ink-3)' }} title="Edit area">
               <Icons.edit size={17} />
             </button>
-            {isCustom && (
-              <button onClick={() => setShowDelete(true)} style={{ color: 'var(--ink-4)' }} title="Delete area">
-                <Icons.close size={17} />
-              </button>
-            )}
-            <button onClick={() => onAddTask?.()} style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              fontFamily: 'var(--font-mono)', fontSize: 11,
-              color: 'var(--ink-2)', letterSpacing: '0.06em',
-              padding: '5px 10px', borderRadius: 8, border: '1px solid var(--rule)',
-              background: 'var(--paper-2)',
-            }}>
-              <Icons.plus size={14} /> ADD
+            <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
+              <Icons.settings size={20} />
             </button>
           </div>
         </div>
@@ -520,7 +519,13 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
       </div>
 
       {bursts.map(b => <ConfettiBurst key={b.id} x={b.x} y={b.y} xp={b.xp} />)}
-      {showEdit && cat && <EditAreaModal cat={cat} onClose={() => setShowEdit(false)} />}
+      {showEdit && cat && (
+        <EditAreaModal
+          cat={cat}
+          onClose={() => setShowEdit(false)}
+          onDelete={isCustom ? () => { setShowEdit(false); setShowDelete(true) } : undefined}
+        />
+      )}
       {showDelete && cat && (
         <DeleteAreaSheet
           cat={cat}
