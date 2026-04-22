@@ -121,7 +121,7 @@ interface Burst { id: number; x: number; y: number; xp: number }
 
 const today = new Date()
 const DAY = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][today.getDay()]
-const DATE = today.toLocaleDateString('en-AU', { day: 'numeric', month: 'long' })
+const DATE = today.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
 
 export const DashboardScreen = ({ navigate }: Props) => {
   const [bursts, setBursts]           = useState<Burst[]>([])
@@ -169,8 +169,8 @@ export const DashboardScreen = ({ navigate }: Props) => {
       <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <div className="eyebrow" style={{ marginBottom: 4 }}>{DAY}</div>
-            <div className="t-display" style={{ fontSize: 28 }}>{DATE}</div>
+            <div className="t-display" style={{ fontSize: 28 }}>{DAY}</div>
+            <div className="eyebrow" style={{ marginTop: 2 }}>{DATE}</div>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingTop: 4 }}>
             {streak > 0 && (

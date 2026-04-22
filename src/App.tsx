@@ -374,7 +374,7 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
       alignItems: 'center', justifyContent: 'center', background: 'var(--ink)', color: 'var(--paper)',
       gap: 12,
     }}>
-      <div className="t-display" style={{ fontSize: 36 }}>🍌</div>
+      <img src="/mascot.png" alt="MBQ Mascot" style={{ width: 120, height: 120, objectFit: 'contain' }} />
       <div className="t-display" style={{ fontSize: 22, letterSpacing: '-0.01em' }}>MightyBananaQuest</div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, opacity: 0.4, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
         Life admin, gamified

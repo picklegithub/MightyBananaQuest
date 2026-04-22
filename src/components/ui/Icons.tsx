@@ -56,15 +56,21 @@ export const Icons: Record<string, (p: IconProps) => JSX.Element> = {
   layers:    (p) => <Icon {...p} d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 18l9 5 9-5" />,
   repeat:    (p) => <Icon {...p} d="M17 2l4 4-4 4M3 11V9a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 01-4 4H3" />,
   folder:    (p) => <Icon {...p} d="M4 20h16a2 2 0 002-2V8a2 2 0 00-2-2h-8L10 4H4a2 2 0 00-2 2v12a2 2 0 002 2z" />,
-  // Boston Terrier / French Bulldog — round head, upright bat ears, flat snout
+  // Dog face outline — round head, floppy ears, snout, eyes, nose
   pet: (p) => <Icon {...p} d={<>
-    {/* Central pad */}
-    <ellipse cx="12" cy="15" rx="4" ry="3.5" />
-    {/* Top two toe pads */}
-    <ellipse cx="7.5" cy="11" rx="2" ry="2.5" />
-    <ellipse cx="16.5" cy="11" rx="2" ry="2.5" />
-    {/* Bottom two toe pads */}
-    <ellipse cx="5.5" cy="15.5" rx="1.8" ry="2.2" />
-    <ellipse cx="18.5" cy="15.5" rx="1.8" ry="2.2" />
+    {/* Head */}
+    <circle cx="12" cy="11" r="7" />
+    {/* Left floppy ear */}
+    <path d="M5 8 Q3 4 5.5 2 Q7 6 5 8z" />
+    {/* Right floppy ear */}
+    <path d="M19 8 Q21 4 18.5 2 Q17 6 19 8z" />
+    {/* Snout */}
+    <ellipse cx="12" cy="14" rx="2.8" ry="1.8" />
+    {/* Nose */}
+    <ellipse cx="12" cy="13" rx="1.1" ry="0.7" fill="currentColor" />
+    {/* Left eye */}
+    <circle cx="9.2" cy="9.5" r="0.9" fill="currentColor" />
+    {/* Right eye */}
+    <circle cx="14.8" cy="9.5" r="0.9" fill="currentColor" />
   </>} />,
 }
