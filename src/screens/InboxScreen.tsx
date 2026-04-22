@@ -1,12 +1,108 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, deleteTask, updateTask } from '../data/db'
+import { db, addTask, completeTask, deleteTask, updateTask } from '../data/db'
 import { EFFORT } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
 import { SwipeableRow } from '../components/SwipeableRow'
 import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Task, Category } from '../types'
+
+// ── Inline ghost input for quick inbox task entry ─────────────────────────────
+function GhostInput({ onSaved }: { onSaved: () => void }) {
+  const [active, setActive] = useState(false)
+  const [value,  setValue]  = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (active) setTimeout(() => inputRef.current?.focus(), 40)
+  }, [active])
+
+  async function handleSave() {
+    const t = value.trim()
+    if (!t) { setActive(false); return }
+    await addTask({
+      id: `t${Date.now()}`,
+      title: t,
+      cat: 'inbox',
+      effort: 's',
+      due: '',
+      ctx: '@anywhere',
+      quad: 'q2',
+      recurring: null,
+      done: false,
+      streak: 0,
+      sub: [],
+    })
+    setValue('')
+    setActive(false)
+    onSaved()
+  }
+
+  if (!active) {
+    return (
+      <button
+        onClick={() => setActive(true)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 9,
+          width: '100%', padding: '9px 13px',
+          borderRadius: 12, border: '1px dashed var(--rule)',
+          color: 'var(--ink-4)', fontSize: 13,
+          fontFamily: 'var(--font-ui)',
+        }}
+      >
+        <span style={{
+          width: 22, height: 22, borderRadius: '50%',
+          border: '1.5px dashed var(--rule)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--ink-4)', flexShrink: 0,
+        }}>
+          <Icons.plus size={11} />
+        </span>
+        New task…
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && !e.shiftKey) handleSave()
+          if (e.key === 'Escape') { setValue(''); setActive(false) }
+        }}
+        placeholder="Task title…"
+        style={{
+          flex: 1, padding: '10px 13px', borderRadius: 12,
+          border: '2px solid var(--accent)',
+          background: 'var(--paper-2)', fontSize: 14, color: 'var(--ink)',
+          outline: 'none',
+        }}
+      />
+      <button
+        onClick={handleSave}
+        disabled={!value.trim()}
+        style={{
+          width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+          background: value.trim() ? 'var(--ink)' : 'var(--paper-3)',
+          color: value.trim() ? 'var(--paper)' : 'var(--ink-4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <Icons.check size={14} sw={2.5} />
+      </button>
+      <button
+        onClick={() => { setValue(''); setActive(false) }}
+        style={{ width: 38, height: 38, borderRadius: 10, color: 'var(--ink-3)', border: '1px solid var(--rule)', flexShrink: 0 }}
+      >
+        <Icons.close size={14} />
+      </button>
+    </div>
+  )
+}
 
 interface Props {
   navigate: (s: Screen) => void
@@ -202,11 +298,11 @@ export const InboxScreen = ({ navigate, back }: Props) => {
         </button>
       </div>
 
-      <div className="screen-scroll" style={{ padding: '16px 20px 40px' }}>
+      <div className="screen-scroll" style={{ padding: '16px 20px 24px' }}>
 
         {/* Empty state */}
         {isEmpty && (
-          <div style={{ textAlign: 'center', padding: '72px 20px' }}>
+          <div style={{ textAlign: 'center', padding: '60px 20px 24px' }}>
             <Icons.inbox size={40} style={{ color: 'var(--ink-4)', margin: '0 auto 16px', display: 'block' }} />
             <div className="t-display" style={{ fontSize: 20, marginBottom: 6 }}>Inbox zero</div>
             <div style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6 }}>
@@ -234,7 +330,7 @@ export const InboxScreen = ({ navigate, back }: Props) => {
 
         {/* Done tasks — collapsed section */}
         {done.length > 0 && (
-          <div>
+          <div style={{ marginBottom: 20 }}>
             <div className="eyebrow" style={{ marginBottom: 10, opacity: 0.5 }}>Completed</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {done.map(task => (
@@ -251,6 +347,9 @@ export const InboxScreen = ({ navigate, back }: Props) => {
             </div>
           </div>
         )}
+
+        {/* Inline ghost input — always visible */}
+        <GhostInput onSaved={() => {}} />
       </div>
 
       {bursts.map(b => <ConfettiBurst key={b.id} x={b.x} y={b.y} xp={b.xp} />)}

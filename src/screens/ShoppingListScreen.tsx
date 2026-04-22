@@ -1,9 +1,100 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addShoppingItem, updateShoppingItem, deleteShoppingItem, deleteCheckedShoppingItems } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { ThemeToggle } from '../components/ThemeToggle'
 import type { ShoppingItem, Screen } from '../types'
+
+// ── Inline ghost input for quick item entry ───────────────────────────────────
+function GhostInputShopping({ onSaved }: { onSaved: () => void }) {
+  const [active, setActive] = useState(false)
+  const [value, setValue]   = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (active) setTimeout(() => inputRef.current?.focus(), 40)
+  }, [active])
+
+  // Listen for FAB-triggered open event
+  useEffect(() => {
+    const handler = () => setActive(true)
+    window.addEventListener('shopping:add-item', handler)
+    return () => window.removeEventListener('shopping:add-item', handler)
+  }, [])
+
+  async function handleSave() {
+    const t = value.trim()
+    if (!t) { setActive(false); return }
+    await addShoppingItem({ title: t, category: '', checked: false })
+    setValue('')
+    setActive(false)
+    onSaved()
+  }
+
+  if (!active) {
+    return (
+      <button
+        onClick={() => setActive(true)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 9,
+          width: '100%', padding: '9px 13px',
+          borderRadius: 12, border: '1px dashed var(--rule)',
+          color: 'var(--ink-4)', fontSize: 13,
+          fontFamily: 'var(--font-ui)',
+        }}
+      >
+        <span style={{
+          width: 22, height: 22, borderRadius: '50%',
+          border: '1.5px dashed var(--rule)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--ink-4)', flexShrink: 0,
+        }}>
+          <Icons.plus size={11} />
+        </span>
+        Add item…
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && !e.shiftKey) handleSave()
+          if (e.key === 'Escape') { setValue(''); setActive(false) }
+        }}
+        placeholder="Item name…"
+        style={{
+          flex: 1, padding: '10px 13px', borderRadius: 12,
+          border: '2px solid var(--accent)',
+          background: 'var(--paper-2)', fontSize: 14, color: 'var(--ink)',
+          outline: 'none',
+        }}
+      />
+      <button
+        onClick={handleSave}
+        disabled={!value.trim()}
+        style={{
+          width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+          background: value.trim() ? 'var(--ink)' : 'var(--paper-3)',
+          color: value.trim() ? 'var(--paper)' : 'var(--ink-4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <Icons.check size={14} sw={2.5} />
+      </button>
+      <button
+        onClick={() => { setValue(''); setActive(false) }}
+        style={{ width: 38, height: 38, borderRadius: 10, color: 'var(--ink-3)', border: '1px solid var(--rule)', flexShrink: 0 }}
+      >
+        <Icons.close size={14} />
+      </button>
+    </div>
+  )
+}
 
 // ── Add / Edit item sheet ─────────────────────────────────────────────────────
 function ItemSheet({
@@ -323,25 +414,15 @@ export function ShoppingListScreen({ back, navigate }: Props) {
       </div>
 
       {/* List */}
-      <div className="screen-scroll" style={{ padding: '16px 20px' }}>
+      <div className="screen-scroll" style={{ padding: '16px 20px 24px' }}>
         {items.length === 0 ? (
           /* Empty state */
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 12, color: 'var(--ink-3)' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 12, color: 'var(--ink-3)' }}>
             <div style={{ fontSize: 48 }}>🛒</div>
             <div className="t-display" style={{ fontSize: 18, color: 'var(--ink-2)' }}>Your list is empty</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.06em', textAlign: 'center', lineHeight: 1.6, maxWidth: 220 }}>
               This is separate from your tasks — just a simple place to keep track of things to buy.
             </div>
-            <button
-              onClick={() => setShowAdd(true)}
-              style={{
-                marginTop: 12, padding: '12px 24px', borderRadius: 12,
-                background: 'var(--ink)', color: 'var(--paper)',
-                fontSize: 14, fontWeight: 600,
-              }}
-            >
-              Add first item
-            </button>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -372,25 +453,12 @@ export function ShoppingListScreen({ back, navigate }: Props) {
             ))}
           </div>
         )}
-      </div>
 
-      {/* FAB */}
-      <button
-        onClick={() => setShowAdd(true)}
-        aria-label="Add item"
-        style={{
-          position: 'fixed',
-          bottom: 'calc(24px + env(safe-area-inset-bottom))',
-          right: 24, zIndex: 50,
-          width: 52, height: 52, borderRadius: '50%',
-          background: 'var(--ink)', color: 'var(--paper)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: 'var(--shadow-pop)',
-          border: '2px solid var(--paper)',
-        }}
-      >
-        <Icons.plus size={20} />
-      </button>
+        {/* Inline ghost input — always visible at the bottom */}
+        <div style={{ marginTop: items.length === 0 ? 24 : 20 }}>
+          <GhostInputShopping onSaved={() => {}} />
+        </div>
+      </div>
 
       {/* Sheets */}
       {showAdd && (

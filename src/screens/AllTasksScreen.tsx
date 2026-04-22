@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, deleteTask, deleteTasks, updateTask } from '../data/db'
+import { db, addTask, completeTask, deleteTask, deleteTasks, updateTask } from '../data/db'
 import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst, Seg } from '../components/ui'
@@ -13,6 +13,102 @@ import type { Screen, Task } from '../types'
 
 interface Props { navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void }
 interface Burst { id: number; x: number; y: number; xp: number }
+
+// ── Inline ghost input ────────────────────────────────────────────────────────
+function GhostInput({ catFilter, onSaved }: { catFilter: string; onSaved: () => void }) {
+  const [active, setActive] = useState(false)
+  const [value,  setValue]  = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (active) setTimeout(() => inputRef.current?.focus(), 40)
+  }, [active])
+
+  async function handleSave() {
+    const t = value.trim()
+    if (!t) { setActive(false); return }
+    await addTask({
+      id: `t${Date.now()}`,
+      title: t,
+      cat: catFilter === 'all' ? 'inbox' : catFilter,
+      effort: 's',
+      due: '',
+      ctx: '@anywhere',
+      quad: 'q2',
+      recurring: null,
+      done: false,
+      streak: 0,
+      sub: [],
+    })
+    setValue('')
+    setActive(false)
+    onSaved()
+  }
+
+  if (!active) {
+    return (
+      <button
+        onClick={() => setActive(true)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 9,
+          width: '100%', padding: '9px 13px',
+          borderRadius: 12, border: '1px dashed var(--rule)',
+          color: 'var(--ink-4)', fontSize: 13,
+          fontFamily: 'var(--font-ui)',
+        }}
+      >
+        <span style={{
+          width: 22, height: 22, borderRadius: '50%',
+          border: '1.5px dashed var(--rule)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--ink-4)', flexShrink: 0,
+        }}>
+          <Icons.plus size={11} />
+        </span>
+        New task…
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && !e.shiftKey) handleSave()
+          if (e.key === 'Escape') { setValue(''); setActive(false) }
+        }}
+        placeholder="Task title…"
+        style={{
+          flex: 1, padding: '10px 13px', borderRadius: 12,
+          border: '2px solid var(--accent)',
+          background: 'var(--paper-2)', fontSize: 14, color: 'var(--ink)',
+          outline: 'none',
+        }}
+      />
+      <button
+        onClick={handleSave}
+        disabled={!value.trim()}
+        style={{
+          width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+          background: value.trim() ? 'var(--ink)' : 'var(--paper-3)',
+          color: value.trim() ? 'var(--paper)' : 'var(--ink-4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <Icons.check size={14} sw={2.5} />
+      </button>
+      <button
+        onClick={() => { setValue(''); setActive(false) }}
+        style={{ width: 38, height: 38, borderRadius: 10, color: 'var(--ink-3)', border: '1px solid var(--rule)', flexShrink: 0 }}
+      >
+        <Icons.close size={14} />
+      </button>
+    </div>
+  )
+}
 
 export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
   const [filter, setFilter]       = useState<'all' | 'open' | 'done'>('open')
@@ -132,7 +228,7 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
         })}
       </div>
 
-      <div className="screen-scroll" style={{ padding: '12px 20px 40px' }} {...containerProps}>
+      <div className="screen-scroll" style={{ padding: '12px 20px 24px' }} {...containerProps}>
         {/* Pull-to-refresh indicator */}
         {isPulling && (
           <div style={{
@@ -222,6 +318,13 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Inline ghost input — only visible in open/all filter and no select mode */}
+        {!selectMode && filter !== 'done' && (
+          <div style={{ marginTop: 8 }}>
+            <GhostInput catFilter={catFilter} onSaved={() => {}} />
           </div>
         )}
       </div>

@@ -44,13 +44,13 @@ function applyTheme(settings: AppSettings) {
 }
 
 // ── Nav screens that show BottomNav ───────────────────────────────────────────
-const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar', 'category', 'inbox'])
+const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar', 'category', 'inbox', 'shopping-list', 'all-tasks'])
 function showsNav(screen: Screen): boolean { return NAV_SCREENS.has(screen.name) }
 function activeTab(screen: Screen): string {
   if (screen.name === 'journal')  return 'journal'
   if (screen.name === 'goals')    return 'goals'
   if (screen.name === 'calendar') return 'calendar'
-  return 'dashboard'  // category + dashboard both highlight Today tab
+  return 'dashboard'  // category + dashboard + inbox + shopping-list + all-tasks highlight Today tab
 }
 
 type AuthState = 'loading' | 'authed' | 'unauthed'
@@ -172,6 +172,15 @@ export default function App() {
       return
     }
     if (screen.name === 'inbox') {
+      setFabSheet('capture')
+      return
+    }
+    if (screen.name === 'shopping-list') {
+      // Dispatch event that ShoppingListScreen listens to for inline entry
+      window.dispatchEvent(new CustomEvent('shopping:add-item'))
+      return
+    }
+    if (screen.name === 'all-tasks') {
       setFabSheet('capture')
       return
     }
