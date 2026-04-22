@@ -100,7 +100,7 @@ function PullConfirmModal() {
   async function handleApply() {
     setSyncState({ pendingPreview: null, phase: 'pulling', pullProgress: 50 })
     try {
-      await applyPull(pendingPreview)
+      await applyPull(pendingPreview!)  // pendingPreview is non-null here (checked by parent)
       setSyncState({ phase: 'done', pullProgress: 100, lastSyncAt: Date.now() })
       setTimeout(() => {
         if (getSyncState().phase === 'done') setSyncState({ phase: 'idle' })

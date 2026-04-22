@@ -277,7 +277,7 @@ export async function previewPull(): Promise<PullPreview> {
     // If tombstoned locally, re-delete from Supabase (cleanup) and skip
     if (tombstoneIds.has(id)) {
       tombstoneSkipped++
-      supabase.from('tasks').delete().eq('id', id).eq('user_id', userId).then(() => {}).catch(() => {})
+      void Promise.resolve(supabase.from('tasks').delete().eq('id', id).eq('user_id', userId)).catch(() => {})
       continue
     }
 
