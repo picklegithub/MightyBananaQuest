@@ -7,12 +7,25 @@ import { Toggle, Seg } from '../components/ui'
 import { supabase } from '../lib/supabase'
 import { notificationsSupported, requestPermission } from '../lib/notifications'
 import { pullAll, pushAllLocal } from '../lib/sync'
+import { useSyncState } from '../lib/syncState'
 import type { Screen, AppSettings } from '../types'
 
 interface Props { navigate: (s: Screen) => void; back: () => void }
 
+function relativeTime(ts: number): string {
+  if (!ts) return 'never'
+  const diffMs  = Date.now() - ts
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1)  return 'just now'
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24)  return `${diffHr}h ago`
+  return `${Math.floor(diffHr / 24)}d ago`
+}
+
 export const SettingsScreen = ({ navigate, back }: Props) => {
-  const settings = useLiveQuery(() => db.settings.get(1), [])
+  const settings  = useLiveQuery(() => db.settings.get(1), [])
+  const syncState = useSyncState()
 
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() =>
     notificationsSupported() ? Notification.permission : 'denied'
@@ -193,6 +206,9 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
               <Icons.reset size={14} style={{ opacity: syncing ? 0.4 : 1 }} />
               {syncing ? 'Syncing…' : 'Sync now'}
             </button>
+            <div style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.05em', textAlign: 'center' }}>
+              Last synced: {relativeTime(syncState.lastSyncAt)}
+            </div>
           </div>
           <Row label="XP earned">
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600 }}>

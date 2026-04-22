@@ -109,8 +109,9 @@ export const AuthScreen = ({ onAuth }: Props) => {
     <div className="screen" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 28px' }}>
       {/* Logo / wordmark */}
       <div style={{ marginBottom: 40, textAlign: 'center' }}>
+        <img src="/mascot.png" alt="MBQ Mascot" style={{ width: 90, height: 90, objectFit: 'contain', marginBottom: 12 }} />
         <div className="t-display" style={{ fontSize: 28, letterSpacing: '-0.02em', marginBottom: 6 }}>
-          🍌 MightyBananaQuest
+          MightyBananaQuest
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)', letterSpacing: '0.08em' }}>
           YOUR PERSONAL LIFE ADMIN

@@ -70,9 +70,9 @@ function computeJournalStreak(entries: JournalEntry[]): number {
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-interface Props { navigate: (s: Screen) => void; phase?: 'morning' | 'evening' | 'history' }
+interface Props { navigate: (s: Screen) => void; back?: () => void; phase?: 'morning' | 'evening' | 'history' }
 
-export const JournalScreen = ({ phase: initPhase }: Props) => {
+export const JournalScreen = ({ navigate, back, phase: initPhase }: Props) => {
   // Default tab is time-aware: before 1pm → morning, otherwise evening
   const hour = new Date().getHours()
   const [tab, setTab] = useState<'morning' | 'evening' | 'history'>(
@@ -107,13 +107,12 @@ export const JournalScreen = ({ phase: initPhase }: Props) => {
   return (
     <div className="screen">
       {/* ── Header ── */}
-      <div style={{ padding: '20px 20px 14px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 4 }}>Daily Reflection</div>
-            <h1 className="t-display" style={{ fontSize: 28 }}>Journal</h1>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 4 }}>
+      <div style={{ padding: '14px 18px 14px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
+            <Icons.back size={16} /> Today
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {streak > 0 && (
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 4,
@@ -125,7 +124,14 @@ export const JournalScreen = ({ phase: initPhase }: Props) => {
               </div>
             )}
             <ThemeToggle />
+            <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
+              <Icons.settings size={20} />
+            </button>
           </div>
+        </div>
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 4 }}>Daily Reflection</div>
+          <h1 className="t-display" style={{ fontSize: 28 }}>Journal</h1>
         </div>
 
         {/* Today's completion status */}

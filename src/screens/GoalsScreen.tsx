@@ -6,7 +6,7 @@ import { Seg } from '../components/ui'
 import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Goal, Task } from '../types'
 
-interface Props { navigate: (s: Screen) => void; onAddTask?: () => void }
+interface Props { navigate: (s: Screen) => void; back?: () => void; onAddTask?: () => void }
 
 const HORIZONS = ['4 weeks', '12 weeks', '6 months', '1 year', 'Ongoing']
 
@@ -45,7 +45,7 @@ function ProgressRing({ progress, hue }: { progress: number; hue: number }) {
 }
 
 // ── Goals list screen ─────────────────────────────────────────────────────────
-export const GoalsScreen = ({ navigate, onAddTask }: Props) => {
+export const GoalsScreen = ({ navigate, back, onAddTask }: Props) => {
   const goals      = useLiveQuery(() => db.goals.toArray(), [])
   const categories = useLiveQuery(() => db.categories.toArray(), [])
   const allTasks   = useLiveQuery(() => db.tasks.toArray(), [])
@@ -62,13 +62,19 @@ export const GoalsScreen = ({ navigate, onAddTask }: Props) => {
     <div className="screen">
       {/* Header */}
       <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 4 }}>Long game</div>
-            <h1 className="t-display" style={{ fontSize: 26 }}>Goals</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
+            <Icons.back size={16} /> Today
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ThemeToggle />
+            <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
+              <Icons.settings size={20} />
+            </button>
           </div>
-          <ThemeToggle />
         </div>
+        <div className="eyebrow" style={{ marginBottom: 4 }}>Long game</div>
+        <h1 className="t-display" style={{ fontSize: 26 }}>Goals</h1>
       </div>
 
       {/* Tab bar */}
@@ -120,10 +126,6 @@ export const GoalsScreen = ({ navigate, onAddTask }: Props) => {
                               }}>{goal.area.toUpperCase()}</span>
                               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>{goal.horizon}</span>
                             </div>
-                            <button onClick={e => { e.stopPropagation(); if (confirm('Delete this goal?')) deleteGoal(goal.id) }}
-                              style={{ color: 'var(--ink-4)', padding: 4 }}>
-                              <Icons.close size={14} />
-                            </button>
                           </div>
                           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6, lineHeight: 1.3 }}>{goal.title}</div>
                           {goal.why && (
@@ -516,17 +518,9 @@ function GoalDetail({
         <button onClick={onClose} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
           <Icons.back size={18} /> Back
         </button>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => setEditing(e => !e)} style={{ color: 'var(--ink-2)' }}>
-            <Icons.edit size={18} />
-          </button>
-          <button
-            onClick={async () => { if (confirm('Delete this goal?')) { await deleteGoal(goal.id); onClose() } }}
-            style={{ color: 'var(--warn)' }}
-          >
-            <Icons.close size={18} />
-          </button>
-        </div>
+        <button onClick={() => setEditing(e => !e)} style={{ color: 'var(--ink-2)' }}>
+          <Icons.edit size={18} />
+        </button>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 20px 40px' }}>
@@ -696,6 +690,21 @@ function GoalDetail({
                 </div>
               )}
             </div>
+          {/* ── Delete goal ── */}
+          {!editing && (
+            <div style={{ marginTop: 32, paddingBottom: 8, display: 'flex', justifyContent: 'center' }}>
+              <button
+                onClick={async () => { if (confirm('Delete this goal?')) { await deleteGoal(goal.id); onClose() } }}
+                style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--warn)',
+                  letterSpacing: '0.06em', padding: '8px 20px', borderRadius: 8,
+                  border: '1px solid var(--warn)',
+                }}
+              >
+                Delete Goal
+              </button>
+            </div>
+          )}
           </>
         )}
       </div>

@@ -263,14 +263,16 @@ export default function App() {
           {screen.name === 'goals'      && (
             <GoalsScreen
               navigate={navigate}
+              back={() => navigateTab({ name: 'dashboard' })}
               onAddTask={() => openAddTask()}
             />
           )}
-          {screen.name === 'journal'    && <JournalScreen navigate={navigate} phase={screen.phase} />}
+          {screen.name === 'journal'    && <JournalScreen navigate={navigate} back={() => navigateTab({ name: 'dashboard' })} phase={screen.phase} />}
           {screen.name === 'settings'   && <SettingsScreen navigate={navigate} back={back} />}
           {screen.name === 'calendar'   && (
             <CalendarScreen
               navigate={navigate}
+              back={() => navigateTab({ name: 'dashboard' })}
               onAddTask={(due?: string) => openAddTask(due ? { due } : undefined)}
             />
           )}
@@ -291,7 +293,7 @@ export default function App() {
           {screen.name === 'schedule'   && <ScheduleScreen taskId={screen.taskId} navigate={navigate} back={back} />}
           {screen.name === 'progress'   && <ProgressScreen navigate={navigate} back={back} />}
           {screen.name === 'review'         && <WeeklyReviewScreen navigate={navigate} back={back} />}
-          {screen.name === 'shopping-list'  && <ShoppingListScreen back={back} />}
+          {screen.name === 'shopping-list'  && <ShoppingListScreen back={back} navigate={navigate} />}
           {screen.name === 'onboarding'     && <OnboardingScreen onDone={() => navigateTab({ name: 'dashboard' })} />}
           {screen.name === 'splash'         && <SplashScreen onDone={() => navigateTab(settings?.onboarded ? { name: 'dashboard' } : { name: 'onboarding' })} />}
         </div>

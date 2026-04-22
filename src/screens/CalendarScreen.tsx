@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, updateTask } from '../data/db'
+import { db, completeTask, updateTask, deleteTask } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
 import { TaskCard } from '../components/TaskCard'
@@ -9,12 +9,12 @@ import { UnifiedDuePicker } from '../components/ui/UnifiedDuePicker'
 import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Task } from '../types'
 
-interface Props { navigate: (s: Screen) => void; onAddTask?: (due?: string) => void }
+interface Props { navigate: (s: Screen) => void; back?: () => void; onAddTask?: (due?: string) => void }
 interface Burst { id: number; x: number; y: number; xp: number }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-export const CalendarScreen = ({ navigate, onAddTask }: Props) => {
+export const CalendarScreen = ({ navigate, back, onAddTask }: Props) => {
   const [selected,          setSelected]          = useState('Today')
   const [bursts,            setBursts]            = useState<Burst[]>([])
   const [expandedReschedule, setExpandedReschedule] = useState<string | null>(null)
@@ -83,13 +83,19 @@ export const CalendarScreen = ({ navigate, onAddTask }: Props) => {
     <div className="screen">
       {/* Header */}
       <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 4 }}>Week ahead</div>
-            <h1 className="t-display" style={{ fontSize: 26 }}>Calendar</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
+            <Icons.back size={16} /> Today
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ThemeToggle />
+            <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
+              <Icons.settings size={20} />
+            </button>
           </div>
-          <ThemeToggle />
         </div>
+        <div className="eyebrow" style={{ marginBottom: 4 }}>Week ahead</div>
+        <h1 className="t-display" style={{ fontSize: 26 }}>Calendar</h1>
       </div>
 
       {/* Day strip */}
@@ -142,11 +148,18 @@ export const CalendarScreen = ({ navigate, onAddTask }: Props) => {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {overdueTasks.map(task => (
-                <TaskCard key={task.id} task={task}
-                  hue={hueFor(task)}
-                  onTap={() => navigate({ name: 'task', taskId: task.id })}
-                  onComplete={(e: React.MouseEvent) => handleComplete(e, task)}
-                />
+                <SwipeableRow
+                  key={task.id}
+                  disabled={task.done}
+                  onComplete={() => handleComplete({ stopPropagation: () => {}, target: document.body } as unknown as React.MouseEvent, task)}
+                  onDelete={() => deleteTask(task.id)}
+                >
+                  <TaskCard task={task}
+                    hue={hueFor(task)}
+                    onTap={() => navigate({ name: 'task', taskId: task.id })}
+                    onComplete={(e: React.MouseEvent) => handleComplete(e, task)}
+                  />
+                </SwipeableRow>
               ))}
             </div>
             <div style={{ borderBottom: '1px solid var(--rule)', marginTop: 16 }} />
@@ -180,6 +193,7 @@ export const CalendarScreen = ({ navigate, onAddTask }: Props) => {
                 <SwipeableRow
                   disabled={task.done}
                   onComplete={() => handleComplete({ stopPropagation: () => {}, target: document.body } as unknown as React.MouseEvent, task)}
+                  onDelete={() => deleteTask(task.id)}
                 >
                   <TaskCard task={task}
                     hue={hueFor(task)}

@@ -13,6 +13,14 @@ import { previewPull, applyPull, pushOnly } from '../lib/sync'
 
 let _syncInFlight = false
 
+// Wraps a promise with a hard timeout so sync never hangs forever
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms)
+    promise.then(v => { clearTimeout(timer); resolve(v) }, e => { clearTimeout(timer); reject(e) })
+  })
+}
+
 export async function triggerSync(): Promise<void> {
   if (_syncInFlight) return
   _syncInFlight = true
@@ -20,13 +28,17 @@ export async function triggerSync(): Promise<void> {
   try {
     // Push phase
     setSyncState({ phase: 'pushing', pushProgress: 0, errorMsg: null })
-    await pushOnly((done, total) => {
-      setSyncState({ pushProgress: Math.round((done / total) * 100) })
-    })
+    await withTimeout(
+      pushOnly((done, total) => {
+        setSyncState({ pushProgress: Math.round((done / total) * 100) })
+      }),
+      30000,
+      'Push'
+    )
 
     // Preview phase
     setSyncState({ phase: 'previewing', pullProgress: 0 })
-    const preview = await previewPull()
+    const preview = await withTimeout(previewPull(), 30000, 'Preview')
 
     // If there are deletions to confirm, surface the preview modal
     if (preview.toDelete.length > 0) {
@@ -37,7 +49,7 @@ export async function triggerSync(): Promise<void> {
 
     // No destructive changes — auto-apply
     setSyncState({ phase: 'pulling', pullProgress: 50 })
-    await applyPull(preview)
+    await withTimeout(applyPull(preview), 30000, 'Apply')
     setSyncState({ phase: 'done', pullProgress: 100, lastSyncAt: Date.now(), pendingPreview: null })
 
     // Fade back to idle after 3s

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, addCategory, deleteCategory, updateCategory, updateTask } from '../data/db'
+import { db, completeTask, addCategory, deleteTask } from '../data/db'
 
 // Feature flag — disable by setting localStorage key 'shopping_list_enabled' to 'false'
 const SHOPPING_LIST_ENABLED = localStorage.getItem('shopping_list_enabled') !== 'false'
@@ -9,6 +9,7 @@ import { Icons } from '../components/ui/Icons'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { SectionHeader, ConfettiBurst } from '../components/ui'
 import { TaskCard } from '../components/TaskCard'
+import { SwipeableRow } from '../components/SwipeableRow'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { triggerSync } from '../components/SyncStatusBar'
 import type { Screen, Task, Category } from '../types'
@@ -16,8 +17,6 @@ import type { Screen, Task, Category } from '../types'
 // ── Area icons available for custom areas ─────────────────────────────────────
 const AREA_ICONS = ['home','heart','briefcase','book','dollar','family','leaf','drop','bolt','star','bell','layers','pet']
 
-// Only 'home' is protected — it's the fallback area for orphaned tasks
-const BUILTIN_IDS = new Set(['home'])
 
 // ── Add Area Modal ────────────────────────────────────────────────────────────
 function AddAreaModal({ onClose }: { onClose: () => void }) {
@@ -84,105 +83,6 @@ function AddAreaModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-// ── Edit Area Modal ───────────────────────────────────────────────────────────
-function EditAreaModal({ cat, onClose }: { cat: Category; onClose: () => void }) {
-  const [name, setName] = useState(cat.name)
-  const [icon, setIcon] = useState(cat.icon)
-  const [hue,  setHue]  = useState(cat.hue)
-
-  async function handleSave() {
-    if (!name.trim()) return
-    await updateCategory(cat.id, { name: name.trim(), icon, hue })
-    onClose()
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '24px 20px 40px', width: '100%' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 className="t-display" style={{ fontSize: 22 }}>Edit Area</h2>
-          <button onClick={onClose} style={{ color: 'var(--ink-3)' }}><Icons.close size={20} /></button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Name</div>
-            <input autoFocus value={name} onChange={e => setName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSave()}
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--rule)', background: 'var(--paper-2)', fontSize: 15, color: 'var(--ink)' }} />
-          </div>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Icon</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {AREA_ICONS.map(ic => {
-                const I = Icons[ic] ?? Icons.home
-                return (
-                  <button key={ic} onClick={() => setIcon(ic)} style={{
-                    width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: icon === ic ? `hsl(${hue},55%,42%)` : 'var(--paper-2)',
-                    color: icon === ic ? 'white' : 'var(--ink-2)',
-                    border: '1px solid', borderColor: icon === ic ? 'transparent' : 'var(--rule)',
-                  }}>
-                    <I size={18} />
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Colour — hue {hue}°</div>
-            <input type="range" min={0} max={360} value={hue} onChange={e => setHue(Number(e.target.value))}
-              style={{ width: '100%', accentColor: `hsl(${hue},55%,42%)` }} />
-            <div style={{ height: 24, borderRadius: 8, marginTop: 8, background: `hsl(${hue},55%,42%)` }} />
-          </div>
-          <button onClick={handleSave} disabled={!name.trim()} style={{
-            width: '100%', padding: '14px', borderRadius: 12, fontSize: 15, fontWeight: 600,
-            background: name.trim() ? 'var(--ink)' : 'var(--paper-3)',
-            color: name.trim() ? 'var(--paper)' : 'var(--ink-3)',
-          }}>
-            Save changes
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Delete Area confirm sheet ─────────────────────────────────────────────────
-function DeleteAreaSheet({ cat, onConfirm, onCancel }: { cat: Category; onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 110, display: 'flex', alignItems: 'flex-end' }}
-      onClick={e => { if (e.target === e.currentTarget) onCancel() }}
-    >
-      <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '24px 20px 44px', width: '100%' }}>
-        <div style={{ marginBottom: 16, textAlign: 'center' }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>🗑️</div>
-          <div className="t-display" style={{ fontSize: 20, marginBottom: 8 }}>Delete "{cat.name}"?</div>
-          <div style={{ fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-            Tasks in this area will move to your Inbox. This can't be undone.
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-          <button onClick={onCancel} style={{
-            flex: 1, padding: '14px', borderRadius: 12, fontSize: 14, fontWeight: 500,
-            background: 'var(--paper-2)', color: 'var(--ink)', border: '1px solid var(--rule)',
-          }}>
-            Cancel
-          </button>
-          <button onClick={onConfirm} style={{
-            flex: 1, padding: '14px', borderRadius: 12, fontSize: 14, fontWeight: 600,
-            background: 'var(--warn)', color: 'white',
-          }}>
-            Delete area
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 interface Props {
   navigate: (s: Screen) => void
 }
@@ -196,8 +96,6 @@ const DATE = today.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', 
 export const DashboardScreen = ({ navigate }: Props) => {
   const [bursts, setBursts]           = useState<Burst[]>([])
   const [showAddArea, setShowAddArea] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null)
-  const [editTarget,   setEditTarget]   = useState<Category | null>(null)
   const tasks    = useLiveQuery(() => db.tasks.toArray(), [])
   const settings = useLiveQuery(() => db.settings.get(1), [])
   const cats     = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
@@ -230,14 +128,6 @@ export const DashboardScreen = ({ navigate }: Props) => {
       setBursts(b => [...b, burst])
       setTimeout(() => setBursts(b => b.filter(x => x.id !== burst.id)), 1400)
     }
-  }
-
-  async function handleDeleteArea(cat: Category) {
-    // Move tasks from deleted area to Inbox (stamp updatedAt + sync each)
-    const areaTasks = await db.tasks.where('cat').equals(cat.id).toArray()
-    await Promise.all(areaTasks.map(t => updateTask(t.id, { cat: 'inbox' })))
-    await deleteCategory(cat.id)
-    setDeleteTarget(null)
   }
 
   return (
@@ -380,7 +270,6 @@ export const DashboardScreen = ({ navigate }: Props) => {
               const habitCount = catTasks.filter(t => t.isHabit || t.recurring).length
               const progress  = catTotal > 0 ? catDone / catTotal : 0
               const I = Icons[cat.icon] ?? Icons.home
-              const isCustom = !BUILTIN_IDS.has(cat.id)
               const hue = cat.hue
               // Mini ring SVG values
               const R = 11, C = 2 * Math.PI * R
@@ -442,35 +331,6 @@ export const DashboardScreen = ({ navigate }: Props) => {
                     </div>
                   </button>
 
-                  {/* Edit button — all areas, top-right corner */}
-                  <button
-                    onClick={e => { e.stopPropagation(); setEditTarget(cat) }}
-                    style={{
-                      position: 'absolute', top: 5, right: isCustom ? 26 : 5,
-                      width: 18, height: 18, borderRadius: '50%',
-                      background: 'var(--paper-3)', border: '1px solid var(--rule)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: 'var(--ink-4)',
-                    }}
-                  >
-                    <Icons.edit size={8} />
-                  </button>
-
-                  {/* Delete button — custom (non-home) areas only */}
-                  {isCustom && (
-                    <button
-                      onClick={e => { e.stopPropagation(); setDeleteTarget(cat) }}
-                      style={{
-                        position: 'absolute', top: 5, right: 5,
-                        width: 18, height: 18, borderRadius: '50%',
-                        background: 'var(--paper-3)', border: '1px solid var(--rule)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        color: 'var(--ink-4)',
-                      }}
-                    >
-                      <Icons.close size={8} />
-                    </button>
-                  )}
                 </div>
               )
             })}
@@ -498,41 +358,41 @@ export const DashboardScreen = ({ navigate }: Props) => {
             } />
             <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {allTodayTasks.map(task => (
-                <TaskCard key={task.id} task={task}
-                  hue={cats.find((c: Category) => c.id === task.cat)?.hue}
-                  onTap={() => navigate({ name: 'task', taskId: task.id })}
-                  onComplete={(e) => handleComplete(e, task)}
-                />
+                <SwipeableRow
+                  key={task.id}
+                  disabled={task.done}
+                  onComplete={() => completeTask(task.id)}
+                  onDelete={() => deleteTask(task.id)}
+                >
+                  <TaskCard task={task}
+                    hue={cats.find((c: Category) => c.id === task.cat)?.hue}
+                    onTap={() => navigate({ name: 'task', taskId: task.id })}
+                    onComplete={(e) => handleComplete(e, task)}
+                  />
+                </SwipeableRow>
               ))}
             </div>
           </div>
         )}
 
         {/* Upcoming — non-today tasks with a due date */}
-        <UpcomingSection tasks={tasks} cats={cats} navigate={navigate} handleComplete={handleComplete} />
+        <UpcomingSection tasks={tasks} cats={cats} navigate={navigate} handleComplete={handleComplete} onDelete={deleteTask} />
       </div>
 
       {/* Confetti bursts */}
       {bursts.map(b => <ConfettiBurst key={b.id} x={b.x} y={b.y} xp={b.xp} />)}
-      {showAddArea  && <AddAreaModal onClose={() => setShowAddArea(false)} />}
-      {editTarget   && <EditAreaModal cat={editTarget} onClose={() => setEditTarget(null)} />}
-      {deleteTarget && (
-        <DeleteAreaSheet
-          cat={deleteTarget}
-          onConfirm={() => handleDeleteArea(deleteTarget)}
-          onCancel={() => setDeleteTarget(null)}
-        />
-      )}
+      {showAddArea && <AddAreaModal onClose={() => setShowAddArea(false)} />}
     </div>
   )
 }
 
 
-function UpcomingSection({ tasks, cats, navigate, handleComplete }: {
+function UpcomingSection({ tasks, cats, navigate, handleComplete, onDelete }: {
   tasks: Task[]
   cats: Category[]
   navigate: (s: Screen) => void
   handleComplete: (e: React.MouseEvent, task: Task) => void
+  onDelete: (id: string) => void
 }) {
   const todayISO     = new Date().toISOString().slice(0, 10)
   const tomorrowDate = new Date(); tomorrowDate.setDate(tomorrowDate.getDate() + 1)
@@ -569,11 +429,18 @@ function UpcomingSection({ tasks, cats, navigate, handleComplete }: {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {group.map(task => (
-            <TaskCard key={task.id} task={task}
-              hue={cats.find(c => c.id === task.cat)?.hue}
-              onTap={() => navigate({ name: 'task', taskId: task.id })}
-              onComplete={e => handleComplete(e, task)}
-            />
+            <SwipeableRow
+              key={task.id}
+              disabled={task.done}
+              onComplete={() => completeTask(task.id)}
+              onDelete={() => onDelete(task.id)}
+            >
+              <TaskCard task={task}
+                hue={cats.find(c => c.id === task.cat)?.hue}
+                onTap={() => navigate({ name: 'task', taskId: task.id })}
+                onComplete={e => handleComplete(e, task)}
+              />
+            </SwipeableRow>
           ))}
         </div>
       </div>

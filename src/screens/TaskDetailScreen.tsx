@@ -806,7 +806,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
                 border: '1px solid var(--rule)',
               }}
             >
-              Delete task
+              {task.isHabit ? 'Delete habit' : 'Delete task'}
             </button>
           )}
         </div>

@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addShoppingItem, updateShoppingItem, deleteShoppingItem, deleteCheckedShoppingItems } from '../data/db'
 import { Icons } from '../components/ui/Icons'
-import type { ShoppingItem } from '../types'
+import type { ShoppingItem, Screen } from '../types'
 
 // ── Add / Edit item sheet ─────────────────────────────────────────────────────
 function ItemSheet({
@@ -232,9 +232,10 @@ function ItemRow({
 // ── Main screen ───────────────────────────────────────────────────────────────
 interface Props {
   back: () => void
+  navigate?: (s: Screen) => void
 }
 
-export function ShoppingListScreen({ back }: Props) {
+export function ShoppingListScreen({ back, navigate }: Props) {
   const items = useLiveQuery(() => db.shoppingItems.orderBy('createdAt').toArray(), []) ?? []
   const [showAdd,    setShowAdd]    = useState(false)
   const [editTarget, setEditTarget] = useState<ShoppingItem | null>(null)
@@ -282,11 +283,33 @@ export function ShoppingListScreen({ back }: Props) {
     <div className="screen">
       {/* Header */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={back} style={{ color: 'var(--ink-2)' }} aria-label="Back">
-            <Icons.back size={20} />
-          </button>
-          <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <button onClick={back} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
+              <Icons.back size={16} /> Today
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {checkedCount > 0 && (
+                <button
+                  onClick={handleClearChecked}
+                  aria-label="Clear checked items"
+                  style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em',
+                    color: 'var(--warn)', padding: '4px 8px', borderRadius: 6,
+                    border: '1px solid var(--warn)',
+                  }}
+                >
+                  CLEAR DONE
+                </button>
+              )}
+              {navigate && (
+                <button onClick={() => navigate({ name: 'settings' } as Screen)} style={{ color: 'var(--ink-2)' }}>
+                  <Icons.settings size={20} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div>
             <div className="t-display" style={{ fontSize: 22 }}>Shopping List</div>
             {items.length > 0 && (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em', marginTop: 2 }}>
@@ -294,19 +317,6 @@ export function ShoppingListScreen({ back }: Props) {
               </div>
             )}
           </div>
-          {checkedCount > 0 && (
-            <button
-              onClick={handleClearChecked}
-              aria-label="Clear checked items"
-              style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em',
-                color: 'var(--warn)', padding: '4px 8px', borderRadius: 6,
-                border: '1px solid var(--warn)',
-              }}
-            >
-              CLEAR DONE
-            </button>
-          )}
         </div>
       </div>
 
