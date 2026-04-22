@@ -2,8 +2,9 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from './data/db'
 import { supabase } from './lib/supabase'
-import { pullAll, startRealtime, stopRealtime, pushAllLocal } from './lib/sync'
+import { pullAll, startRealtime, stopRealtime, pushOnly, previewPull, applyPull } from './lib/sync'
 import { resetRecurringTasks } from './data/db'
+import { setSyncState } from './lib/syncState'
 import { useNotifications } from './lib/useNotifications'
 import { BottomNav }          from './components/layout/BottomNav'
 import { GlobalPomodoro }     from './components/GlobalPomodoro'
@@ -13,6 +14,7 @@ import { AddGoalSheet }       from './components/AddGoalSheet'
 import { FabMenu }            from './components/FabMenu'
 import type { FabAction }     from './components/FabMenu'
 import { Icons }              from './components/ui/Icons'
+import SyncStatusBar, { triggerSync } from './components/SyncStatusBar'
 import { DashboardScreen }    from './screens/DashboardScreen'
 import { TaskDetailScreen }   from './screens/TaskDetailScreen'
 import { CategoryScreen }     from './screens/CategoryScreen'
@@ -61,7 +63,6 @@ export default function App() {
   const screen = screenStack[screenStack.length - 1]
 
   const [authState,  setAuthState]  = useState<AuthState>('loading')
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done'>('idle')
   const [isOnline,   setIsOnline]   = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [fabSheet,    setFabSheet]    = useState<FabSheet>('none')
   const [taskPrefill, setTaskPrefill] = useState<{ title?: string; catId?: string; due?: string; isHabit?: boolean } | null>(null)
@@ -78,20 +79,28 @@ export default function App() {
     return () => mq.removeEventListener('change', handler)
   }, [settings])
 
-  // Auth
+  // Auth — on sign-in: push, then pull (auto-apply, no confirmation on first sync)
   const handleSignIn = useCallback(async (userId: string) => {
     setAuthState('authed')
-    setSyncStatus('syncing')
+    setSyncState({ phase: 'pushing', pushProgress: 0, errorMsg: null })
     try {
-      await pushAllLocal()
-      await pullAll()
+      await pushOnly((done, total) => {
+        setSyncState({ pushProgress: Math.round((done / total) * 100) })
+      })
+      setSyncState({ phase: 'previewing', pullProgress: 0 })
+      const preview = await previewPull()
+      setSyncState({ phase: 'pulling', pullProgress: 50 })
+      await applyPull(preview)
       startRealtime(userId)
+      setSyncState({ phase: 'done', pullProgress: 100, lastSyncAt: Date.now() })
+      setTimeout(() => {
+        setSyncState({ phase: 'idle' })
+      }, 3000)
       // Reset recurring tasks that weren't completed today
       resetRecurringTasks().catch(e => console.warn('[recurring] reset failed', e))
     } catch (e) {
-      console.warn('[sync] pull failed', e)
-    } finally {
-      setSyncStatus('done')
+      console.warn('[sync] initial sync failed', e)
+      setSyncState({ phase: 'error', errorMsg: e instanceof Error ? e.message : 'Sync failed' })
     }
   }, [])
 
@@ -114,7 +123,7 @@ export default function App() {
   useEffect(() => {
     if (authState !== 'authed') return
     const id = setInterval(() => {
-      if (navigator.onLine) pullAll().catch(e => console.warn('[sync] periodic pull', e))
+      if (navigator.onLine) triggerSync().catch(e => console.warn('[sync] periodic pull', e))
     }, 5 * 60 * 1000)
     return () => clearInterval(id)
   }, [authState])
@@ -122,7 +131,7 @@ export default function App() {
   // ── Pull on reconnect ─────────────────────────────────────────────────────
   useEffect(() => {
     if (authState !== 'authed') return
-    const handler = () => pullAll().catch(e => console.warn('[sync] online pull', e))
+    const handler = () => triggerSync().catch(e => console.warn('[sync] online pull', e))
     window.addEventListener('online', handler)
     return () => window.removeEventListener('online', handler)
   }, [authState])
@@ -205,14 +214,8 @@ export default function App() {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-      {/* Sync stripe */}
-      {syncStatus === 'syncing' && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
-          height: 2, background: 'var(--accent)',
-          animation: 'pulse 1.5s ease-in-out infinite',
-        }} />
-      )}
+      {/* Sync status bar */}
+      {authState === 'authed' && <SyncStatusBar />}
 
       {/* Offline banner */}
       {!isOnline && (

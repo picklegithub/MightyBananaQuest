@@ -7,6 +7,8 @@ import { ConfettiBurst, Seg } from '../components/ui'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { TaskCard } from '../components/TaskCard'
 import { SwipeableRow } from '../components/SwipeableRow'
+import { usePullToRefresh } from '../hooks/usePullToRefresh'
+import { triggerSync } from '../components/SyncStatusBar'
 import type { Screen, Task } from '../types'
 
 interface Props { navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void }
@@ -22,6 +24,8 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
 
   const tasks = useLiveQuery(() => db.tasks.toArray(), [])
   const cats  = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
+
+  const { pullRatio, isPulling, containerProps } = usePullToRefresh(triggerSync, 72)
 
   if (!tasks) return null
 
@@ -125,7 +129,23 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
         })}
       </div>
 
-      <div className="screen-scroll" style={{ padding: '12px 20px 40px' }}>
+      <div className="screen-scroll" style={{ padding: '12px 20px 40px' }} {...containerProps}>
+        {/* Pull-to-refresh indicator */}
+        {isPulling && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            height: Math.round(pullRatio * 40),
+            overflow: 'hidden', transition: 'height 0.1s',
+          }}>
+            <div style={{
+              width: 20, height: 20, borderRadius: '50%',
+              border: '2px solid var(--rule)',
+              borderTopColor: 'var(--accent)',
+              opacity: pullRatio,
+              transform: `rotate(${pullRatio * 360}deg)`,
+            }} />
+          </div>
+        )}
         {filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.06em' }}>
             No tasks match this filter

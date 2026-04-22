@@ -6,11 +6,39 @@
  *  - Then mirror to Supabase (fire-and-forget, retried on next pull)
  *  - On sign-in / app start: pull all remote rows, merge with last-write-wins
  *  - Realtime subscriptions push remote changes back into Dexie
+ *  - Tombstone table prevents deleted tasks from reappearing on sync
  */
 
 import { supabase } from './supabase'
-import { db } from '../data/db'
+import { db, getTombstoneIds } from '../data/db'
 import type { Task, Goal, JournalEntry, InboxItem, Category, AppSettings } from '../types'
+
+// ── localStorage key for last pull timestamp ──────────────────────────────────
+const LAST_PULL_KEY = 'mbq_last_pull_at'
+
+export function getLastPullAt(): number {
+  try {
+    const val = localStorage.getItem(LAST_PULL_KEY)
+    return val ? parseInt(val, 10) : 0
+  } catch {
+    return 0
+  }
+}
+
+function setLastPullAt(ts: number): void {
+  try {
+    localStorage.setItem(LAST_PULL_KEY, String(ts))
+  } catch {}
+}
+
+// ── PullPreview type ──────────────────────────────────────────────────────────
+
+export interface PullPreview {
+  toAdd:            Task[]    // remote tasks not in local at all
+  toUpdate:         Task[]    // remote tasks with newer updatedAt than local
+  toDelete:         string[]  // local task IDs: had updatedAt <= lastPullAt, absent from remote (remote-deleted)
+  tombstoneSkipped: number    // remote tasks skipped because they're in local tombstone
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -213,44 +241,119 @@ function rowToSettings(row: Record<string, unknown>): Partial<AppSettings> {
   }
 }
 
+// ── Preview pull (compute what would change, don't apply) ────────────────────
+
+export async function previewPull(): Promise<PullPreview> {
+  const userId = await getUserIdAsync()
+  if (!userId) {
+    return { toAdd: [], toUpdate: [], toDelete: [], tombstoneSkipped: 0 }
+  }
+
+  const tombstoneIds = await getTombstoneIds()
+  const lastPullAt   = getLastPullAt()
+
+  // Fetch remote tasks
+  const { data: remoteTasks } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('user_id', userId)
+
+  if (!remoteTasks) {
+    return { toAdd: [], toUpdate: [], toDelete: [], tombstoneSkipped: 0 }
+  }
+
+  const localTasks = await db.tasks.toArray()
+  const localMap   = new Map(localTasks.map(t => [t.id, t]))
+
+  // Build set of remote IDs (excluding tombstoned)
+  const remoteIdSet = new Set<string>()
+  const toAdd:    Task[] = []
+  const toUpdate: Task[] = []
+  let tombstoneSkipped = 0
+
+  for (const row of remoteTasks) {
+    const id = row.id as string
+
+    // If tombstoned locally, re-delete from Supabase (cleanup) and skip
+    if (tombstoneIds.has(id)) {
+      tombstoneSkipped++
+      supabase.from('tasks').delete().eq('id', id).eq('user_id', userId).then(() => {}).catch(() => {})
+      continue
+    }
+
+    remoteIdSet.add(id)
+    const local      = localMap.get(id)
+    const remoteTime = new Date(row.updated_at as string).getTime()
+    const localTime  = (local as (Task & { updatedAt?: number }) | undefined)?.updatedAt ?? 0
+
+    if (!local) {
+      toAdd.push(rowToTask(row as Record<string, unknown>))
+    } else if (remoteTime > localTime) {
+      toUpdate.push(rowToTask(row as Record<string, unknown>))
+    }
+  }
+
+  // Detect remote deletions: local tasks with updatedAt <= lastPullAt
+  // that are absent from remote and not in tombstone
+  const toDelete: string[] = []
+  if (lastPullAt > 0) {
+    for (const local of localTasks) {
+      const localTime = local.updatedAt ?? 0
+      if (
+        localTime <= lastPullAt &&
+        !remoteIdSet.has(local.id) &&
+        !tombstoneIds.has(local.id)
+      ) {
+        toDelete.push(local.id)
+      }
+    }
+  }
+
+  return { toAdd, toUpdate, toDelete, tombstoneSkipped }
+}
+
+// ── Apply pull (write the preview to local DB) ────────────────────────────────
+
+export async function applyPull(preview: PullPreview): Promise<void> {
+  const toUpsert = [...preview.toAdd, ...preview.toUpdate]
+  if (toUpsert.length > 0) {
+    await db.tasks.bulkPut(toUpsert)
+  }
+
+  if (preview.toDelete.length > 0) {
+    const now = Date.now()
+    // Add tombstones for remotely-deleted tasks
+    await db.deletedTasks.bulkPut(preview.toDelete.map(id => ({ id, deletedAt: now })))
+    await db.tasks.bulkDelete(preview.toDelete)
+  }
+
+  setLastPullAt(Date.now())
+}
+
 // ── Full pull (on sign-in or app start) ───────────────────────────────────────
 
 export async function pullAll(): Promise<void> {
   const userId = await getUserIdAsync()
   if (!userId) return
 
+  // Tasks via previewPull + applyPull
+  const preview = await previewPull()
+  await applyPull(preview)
+
+  // Goals, Journal, Inbox, Categories, Settings
   const [
-    { data: remoteTasks },
     { data: remoteGoals },
     { data: remoteJournal },
     { data: remoteInbox },
     { data: remoteCategories },
     { data: remoteSettings },
   ] = await Promise.all([
-    supabase.from('tasks').select('*').eq('user_id', userId),
     supabase.from('goals').select('*').eq('user_id', userId),
     supabase.from('journal').select('*').eq('user_id', userId),
     supabase.from('inbox').select('*').eq('user_id', userId),
     supabase.from('categories').select('*').eq('user_id', userId),
     supabase.from('settings').select('*').eq('user_id', userId).maybeSingle(),
   ])
-
-  // Tasks
-  if (remoteTasks && remoteTasks.length > 0) {
-    const localTasks = await db.tasks.toArray()
-    const localMap = new Map(localTasks.map(t => [t.id, t]))
-    const toUpsert: Task[] = []
-
-    for (const row of remoteTasks) {
-      const local = localMap.get(row.id as string)
-      const remoteTime = new Date(row.updated_at as string).getTime()
-      const localTime = (local as (Task & { updatedAt?: number }) | undefined)?.updatedAt ?? 0
-      if (!local || remoteTime > localTime) {
-        toUpsert.push(rowToTask(row as Record<string, unknown>))
-      }
-    }
-    if (toUpsert.length > 0) await db.tasks.bulkPut(toUpsert)
-  }
 
   // Goals
   if (remoteGoals && remoteGoals.length > 0) {
@@ -375,9 +478,13 @@ export async function pushSettings(settings: AppSettings): Promise<void> {
   await supabase.from('settings').upsert(settingsToRow(settings, userId), { onConflict: 'user_id' })
 }
 
+// ── Push all local data ───────────────────────────────────────────────────────
+
 export async function pushAllLocal(): Promise<void> {
   const userId = await getUserIdAsync()
   if (!userId) return
+
+  const tombstoneIds = await getTombstoneIds()
 
   const [tasks, goals, journal, inbox, categories, settings] = await Promise.all([
     db.tasks.toArray(),
@@ -388,14 +495,75 @@ export async function pushAllLocal(): Promise<void> {
     db.settings.get(1),
   ])
 
+  // Filter out tombstoned tasks before pushing
+  const filteredTasks = tasks.filter(t => !tombstoneIds.has(t.id))
+
   await Promise.all([
-    tasks.length     ? supabase.from('tasks').upsert(tasks.map(t => taskToRow(t, userId)), { onConflict: 'id' }) : null,
-    goals.length     ? supabase.from('goals').upsert(goals.map(g => goalToRow(g, userId)), { onConflict: 'id' }) : null,
-    journal.length   ? supabase.from('journal').upsert(journal.map(j => journalToRow(j, userId)), { onConflict: 'id' }) : null,
-    inbox.length     ? supabase.from('inbox').upsert(inbox.map(i => inboxToRow(i, userId)), { onConflict: 'id' }) : null,
-    categories.length ? supabase.from('categories').upsert(categories.map(c => categoryToRow(c, userId)), { onConflict: 'id' }) : null,
-    settings          ? supabase.from('settings').upsert(settingsToRow(settings, userId), { onConflict: 'user_id' }) : null,
+    filteredTasks.length ? supabase.from('tasks').upsert(filteredTasks.map(t => taskToRow(t, userId)), { onConflict: 'id' }) : null,
+    goals.length         ? supabase.from('goals').upsert(goals.map(g => goalToRow(g, userId)), { onConflict: 'id' }) : null,
+    journal.length       ? supabase.from('journal').upsert(journal.map(j => journalToRow(j, userId)), { onConflict: 'id' }) : null,
+    inbox.length         ? supabase.from('inbox').upsert(inbox.map(i => inboxToRow(i, userId)), { onConflict: 'id' }) : null,
+    categories.length    ? supabase.from('categories').upsert(categories.map(c => categoryToRow(c, userId)), { onConflict: 'id' }) : null,
+    settings             ? supabase.from('settings').upsert(settingsToRow(settings, userId), { onConflict: 'user_id' }) : null,
   ])
+}
+
+// ── Push only (with progress callback) ───────────────────────────────────────
+
+export async function pushOnly(
+  onProgress?: (done: number, total: number) => void
+): Promise<{ tasksPushed: number }> {
+  const userId = await getUserIdAsync()
+  if (!userId) return { tasksPushed: 0 }
+
+  const tombstoneIds = await getTombstoneIds()
+
+  const [tasks, goals, journal, inbox, categories, settings] = await Promise.all([
+    db.tasks.toArray(),
+    db.goals.toArray(),
+    db.journal.toArray(),
+    db.inbox.toArray(),
+    db.categories.toArray(),
+    db.settings.get(1),
+  ])
+
+  const filteredTasks = tasks.filter(t => !tombstoneIds.has(t.id))
+  const total = 6
+  let done = 0
+
+  const tick = () => { done++; onProgress?.(done, total) }
+
+  await (filteredTasks.length
+    ? supabase.from('tasks').upsert(filteredTasks.map(t => taskToRow(t, userId)), { onConflict: 'id' })
+    : Promise.resolve(null))
+  tick()
+
+  await (goals.length
+    ? supabase.from('goals').upsert(goals.map(g => goalToRow(g, userId)), { onConflict: 'id' })
+    : Promise.resolve(null))
+  tick()
+
+  await (journal.length
+    ? supabase.from('journal').upsert(journal.map(j => journalToRow(j, userId)), { onConflict: 'id' })
+    : Promise.resolve(null))
+  tick()
+
+  await (inbox.length
+    ? supabase.from('inbox').upsert(inbox.map(i => inboxToRow(i, userId)), { onConflict: 'id' })
+    : Promise.resolve(null))
+  tick()
+
+  await (categories.length
+    ? supabase.from('categories').upsert(categories.map(c => categoryToRow(c, userId)), { onConflict: 'id' })
+    : Promise.resolve(null))
+  tick()
+
+  await (settings
+    ? supabase.from('settings').upsert(settingsToRow(settings, userId), { onConflict: 'user_id' })
+    : Promise.resolve(null))
+  tick()
+
+  return { tasksPushed: filteredTasks.length }
 }
 
 // ── Realtime subscriptions ────────────────────────────────────────────────────

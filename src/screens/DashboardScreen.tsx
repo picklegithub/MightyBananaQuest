@@ -6,6 +6,8 @@ import { Icons } from '../components/ui/Icons'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { SectionHeader, ConfettiBurst } from '../components/ui'
 import { TaskCard } from '../components/TaskCard'
+import { usePullToRefresh } from '../hooks/usePullToRefresh'
+import { triggerSync } from '../components/SyncStatusBar'
 import type { Screen, Task, Category } from '../types'
 
 // ── Area icons available for custom areas ─────────────────────────────────────
@@ -135,6 +137,8 @@ export const DashboardScreen = ({ navigate }: Props) => {
     []
   )
 
+  const { pullRatio, isPulling, containerProps } = usePullToRefresh(triggerSync, 72)
+
   if (!tasks || !settings) return null
 
   const allTodayTasks = tasks.filter(t => t.due === 'Today')
@@ -203,7 +207,23 @@ export const DashboardScreen = ({ navigate }: Props) => {
         )}
       </div>
 
-      <div className="screen-scroll" style={{ padding: '0 0 16px' }}>
+      <div className="screen-scroll" style={{ padding: '0 0 16px' }} {...containerProps}>
+        {/* Pull-to-refresh indicator */}
+        {isPulling && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            height: Math.round(pullRatio * 40),
+            overflow: 'hidden', transition: 'height 0.1s',
+          }}>
+            <div style={{
+              width: 20, height: 20, borderRadius: '50%',
+              border: '2px solid var(--rule)',
+              borderTopColor: 'var(--accent)',
+              opacity: pullRatio,
+              transform: `rotate(${pullRatio * 360}deg)`,
+            }} />
+          </div>
+        )}
         {/* Area grid — Inbox first, then categories */}
         <div style={{ padding: '16px 20px 0' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>

@@ -18,6 +18,12 @@ export interface HabitLog {
   date: string    // 'YYYY-MM-DD'
 }
 
+// ── Tombstone entry (soft-delete record) ─────────────────────────────────────
+export interface DeletedTask {
+  id: string
+  deletedAt: number
+}
+
 export class LifeAdminDB extends Dexie {
   tasks!:         Table<Task>
   categories!:    Table<Category>
@@ -27,6 +33,7 @@ export class LifeAdminDB extends Dexie {
   settings!:      Table<AppSettings>
   habitLog!:      Table<HabitLog>
   weeklyReviews!: Table<WeeklyReview>
+  deletedTasks!:  Table<DeletedTask>
 
   constructor() {
     super('LifeAdminDB')
@@ -80,6 +87,18 @@ export class LifeAdminDB extends Dexie {
       settings:      'id',
       habitLog:      'id, taskId, date',
       weeklyReviews: 'id, weekStart, completedAt',
+    })
+    // Version 6 adds tombstone table for soft-delete / sync integrity
+    this.version(6).stores({
+      tasks:         'id, cat, due, done, effort, quad, createdAt, isHabit, status',
+      categories:    'id',
+      goals:         'id, area',
+      journal:       'id, date, kind',
+      inbox:         'id, kind, processed',
+      settings:      'id',
+      habitLog:      'id, taskId, date',
+      weeklyReviews: 'id, weekStart, completedAt',
+      deletedTasks:  'id, deletedAt',
     })
   }
 }
@@ -219,8 +238,11 @@ export async function resetRecurringTasks(): Promise<void> {
     if (!log) resetIds.push(task.id)
   }
   if (resetIds.length > 0) {
-    const now = Date.now()
-    await Promise.all(resetIds.map(id => db.tasks.update(id, { done: false, updatedAt: now })))
+    // Keep original updatedAt so remote completions (with newer stamps) can win on next pull
+    await Promise.all(resetIds.map(id => {
+      const task = recurring.find(t => t.id === id)
+      return db.tasks.update(id, { done: false, updatedAt: task?.updatedAt ?? Date.now() })
+    }))
     // Sync resets to Supabase in the background
     const updatedTasks = await db.tasks.bulkGet(resetIds)
     updatedTasks.forEach(t => { if (t) pushTask(t) })
@@ -270,14 +292,23 @@ export async function getSettings(): Promise<AppSettings> {
 
 // ── Helper: delete a task ─────────────────────────────────────────────────────
 export async function deleteTask(taskId: string) {
+  await db.deletedTasks.put({ id: taskId, deletedAt: Date.now() })
   await db.tasks.delete(taskId)
   pushTaskDelete(taskId)
 }
 
 // ── Helper: delete multiple tasks ────────────────────────────────────────────
 export async function deleteTasks(taskIds: string[]) {
+  const now = Date.now()
+  await db.deletedTasks.bulkPut(taskIds.map(id => ({ id, deletedAt: now })))
   await db.tasks.bulkDelete(taskIds)
   pushTasksDelete(taskIds)
+}
+
+// ── Helper: get all tombstoned task IDs ──────────────────────────────────────
+export async function getTombstoneIds(): Promise<Set<string>> {
+  const tombstones = await db.deletedTasks.toArray()
+  return new Set(tombstones.map(t => t.id))
 }
 
 // ── Helper: add a goal ────────────────────────────────────────────────────────
@@ -326,7 +357,7 @@ export async function saveInboxItem(item: InboxItem) {
 
 // ── Helper: nuclear reset — wipe everything and re-seed ──────────────────────
 export async function resetAllData() {
-  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.goals, db.journal, db.inbox, db.habitLog], async () => {
+  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.goals, db.journal, db.inbox, db.habitLog, db.deletedTasks], async () => {
     await db.settings.clear()
     await db.categories.clear()
     await db.tasks.clear()
@@ -334,6 +365,7 @@ export async function resetAllData() {
     await db.journal.clear()
     await db.inbox.clear()
     await db.habitLog.clear()
+    await db.deletedTasks.clear()
     await db.settings.add(DEFAULT_SETTINGS)
     await db.categories.bulkAdd(DEFAULT_CATEGORIES)
     await db.tasks.bulkAdd(SEED_TASKS)
