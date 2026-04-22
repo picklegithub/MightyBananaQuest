@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, addCategory, deleteCategory, updateTask } from '../data/db'
+import { db, completeTask, addCategory, deleteCategory, updateCategory, updateTask } from '../data/db'
 
 // Feature flag — disable by setting localStorage key 'shopping_list_enabled' to 'false'
 const SHOPPING_LIST_ENABLED = localStorage.getItem('shopping_list_enabled') !== 'false'
@@ -84,6 +84,71 @@ function AddAreaModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+// ── Edit Area Modal ───────────────────────────────────────────────────────────
+function EditAreaModal({ cat, onClose }: { cat: Category; onClose: () => void }) {
+  const [name, setName] = useState(cat.name)
+  const [icon, setIcon] = useState(cat.icon)
+  const [hue,  setHue]  = useState(cat.hue)
+
+  async function handleSave() {
+    if (!name.trim()) return
+    await updateCategory(cat.id, { name: name.trim(), icon, hue })
+    onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '24px 20px 40px', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h2 className="t-display" style={{ fontSize: 22 }}>Edit Area</h2>
+          <button onClick={onClose} style={{ color: 'var(--ink-3)' }}><Icons.close size={20} /></button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Name</div>
+            <input autoFocus value={name} onChange={e => setName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--rule)', background: 'var(--paper-2)', fontSize: 15, color: 'var(--ink)' }} />
+          </div>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Icon</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {AREA_ICONS.map(ic => {
+                const I = Icons[ic] ?? Icons.home
+                return (
+                  <button key={ic} onClick={() => setIcon(ic)} style={{
+                    width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: icon === ic ? `hsl(${hue},55%,42%)` : 'var(--paper-2)',
+                    color: icon === ic ? 'white' : 'var(--ink-2)',
+                    border: '1px solid', borderColor: icon === ic ? 'transparent' : 'var(--rule)',
+                  }}>
+                    <I size={18} />
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Colour — hue {hue}°</div>
+            <input type="range" min={0} max={360} value={hue} onChange={e => setHue(Number(e.target.value))}
+              style={{ width: '100%', accentColor: `hsl(${hue},55%,42%)` }} />
+            <div style={{ height: 24, borderRadius: 8, marginTop: 8, background: `hsl(${hue},55%,42%)` }} />
+          </div>
+          <button onClick={handleSave} disabled={!name.trim()} style={{
+            width: '100%', padding: '14px', borderRadius: 12, fontSize: 15, fontWeight: 600,
+            background: name.trim() ? 'var(--ink)' : 'var(--paper-3)',
+            color: name.trim() ? 'var(--paper)' : 'var(--ink-3)',
+          }}>
+            Save changes
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Delete Area confirm sheet ─────────────────────────────────────────────────
 function DeleteAreaSheet({ cat, onConfirm, onCancel }: { cat: Category; onConfirm: () => void; onCancel: () => void }) {
   return (
@@ -132,6 +197,7 @@ export const DashboardScreen = ({ navigate }: Props) => {
   const [bursts, setBursts]           = useState<Burst[]>([])
   const [showAddArea, setShowAddArea] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null)
+  const [editTarget,   setEditTarget]   = useState<Category | null>(null)
   const tasks    = useLiveQuery(() => db.tasks.toArray(), [])
   const settings = useLiveQuery(() => db.settings.get(1), [])
   const cats     = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
@@ -376,7 +442,21 @@ export const DashboardScreen = ({ navigate }: Props) => {
                     </div>
                   </button>
 
-                  {/* Delete button — all non-home areas, top-right corner */}
+                  {/* Edit button — all areas, top-right corner */}
+                  <button
+                    onClick={e => { e.stopPropagation(); setEditTarget(cat) }}
+                    style={{
+                      position: 'absolute', top: 5, right: isCustom ? 26 : 5,
+                      width: 18, height: 18, borderRadius: '50%',
+                      background: 'var(--paper-3)', border: '1px solid var(--rule)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'var(--ink-4)',
+                    }}
+                  >
+                    <Icons.edit size={8} />
+                  </button>
+
+                  {/* Delete button — custom (non-home) areas only */}
                   {isCustom && (
                     <button
                       onClick={e => { e.stopPropagation(); setDeleteTarget(cat) }}
@@ -434,7 +514,8 @@ export const DashboardScreen = ({ navigate }: Props) => {
 
       {/* Confetti bursts */}
       {bursts.map(b => <ConfettiBurst key={b.id} x={b.x} y={b.y} xp={b.xp} />)}
-      {showAddArea && <AddAreaModal onClose={() => setShowAddArea(false)} />}
+      {showAddArea  && <AddAreaModal onClose={() => setShowAddArea(false)} />}
+      {editTarget   && <EditAreaModal cat={editTarget} onClose={() => setEditTarget(null)} />}
       {deleteTarget && (
         <DeleteAreaSheet
           cat={deleteTarget}

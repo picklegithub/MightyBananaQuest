@@ -350,6 +350,13 @@ export async function addCategory(cat: Category) {
   pushCategory(cat)
 }
 
+// ── Helper: update an area/category (rename, icon, hue) ──────────────────────
+export async function updateCategory(catId: string, patch: Partial<Category>) {
+  await db.categories.update(catId, patch)
+  const updated = await db.categories.get(catId)
+  if (updated) pushCategory(updated)
+}
+
 // ── Helper: delete a custom area/category ────────────────────────────────────
 export async function deleteCategory(catId: string) {
   await db.categories.delete(catId)
