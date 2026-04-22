@@ -83,7 +83,7 @@ function Pill({
 function PrioritySelector({ value, onChange }: { value: QuadKey; onChange: (q: QuadKey) => void }) {
   const opts: { id: QuadKey; label: string; sub: string }[] = [
     { id: 'q1', label: 'Do',       sub: 'Urgent & important' },
-    { id: 'q2', label: 'Plan',     sub: 'Important, not urgent' },
+    { id: 'q2', label: 'Schedule', sub: 'Important, not urgent' },
     { id: 'q3', label: 'Delegate', sub: 'Urgent, not important' },
     { id: 'q4', label: 'Drop',     sub: 'Neither' },
   ]
@@ -200,7 +200,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
   const [editingTitle, setEditingTitle] = useState(false)
   const [localTitle,   setLocalTitle]   = useState('')
   const [localNotes,   setLocalNotes]   = useState('')
-  const [advanced,     setAdvanced]     = useState(false)
   const [capWarning,    setCapWarning]   = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -390,8 +389,17 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
           )}
         </div>
 
-        {/* ── Pill row ── */}
+        {/* ── Pill row — order: Task/Habit · Area · Effort · Priority · Status ── */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+          {/* Task / Habit switcher */}
+          <Pill
+            icon={task.isHabit ? <Icons.flame size={10} /> : undefined}
+            label={task.isHabit ? 'Habit' : 'Task'}
+            active={editingField === 'isHabit'}
+            warn={!!task.isHabit}
+            onClick={() => toggleField('isHabit')}
+          />
+
           {/* Area */}
           <Pill
             label={areaName}
@@ -407,7 +415,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             onClick={() => toggleField('effort')}
           />
 
-
           {/* Priority */}
           <Pill
             label={QUAD[task.quad].short}
@@ -416,17 +423,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             accent={task.quad === 'q2'}
             onClick={() => toggleField('priority')}
           />
-
-          {/* Habit pill — only shown when this IS a habit */}
-          {!!task.isHabit && (
-            <Pill
-              icon={<Icons.flame size={10} />}
-              label="Habit"
-              active
-              warn
-              onClick={() => save({ isHabit: false })}
-            />
-          )}
 
           {/* Status — Slow Productivity workflow state */}
           <Pill
@@ -438,6 +434,28 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
         </div>
 
         {/* ── Inline editor panels ── */}
+        {editingField === 'isHabit' && (
+          <div style={{ padding: '0 0 12px' }}>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button onClick={() => { save({ isHabit: false }); setEditingField(null) }} style={{
+                flex: 1, padding: '9px 4px', borderRadius: 10, textAlign: 'center',
+                background: !task.isHabit ? 'var(--ink)' : 'var(--paper-2)',
+                color: !task.isHabit ? 'var(--paper)' : 'var(--ink-2)',
+                border: '1px solid', borderColor: !task.isHabit ? 'var(--ink)' : 'var(--rule)',
+                fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600,
+              }}>Task</button>
+              <button onClick={() => { save({ isHabit: true }); setEditingField(null) }} style={{
+                flex: 1, padding: '9px 4px', borderRadius: 10, textAlign: 'center',
+                background: task.isHabit ? 'var(--warn)' : 'var(--paper-2)',
+                color: task.isHabit ? 'white' : 'var(--ink-2)',
+                border: '1px solid', borderColor: task.isHabit ? 'var(--warn)' : 'var(--rule)',
+                fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+              }}><Icons.flame size={11} /> Habit</button>
+            </div>
+          </div>
+        )}
+
         {editingField === 'area' && categories && (
           <AreaSheet
             currentCat={task.cat}
@@ -548,102 +566,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
           />
         </div>
 
-        {/* ── Basic / Advanced toggle ── */}
-        <button
-          onClick={() => setAdvanced(a => !a)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16,
-            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em',
-            color: 'var(--ink-3)', textTransform: 'uppercase',
-          }}
-        >
-          <span style={{
-            width: 14, height: 14, borderRadius: 3, border: '1px solid var(--rule)',
-            background: advanced ? 'var(--ink)' : 'transparent',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            {advanced && <Icons.check size={8} sw={2.5} style={{ color: 'var(--paper)' }} />}
-          </span>
-          {advanced ? 'Advanced options' : 'Show advanced options'}
-        </button>
-
-        {/* ── Advanced panel ── */}
-        {advanced && (
-          <div style={{
-            marginBottom: 20, padding: '14px 14px 16px',
-            background: 'var(--paper-2)', borderRadius: 12, border: '1px solid var(--rule)',
-            display: 'flex', flexDirection: 'column', gap: 16,
-          }}>
-            {/* Context */}
-            <div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 7 }}>
-                Context
-              </div>
-              <input
-                defaultValue={task.ctx ?? '@anywhere'}
-                onBlur={e => save({ ctx: e.target.value })}
-                placeholder="@anywhere"
-                style={{
-                  width: '100%', padding: '9px 12px', borderRadius: 9,
-                  border: '1px solid var(--rule)', background: 'var(--paper)',
-                  fontSize: 13, color: 'var(--ink)',
-                }}
-              />
-            </div>
-
-            {/* Habit — shown in Advanced only when task is NOT a habit */}
-            {!task.isHabit && (
-              <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 7 }}>
-                  Habit tracking
-                </div>
-                <button
-                  onClick={() => save({ isHabit: true })}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '9px 12px', borderRadius: 10, width: '100%',
-                    background: 'var(--paper)', border: '1px solid var(--rule)',
-                  }}
-                >
-                  <span style={{
-                    width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                    background: 'var(--paper-3)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: 'var(--ink-3)',
-                  }}>
-                    <Icons.flame size={13} />
-                  </span>
-                  <div style={{ textAlign: 'left' }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)' }}>Mark as habit</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', marginTop: 1, letterSpacing: '0.04em' }}>
-                      Tracks daily check-ins &amp; streaks
-                    </div>
-                  </div>
-                </button>
-              </div>
-            )}
-
-            {/* Pomodoro override */}
-            <div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 7 }}>
-                Focus duration — {pomMins} min
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {[15, 25, 35, 50, 90].map(m => (
-                  <button key={m} onClick={() => save({ pomodoroMins: m })} style={{
-                    padding: '6px 10px', borderRadius: 8,
-                    fontFamily: 'var(--font-mono)', fontSize: 11,
-                    background: pomMins === m ? 'var(--ink)' : 'var(--paper)',
-                    color: pomMins === m ? 'var(--paper)' : 'var(--ink-3)',
-                    border: '1px solid', borderColor: pomMins === m ? 'var(--ink)' : 'var(--rule)',
-                  }}>
-                    {m}m
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* ── Sub-tasks ── */}
         <div style={{ marginBottom: 20 }}>
@@ -772,13 +694,24 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
           background: 'var(--paper-2)', borderRadius: 14, padding: '18px 18px 22px',
           border: '1px solid var(--rule)',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               Focus Timer
             </div>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>
-              {pomMins} min
-            </span>
+          </div>
+          {/* Duration chooser — folded into Pomodoro flow */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+            {[15, 25, 35, 50, 90].map(m => (
+              <button key={m} onClick={() => save({ pomodoroMins: m })} style={{
+                flex: 1, padding: '6px 4px', borderRadius: 8,
+                fontFamily: 'var(--font-mono)', fontSize: 11, textAlign: 'center',
+                background: pomMins === m ? 'var(--ink)' : 'var(--paper-3)',
+                color: pomMins === m ? 'var(--paper)' : 'var(--ink-3)',
+                border: '1px solid', borderColor: pomMins === m ? 'var(--ink)' : 'var(--rule)',
+              }}>
+                {m}m
+              </button>
+            ))}
           </div>
 
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>

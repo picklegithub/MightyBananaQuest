@@ -23,12 +23,39 @@ const EFFORT_DISPLAY: Record<EffortKey, { label: string; range: string }> = {
   xxl: { label: 'Gargantuan', range: '1d+'   },
 }
 
+const QUAD_OPTIONS: { id: QuadKey; label: string; sub: string }[] = [
+  { id: 'q1', label: 'Do',       sub: 'Urgent'    },
+  { id: 'q2', label: 'Schedule', sub: 'Important' },
+  { id: 'q3', label: 'Delegate', sub: 'Low-urg'   },
+  { id: 'q4', label: 'Drop',     sub: 'Neither'   },
+]
+
+// Shared pill style matching the Area pill look
+function OptionPill({
+  active, onClick, children,
+}: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: '7px 13px', borderRadius: 20, fontSize: 12,
+        fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+        background: active ? 'var(--ink)' : 'var(--paper-2)',
+        color: active ? 'var(--paper)' : 'var(--ink-2)',
+        border: '1px solid', borderColor: active ? 'var(--ink)' : 'var(--rule)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
 export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, defaultDue, defaultIsHabit = false }: Props) {
   const [title,     setTitle]     = useState(defaultTitle)
   const [effort,    setEffort]    = useState<EffortKey>('m')
   const [due,       setDue]       = useState(defaultDue ?? 'Today')
   const [time,      setTime]      = useState<string | undefined>(undefined)
-  const [ctx,       setCtx]       = useState('@anywhere')
   const [quad,      setQuad]      = useState<QuadKey>('q2')
   const [recurring, setRecurring] = useState<string | null>(null)
   const [notes,     setNotes]     = useState('')
@@ -43,7 +70,7 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
     const task: Task = {
       id: `t${Date.now()}`,
       title: title.trim(),
-      cat, effort, due, time, ctx, quad, recurring,
+      cat, effort, due, time, ctx: '@anywhere', quad, recurring,
       notes: notes.trim() || undefined,
       isHabit: isHabit || undefined,
       done: false, streak: 0, sub: [],
@@ -98,69 +125,87 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
             />
           </div>
 
-          {/* Habit toggle */}
-          <button
-            onClick={() => setIsHabit(h => !h)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '12px 14px', borderRadius: 12,
-              background: isHabit ? 'var(--warn-soft)' : 'var(--paper-2)',
-              border: `1px solid ${isHabit ? 'var(--warn)' : 'var(--rule)'}`,
-              marginTop: -8,
-            }}
-          >
-            <span style={{
-              width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-              background: isHabit ? 'var(--warn)' : 'var(--paper-3)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: isHabit ? 'white' : 'var(--ink-3)',
-              transition: 'all .15s',
-            }}>
-              <Icons.flame size={15} />
-            </span>
-            <div style={{ textAlign: 'left' }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: isHabit ? 'var(--warn)' : 'var(--ink)' }}>
-                {isHabit ? 'Habit' : 'Mark as habit'}
-              </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', marginTop: 2, letterSpacing: '0.04em' }}>
-                {isHabit ? 'Tracks check-ins daily · resets each day' : 'Recurring check-in, logs to streak'}
-              </div>
+          {/* Task / Habit pill switcher — directly under title */}
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Type</div>
+            <div style={{ display: 'flex', gap: 5 }}>
+              <button
+                onClick={() => setIsHabit(false)}
+                style={{
+                  padding: '7px 16px', borderRadius: 20, fontSize: 12,
+                  fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                  background: !isHabit ? 'var(--ink)' : 'var(--paper-2)',
+                  color: !isHabit ? 'var(--paper)' : 'var(--ink-2)',
+                  border: '1px solid', borderColor: !isHabit ? 'var(--ink)' : 'var(--rule)',
+                }}
+              >
+                Task
+              </button>
+              <button
+                onClick={() => setIsHabit(true)}
+                style={{
+                  padding: '7px 16px', borderRadius: 20, fontSize: 12,
+                  fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                  background: isHabit ? 'var(--warn)' : 'var(--paper-2)',
+                  color: isHabit ? 'white' : 'var(--ink-2)',
+                  border: '1px solid', borderColor: isHabit ? 'var(--warn)' : 'var(--rule)',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                <Icons.flame size={11} /> Habit
+              </button>
             </div>
-          </button>
+          </div>
 
           {/* Area */}
           <div>
             <div className="eyebrow" style={{ marginBottom: 8 }}>Area</div>
             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
               {cats.map(c => (
-                <button key={c.id} onClick={() => setCat(c.id)} style={{
+                <OptionPill key={c.id} active={cat === c.id} onClick={() => setCat(c.id)}>
+                  {c.name}
+                </OptionPill>
+              ))}
+            </div>
+          </div>
+
+          {/* Priority — above Effort */}
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Priority</div>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+              {QUAD_OPTIONS.map(o => (
+                <button key={o.id} onClick={() => setQuad(o.id)} style={{
                   padding: '7px 13px', borderRadius: 20, fontSize: 12,
                   fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
-                  background: cat === c.id ? 'var(--ink)' : 'var(--paper-2)',
-                  color: cat === c.id ? 'var(--paper)' : 'var(--ink-2)',
-                  border: '1px solid', borderColor: cat === c.id ? 'var(--ink)' : 'var(--rule)',
+                  background: quad === o.id ? 'var(--ink)' : 'var(--paper-2)',
+                  color: quad === o.id ? 'var(--paper)' : 'var(--ink-2)',
+                  border: '1px solid', borderColor: quad === o.id ? 'var(--ink)' : 'var(--rule)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
                 }}>
-                  {c.name}
+                  <span style={{ fontWeight: 600 }}>{o.label}</span>
+                  <span style={{ fontSize: 9, opacity: 0.65 }}>{o.sub}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Effort */}
+          {/* Effort — pill row matching Area style */}
           <div>
             <div className="eyebrow" style={{ marginBottom: 8 }}>Effort</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
               {EFFORT_ORDER.map(k => {
                 const d = EFFORT_DISPLAY[k]
                 return (
                   <button key={k} onClick={() => setEffort(k)} style={{
-                    padding: '10px 8px', borderRadius: 10, fontSize: 11, textAlign: 'left',
+                    padding: '7px 13px', borderRadius: 20, fontSize: 12,
+                    fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
                     background: effort === k ? 'var(--ink)' : 'var(--paper-2)',
-                    color: effort === k ? 'var(--paper)' : 'var(--ink)',
+                    color: effort === k ? 'var(--paper)' : 'var(--ink-2)',
                     border: '1px solid', borderColor: effort === k ? 'var(--ink)' : 'var(--rule)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
                   }}>
-                    <div style={{ fontWeight: 600, marginBottom: 2 }}>{d.label}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, opacity: 0.7 }}>{d.range}</div>
+                    <span style={{ fontWeight: 600 }}>{d.label}</span>
+                    <span style={{ fontSize: 9, opacity: 0.65 }}>{d.range}</span>
                   </button>
                 )
               })}
@@ -175,47 +220,6 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
               recurring={recurring}
               time={time}
               onChange={(d, r, t) => { setDue(d); setRecurring(r); setTime(t) }}
-            />
-          </div>
-
-          {/* Priority — compact 4-button row */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Priority</div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {([
-                { id: 'q1', label: 'Do',       sub: 'Urgent',    color: 'var(--warn)'   },
-                { id: 'q2', label: 'Plan',      sub: 'Important', color: 'var(--accent)' },
-                { id: 'q3', label: 'Delegate',  sub: 'Low-urg',   color: 'var(--ink-3)'  },
-                { id: 'q4', label: 'Drop',      sub: 'Neither',   color: 'var(--ink-4)'  },
-              ] as const).map(c => {
-                const active = c.id === quad
-                return (
-                  <button key={c.id} onClick={() => setQuad(c.id)} style={{
-                    flex: 1, padding: '9px 4px', borderRadius: 10, textAlign: 'center',
-                    background: active ? 'var(--ink)' : 'var(--paper-2)',
-                    color: active ? 'var(--paper)' : 'var(--ink)',
-                    border: '1px solid', borderColor: active ? 'var(--ink)' : 'var(--rule)',
-                  }}>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>{c.label}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, opacity: 0.6, marginTop: 2 }}>{c.sub}</div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Context label */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Label</div>
-            <input
-              value={ctx}
-              onChange={e => setCtx(e.target.value)}
-              placeholder="@anywhere"
-              style={{
-                width: '100%', padding: '11px 14px',
-                background: 'var(--paper-2)', border: '1px solid var(--rule)',
-                borderRadius: 10, fontSize: 13, color: 'var(--ink)',
-              }}
             />
           </div>
 
@@ -249,7 +253,7 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             }}
           >
-            <Icons.plus size={18} /> Add Task
+            <Icons.plus size={18} /> {isHabit ? 'Add Habit' : 'Add Task'}
           </button>
         </div>
       </div>
