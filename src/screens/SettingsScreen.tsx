@@ -229,7 +229,14 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
             <button
               onClick={async () => {
                 if (confirm('Sign out of MightyBananaQuest?')) {
-                  await supabase.auth.signOut()
+                  try {
+                    await supabase.auth.signOut()
+                  } catch (e) {
+                    console.warn('[auth] signOut error', e)
+                  }
+                  // Force reload — clears all local state and lets the auth
+                  // listener re-evaluate from scratch (shows login screen).
+                  window.location.reload()
                 }
               }}
               style={{

@@ -16,7 +16,6 @@ const ITEMS: MenuItem[] = [
   { action: 'habit',    label: 'New habit',       icon: 'flame', accent: true },
   { action: 'task',     label: 'New task',        icon: 'plus'    },
   { action: 'pomodoro', label: 'Pomodoro',        icon: 'timer'   },
-  { action: 'capture',  label: 'Quick capture',   icon: 'bolt'    },
 ]
 
 interface Props {
@@ -56,7 +55,7 @@ export function FabMenu({ onSelect, onClose }: Props) {
           return (
             <button
               key={item.action}
-              onClick={() => { onSelect(item.action); onClose() }}
+              onClick={() => onSelect(item.action)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '10px 18px 10px 12px',

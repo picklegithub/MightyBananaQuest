@@ -40,26 +40,40 @@ const DATE_CHIPS = [
   { label: 'No date',   due: () => ''            },
 ]
 
-// ── Time quick-picks ──────────────────────────────────────────────────────────
+// ── Time helpers ──────────────────────────────────────────────────────────────
 
-const TIME_CHIPS = [
-  { label: 'No time', value: '' },
-  { label: '9 am',    value: '09:00' },
-  { label: '12 pm',   value: '12:00' },
-  { label: '2 pm',    value: '14:00' },
-  { label: '6 pm',    value: '18:00' },
-  { label: '9 pm',    value: '21:00' },
+const HOURS = [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]
+const MINUTES: { label: string; value: string }[] = [
+  { label: ':00', value: '00' },
+  { label: ':15', value: '15' },
+  { label: ':30', value: '30' },
+  { label: ':45', value: '45' },
 ]
 
-// ── Repeat quick-picks ────────────────────────────────────────────────────────
+function formatHourLabel(h: number): string {
+  if (h === 0)  return '12am'
+  if (h < 12)  return `${h}am`
+  if (h === 12) return '12pm'
+  return `${h - 12}pm`
+}
+
+function parseTimeParts(t?: string): { h: number | null; m: string | null } {
+  if (!t) return { h: null, m: null }
+  const [hh, mm] = t.split(':')
+  return { h: parseInt(hh), m: mm }
+}
+
+// ── Repeat chips ──────────────────────────────────────────────────────────────
 
 const REPEAT_CHIPS = [
-  { label: 'None',      value: null       },
-  { label: 'Daily',     value: 'Daily'    },
-  { label: 'Weekdays',  value: 'Weekdays' },
-  { label: 'Weekly',    value: 'Weekly'   },
-  { label: 'Biweekly',  value: 'Biweekly' },
-  { label: 'Monthly',   value: 'Monthly'  },
+  { label: 'None',       value: null        },
+  { label: 'Daily',      value: 'Daily'     },
+  { label: 'Weekdays',   value: 'Weekdays'  },
+  { label: 'Weekly',     value: 'Weekly'    },
+  { label: 'Biweekly',   value: 'Biweekly'  },
+  { label: 'Monthly',    value: 'Monthly'   },
+  { label: 'Yearly',     value: 'Yearly'    },
+  { label: 'Custom…',    value: '__custom__' },
 ]
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -84,13 +98,23 @@ const row: React.CSSProperties = {
   display: 'flex', gap: 6, flexWrap: 'wrap',
 }
 
+const scrollRow: React.CSSProperties = {
+  display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2,
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
   const [text, setText] = useState('')
   const [focused, setFocused] = useState(false)
   const [preview, setPreview] = useState<{ due: string; recurring: string | null; time?: string } | null>(null)
+  const [customRepeat, setCustomRepeat] = useState(
+    recurring && !REPEAT_CHIPS.some(c => c.value === recurring && c.value !== '__custom__') ? recurring : ''
+  )
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dateInputRef = useRef<HTMLInputElement>(null)
+
+  const isCustomRepeat = !!recurring && !REPEAT_CHIPS.slice(0, -1).some(c => c.value === recurring)
 
   // ── Natural language input ─────────────────────────────────────────────────
 
@@ -110,15 +134,41 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
   // ── Chip helpers ───────────────────────────────────────────────────────────
 
   function setDate(newDue: string) { onChange(newDue, recurring, time) }
-  function setTime(newTime: string) { onChange(due, recurring, newTime || undefined) }
-  function setRepeat(newRecurring: string | null) { onChange(due, newRecurring, time) }
 
-  // ── Display label for the preview badge ───────────────────────────────────
+  function setHour(h: number) {
+    const { m } = parseTimeParts(time)
+    const newMin = (m && MINUTES.some(x => x.value === m)) ? m : '00'
+    onChange(due, recurring, `${String(h).padStart(2, '0')}:${newMin}`)
+  }
+
+  function setMinute(m: string) {
+    const { h } = parseTimeParts(time)
+    if (h === null) return
+    onChange(due, recurring, `${String(h).padStart(2, '0')}:${m}`)
+  }
+
+  function clearTime() { onChange(due, recurring, undefined) }
+
+  function setRepeat(val: string | null) {
+    if (val === '__custom__') {
+      // Show custom input — don't change recurring yet
+    } else {
+      onChange(due, val, time)
+    }
+  }
+
+  function commitCustomRepeat() {
+    const v = customRepeat.trim()
+    if (v) onChange(due, v, time)
+  }
+
+  // ── Display ────────────────────────────────────────────────────────────────
 
   const hasValue = !!(due || recurring || time)
-  const displayLabel = hasValue
-    ? dueSummary(due, recurring, time)
-    : 'No date'
+  const displayLabel = hasValue ? dueSummary(due, recurring, time) : 'No date'
+
+  const { h: selHour, m: selMin } = parseTimeParts(time)
+  const showMinutePicker = selHour !== null
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -175,68 +225,111 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
               </button>
             )
           })}
-          {/* Native date input overlaid on a chip */}
-          <div style={{ position: 'relative' }}>
+          {/* Date picker pill — hidden native input behind a clean visible button */}
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <button
+              style={chip(/^\d{4}-\d{2}-\d{2}$/.test(due))}
+              onClick={() => dateInputRef.current?.showPicker?.() ?? dateInputRef.current?.click()}
+            >
+              {/^\d{4}-\d{2}-\d{2}$/.test(due) ? formatDueLabel(due) : '📅 Pick'}
+            </button>
             <input
+              ref={dateInputRef}
               type="date"
               value={/^\d{4}-\d{2}-\d{2}$/.test(due) ? due : ''}
               onChange={e => e.target.value && setDate(e.target.value)}
-              style={{ ...chip(false), cursor: 'pointer', colorScheme: 'light dark', color: 'transparent', display: 'block' }}
+              style={{
+                position: 'absolute', inset: 0, opacity: 0,
+                cursor: 'pointer', width: '100%', height: '100%',
+              }}
             />
-            <span style={{
-              position: 'absolute', inset: 0, pointerEvents: 'none',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              ...chip(/^\d{4}-\d{2}-\d{2}$/.test(due)),
-              border: 'none', background: 'transparent',
-            }}>
-              {/^\d{4}-\d{2}-\d{2}$/.test(due) ? formatDueLabel(due) : '📅 Pick'}
-            </span>
           </div>
         </div>
       </div>
 
-      {/* TIME */}
+      {/* TIME — hour chips + minute refinement */}
       <div>
         <div style={sectionLabel}>Time</div>
-        <div style={row}>
-          {TIME_CHIPS.map(t => {
-            const active = (t.value === '') ? !time : time === t.value
-            return (
-              <button key={t.label} onClick={() => setTime(t.value)} style={chip(active)}>
-                {t.label}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* Clear time chip */}
+          <div style={scrollRow}>
+            <button onClick={clearTime} style={chip(!time)}>No time</button>
+            {HOURS.map(h => (
+              <button key={h} onClick={() => setHour(h)} style={chip(selHour === h)}>
+                {formatHourLabel(h)}
               </button>
-            )
-          })}
-          {/* Native time input chip */}
-          <div style={{ position: 'relative' }}>
-            <input
-              type="time"
-              value={time ?? ''}
-              onChange={e => setTime(e.target.value)}
-              style={{ ...chip(false), cursor: 'pointer', colorScheme: 'light dark', color: 'transparent', display: 'block' }}
-            />
-            <span style={{
-              position: 'absolute', inset: 0, pointerEvents: 'none',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              ...chip(!!(time && !TIME_CHIPS.some(t => t.value === time))),
-              border: 'none', background: 'transparent',
-            }}>
-              {(time && !TIME_CHIPS.some(t => t.value === time)) ? formatTime(time) : '⌚ Custom'}
-            </span>
+            ))}
           </div>
+          {/* Minute row — only when an hour is selected */}
+          {showMinutePicker && (
+            <div style={{ ...row, marginLeft: 2 }}>
+              {MINUTES.map(m => (
+                <button
+                  key={m.value}
+                  onClick={() => setMinute(m.value)}
+                  style={chip(selMin === m.value)}
+                >
+                  {m.label}
+                </button>
+              ))}
+              {time && (
+                <span style={{
+                  ...chip(false),
+                  background: 'transparent', border: 'none',
+                  color: 'var(--ink-3)', display: 'flex', alignItems: 'center',
+                }}>
+                  → {formatTime(time)}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       {/* REPEAT */}
       <div>
         <div style={sectionLabel}>Repeat</div>
-        <div style={row}>
-          {REPEAT_CHIPS.map(r => (
-            <button key={r.label} onClick={() => setRepeat(r.value)} style={chip(recurring === r.value)}>
-              {r.label}
-            </button>
-          ))}
+        <div style={{ ...row, marginBottom: isCustomRepeat ? 8 : 0 }}>
+          {REPEAT_CHIPS.map(r => {
+            const active = r.value === '__custom__' ? isCustomRepeat : recurring === r.value
+            return (
+              <button
+                key={r.label}
+                onClick={() => setRepeat(r.value)}
+                style={chip(active)}
+              >
+                {r.label}
+              </button>
+            )
+          })}
         </div>
+        {/* Custom repeat text input */}
+        {(isCustomRepeat || recurring === '__custom__') && (
+          <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
+            <input
+              value={customRepeat}
+              onChange={e => setCustomRepeat(e.target.value)}
+              onBlur={commitCustomRepeat}
+              onKeyDown={e => { if (e.key === 'Enter') commitCustomRepeat() }}
+              placeholder="e.g. Every 3 weeks"
+              style={{
+                flex: 1, padding: '8px 12px', borderRadius: 10,
+                border: '1px solid var(--accent)', background: 'var(--paper-2)',
+                fontSize: 13, color: 'var(--ink)',
+              }}
+            />
+            <button
+              onClick={commitCustomRepeat}
+              style={{
+                padding: '8px 14px', borderRadius: 10, fontSize: 12, flexShrink: 0,
+                background: 'var(--ink)', color: 'var(--paper)',
+                fontFamily: 'var(--font-mono)',
+              }}
+            >
+              Set
+            </button>
+          </div>
+        )}
       </div>
 
     </div>

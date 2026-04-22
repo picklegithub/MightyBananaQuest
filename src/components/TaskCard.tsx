@@ -1,6 +1,7 @@
 import React from 'react'
 import { Icons } from './ui/Icons'
 import { EffortPip } from './ui'
+import { formatTime, formatDueLabel } from '../lib/parseDue'
 import type { Task } from '../types'
 
 // ── Priority dot colour map ───────────────────────────────────────────────────
@@ -11,7 +12,7 @@ const QUAD_COLOR: Record<string, string> = {
   q4: 'var(--ink-4)',     // Drop
 }
 const QUAD_LABEL: Record<string, string> = {
-  q1: 'Do', q2: 'Plan', q3: 'Delegate', q4: 'Drop',
+  q1: 'Do', q2: 'Schedule', q3: 'Delegate', q4: 'Drop',
 }
 
 // ── Mini sub-task progress ring ───────────────────────────────────────────────
@@ -36,6 +37,13 @@ function dueColor(due: string): string {
   return 'var(--ink-3)'
 }
 
+function friendlyDue(due: string): string {
+  if (!due) return ''
+  if (due === 'Today' || due === 'Tomorrow' || due === 'Overdue') return due
+  if (/^\d{4}-\d{2}-\d{2}$/.test(due)) return formatDueLabel(due)
+  return due
+}
+
 // ── TaskCard ──────────────────────────────────────────────────────────────────
 interface Props {
   task: Task
@@ -54,19 +62,27 @@ interface Props {
 
 export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onAreaToggle, onRescheduleToggle }: Props) {
   const subDone = task.sub.filter(s => s.d).length
-  const subProg = task.sub.length > 0
-    ? subDone / task.sub.length
-    : task.done ? 1 : 0
+  const subTotal = task.sub.length
+  const subProg = subTotal > 0 ? subDone / subTotal : (task.done ? 1 : 0)
 
-  const ringColor  = hue !== undefined ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)'
+  const ringColor   = hue !== undefined ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)'
   const borderColor = hue !== undefined ? `hsl(${hue}, 45%, 55%)` : 'var(--rule)'
-  const showDue = task.due && task.due !== ''
+  const showDue     = task.due && task.due !== ''
+  const dueLabel    = showDue ? friendlyDue(task.due) : ''
+  const timeLabel   = task.time ? formatTime(task.time) : null
+  const hasNotes    = !!(task.notes && task.notes.trim())
+  const hasRepeat   = !!(task.recurring)
+
+  // Truncate notes to a single short line
+  const notePreview = hasNotes
+    ? (task.notes!.replace(/\n/g, ' ').slice(0, 72) + (task.notes!.length > 72 ? '…' : ''))
+    : null
 
   return (
     <button
       onClick={onTap}
       style={{
-        display: 'flex', alignItems: 'center', gap: 12,
+        display: 'flex', alignItems: 'flex-start', gap: 12,
         padding: '11px 14px 11px 12px',
         background: 'var(--paper-2)',
         borderRadius: 12,
@@ -82,6 +98,7 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
         onClick={onComplete}
         style={{
           flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
+          marginTop: 1,
           border: `1.5px solid ${task.done ? ringColor : borderColor}`,
           background: task.done ? ringColor : 'transparent',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -94,43 +111,59 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
 
       {/* ── Content ── */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Title */}
+
+        {/* Title row */}
         <div style={{
           fontSize: 14, fontWeight: 500, lineHeight: 1.35,
           textDecoration: task.done ? 'line-through' : 'none',
           color: 'var(--ink)',
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
+          {task.isHabit && <span style={{ color: 'var(--warn)', marginRight: 4, fontSize: 11 }}>🔥</span>}
           {task.title}
         </div>
 
-        {/* Meta row */}
+        {/* Primary meta row — effort, due, priority */}
         <div style={{
-          marginTop: 3,
+          marginTop: 4,
           display: 'flex', alignItems: 'center', gap: 6,
-          flexWrap: 'nowrap', overflow: 'hidden',
+          flexWrap: 'wrap',
         }}>
           {/* Effort */}
           <EffortPip effort={task.effort} mono />
 
-          {/* Separator dot */}
-          {showDue && <span style={{ width: 2, height: 2, borderRadius: '50%', background: 'var(--rule)', flexShrink: 0 }} />}
-
           {/* Due date */}
           {showDue && (
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
-              color: dueColor(task.due), flexShrink: 0, fontWeight: task.due === 'Today' ? 600 : 400,
-            }}>
-              {task.due}
-            </span>
+            <>
+              <span style={{ width: 2, height: 2, borderRadius: '50%', background: 'var(--rule)', flexShrink: 0 }} />
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
+                color: dueColor(task.due), flexShrink: 0, fontWeight: task.due === 'Today' ? 600 : 400,
+              }}>
+                {dueLabel}
+              </span>
+            </>
           )}
 
-          {/* Priority pill — only show q1/q2 to keep it calm */}
+          {/* Due time */}
+          {timeLabel && (
+            <>
+              <span style={{ width: 2, height: 2, borderRadius: '50%', background: 'var(--rule)', flexShrink: 0 }} />
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
+                color: 'var(--ink-3)', flexShrink: 0,
+                display: 'flex', alignItems: 'center', gap: 2,
+              }}>
+                <Icons.timer size={9} /> {timeLabel}
+              </span>
+            </>
+          )}
+
+          {/* Priority — only show q1/q2 */}
           {(task.quad === 'q1' || task.quad === 'q2') && (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 2,
-              fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.06em',
+              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
               color: QUAD_COLOR[task.quad], flexShrink: 0,
             }}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: QUAD_COLOR[task.quad], flexShrink: 0 }} />
@@ -142,39 +175,11 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
           {task.status === 'active' && (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 3,
-              fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.06em',
+              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
               color: 'var(--accent)', flexShrink: 0,
             }}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0 }} />
               Active
-            </span>
-          )}
-
-          {/* Habit / recurring */}
-          {(task.isHabit || task.recurring) && (
-            <span style={{ color: task.isHabit ? 'var(--warn)' : 'var(--ink-4)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 2 }}>
-              {task.isHabit ? <Icons.flame size={9} /> : <Icons.repeat size={9} />}
-            </span>
-          )}
-
-          {/* Streak */}
-          {task.streak > 0 && (
-            <span style={{
-              display: 'flex', alignItems: 'center', gap: 2,
-              fontFamily: 'var(--font-mono)', fontSize: 9,
-              color: 'var(--warn)', letterSpacing: '0.06em', flexShrink: 0,
-            }}>
-              {task.streak}
-            </span>
-          )}
-
-          {/* Sub-task count */}
-          {task.sub.length > 0 && (
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 9,
-              color: 'var(--ink-3)', letterSpacing: '0.06em', flexShrink: 0,
-            }}>
-              {subDone}/{task.sub.length}
             </span>
           )}
 
@@ -189,32 +194,95 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
             </span>
           )}
         </div>
+
+        {/* Secondary meta row — repeat, sub-tasks, streak */}
+        {(hasRepeat || subTotal > 0 || (task.streak > 0)) && (
+          <div style={{
+            marginTop: 4,
+            display: 'flex', alignItems: 'center', gap: 6,
+            flexWrap: 'wrap',
+          }}>
+            {/* Repeat */}
+            {hasRepeat && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.05em',
+                color: 'var(--ink-4)', flexShrink: 0,
+              }}>
+                <Icons.repeat size={9} /> {task.recurring}
+              </span>
+            )}
+
+            {/* Sub-task count with progress */}
+            {subTotal > 0 && (
+              <>
+                {hasRepeat && <span style={{ width: 2, height: 2, borderRadius: '50%', background: 'var(--rule)', flexShrink: 0 }} />}
+                <span style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.05em',
+                  color: subDone === subTotal ? ringColor : 'var(--ink-3)', flexShrink: 0,
+                  display: 'flex', alignItems: 'center', gap: 3,
+                }}>
+                  <Icons.check size={9} sw={2} />
+                  {subDone}/{subTotal} subtasks
+                </span>
+              </>
+            )}
+
+            {/* Streak */}
+            {task.streak > 0 && (
+              <>
+                <span style={{ width: 2, height: 2, borderRadius: '50%', background: 'var(--rule)', flexShrink: 0 }} />
+                <span style={{
+                  display: 'flex', alignItems: 'center', gap: 2,
+                  fontFamily: 'var(--font-mono)', fontSize: 9,
+                  color: 'var(--warn)', letterSpacing: '0.05em', flexShrink: 0,
+                }}>
+                  <Icons.flame size={9} /> {task.streak}d
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Notes preview */}
+        {notePreview && (
+          <div style={{
+            marginTop: 5,
+            fontFamily: 'var(--font-mono)', fontSize: 10, lineHeight: 1.4,
+            color: 'var(--ink-4)', letterSpacing: '0.02em',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {notePreview}
+          </div>
+        )}
       </div>
 
       {/* ── Right side ── */}
-      {task.sub.length > 0 && <MiniRing progress={subProg} hue={hue} />}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+        {subTotal > 0 && <MiniRing progress={subProg} hue={hue} />}
 
-      {/* Reschedule toggle (Calendar context) */}
-      {onRescheduleToggle && (
-        <button onClick={onRescheduleToggle} style={{ flexShrink: 0, padding: 4, color: 'var(--ink-4)' }}>
-          <Icons.calendar size={13} />
-        </button>
-      )}
+        {/* Reschedule toggle (Calendar context) */}
+        {onRescheduleToggle && (
+          <button onClick={onRescheduleToggle} style={{ padding: 4, color: 'var(--ink-4)' }}>
+            <Icons.calendar size={13} />
+          </button>
+        )}
 
-      {/* Area assign toggle */}
-      {onAreaToggle && (
-        <button onClick={onAreaToggle} style={{ flexShrink: 0, padding: 4, color: 'var(--ink-4)' }}>
-          <Icons.folder size={13} />
-        </button>
-      )}
+        {/* Area assign toggle */}
+        {onAreaToggle && (
+          <button onClick={onAreaToggle} style={{ padding: 4, color: 'var(--ink-4)' }}>
+            <Icons.folder size={13} />
+          </button>
+        )}
 
-      {onDelete ? (
-        <button onClick={onDelete} style={{ flexShrink: 0, padding: '4px', color: 'var(--ink-4)' }}>
-          <Icons.close size={14} />
-        </button>
-      ) : !onAreaToggle && !onRescheduleToggle && task.sub.length === 0 && (
-        <Icons.arrow size={14} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
-      )}
+        {onDelete ? (
+          <button onClick={onDelete} style={{ padding: '4px', color: 'var(--ink-4)' }}>
+            <Icons.close size={14} />
+          </button>
+        ) : !onAreaToggle && !onRescheduleToggle && (
+          <Icons.arrow size={14} style={{ color: 'var(--ink-4)' }} />
+        )}
+      </div>
     </button>
   )
 }

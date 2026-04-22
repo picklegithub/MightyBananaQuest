@@ -175,12 +175,13 @@ export default function App() {
   function handleFabLongPress() { setFabSheet('menu') }
 
   function handleFabMenuSelect(action: FabAction) {
-    if (action === 'capture')  { setFabSheet('capture') }
+    // Always transition away from 'menu' state — onClose is NOT called by FabMenu items
     if (action === 'task')     { setTaskPrefill(null); setFabSheet('task') }
-    if (action === 'goal')     { setFabSheet('goal') }
-    if (action === 'habit')    { setTaskPrefill({ isHabit: true }); setFabSheet('task') }
-    if (action === 'journal')  { navigate({ name: 'journal' }) }
-    if (action === 'pomodoro') { window.dispatchEvent(new CustomEvent('pom:expand')) }
+    else if (action === 'goal')     { setFabSheet('goal') }
+    else if (action === 'habit')    { setTaskPrefill({ isHabit: true }); setFabSheet('task') }
+    else if (action === 'journal')  { setFabSheet('none'); navigate({ name: 'journal' }) }
+    else if (action === 'pomodoro') { setFabSheet('none'); window.dispatchEvent(new CustomEvent('pom:expand')) }
+    else                            { setFabSheet('none') }
   }
 
   // Open full task sheet (called from screens that had navigate({name:'add'}))
