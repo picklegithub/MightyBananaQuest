@@ -10,7 +10,11 @@ import { pullAll, pushAllLocal } from '../lib/sync'
 import { useSyncState } from '../lib/syncState'
 import type { Screen, AppSettings } from '../types'
 
-interface Props { navigate: (s: Screen) => void; back: () => void }
+interface Props {
+  navigate: (s: Screen) => void
+  back: () => void
+  onLogout: () => void
+}
 
 function relativeTime(ts: number): string {
   if (!ts) return 'never'
@@ -23,7 +27,7 @@ function relativeTime(ts: number): string {
   return `${Math.floor(diffHr / 24)}d ago`
 }
 
-export const SettingsScreen = ({ navigate, back }: Props) => {
+export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
   const settings  = useLiveQuery(() => db.settings.get(1), [])
   const syncState = useSyncState()
 
@@ -31,8 +35,15 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
     notificationsSupported() ? Notification.permission : 'denied'
   )
   const [syncing, setSyncing] = useState(false)
+  const [confirmLogout, setConfirmLogout] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
 
   if (!settings) return null
+
+  // Ensure quiet hours is always on (enforce on first render if somehow off)
+  if (!settings.notifications.quiet) {
+    db.settings.update(1, { notifications: { ...settings.notifications, quiet: true } })
+  }
 
   async function update(patch: Partial<AppSettings>) {
     await db.settings.update(1, patch)
@@ -47,6 +58,17 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
   async function handleRequestPermission() {
     const perm = await requestPermission()
     setNotifPerm(perm)
+  }
+
+  async function handleLogout() {
+    setLoggingOut(true)
+    try {
+      await supabase.auth.signOut()
+    } catch (e) {
+      console.warn('[auth] signOut error', e)
+    }
+    // Directly transition to unauthed state — no reload needed
+    onLogout()
   }
 
   const pomMins = settings.defaultPomodoroMins
@@ -118,7 +140,6 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
 
         {/* Notifications */}
         <Section title="Notifications">
-          {/* Permission banner */}
           {notificationsSupported() && notifPerm === 'default' && (
             <div style={{
               margin: '0 0 0 0', padding: '12px 20px',
@@ -149,10 +170,10 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
           )}
 
           {([
-            ['overdue', 'Overdue alerts',   'Notify when tasks are overdue'],
-            ['journal', 'Journal reminders','Morning & evening prompts'],
-            ['streak',  'Streak alerts',    'Warn before breaking a streak'],
-            ['weekly',  'Weekly review',    'Sunday wrap-up prompt'],
+            ['overdue', 'Overdue & due-time alerts', 'Notify when tasks are overdue or at their set time'],
+            ['journal', 'Journal reminders',         'Morning & evening prompts'],
+            ['streak',  'Streak alerts',             'Warn before breaking a streak'],
+            ['weekly',  'Weekly review',             'Sunday wrap-up prompt'],
           ] as const).map(([key, label, sub]) => (
             <Row key={key} label={label} sub={sub}>
               <Toggle
@@ -161,9 +182,17 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
               />
             </Row>
           ))}
-          <Row label="Quiet hours" sub="No notifications 10pm–7am">
-            <Toggle on={settings.notifications.quiet} onChange={v => updateNotif('quiet', v)} />
-          </Row>
+          <div style={{ padding: '10px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>Quiet hours</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>No notifications 10pm–7am · always on</div>
+            </div>
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em',
+              textTransform: 'uppercase', color: 'var(--accent)',
+              background: 'var(--accent-soft)', padding: '3px 8px', borderRadius: 20,
+            }}>On</span>
+          </div>
         </Section>
 
         {/* Reflect */}
@@ -242,27 +271,53 @@ export const SettingsScreen = ({ navigate, back }: Props) => {
         {/* Account */}
         <Section title="Account">
           <div style={{ padding: '12px 20px' }}>
-            <button
-              onClick={async () => {
-                if (confirm('Sign out of MightyBananaQuest?')) {
-                  try {
-                    await supabase.auth.signOut()
-                  } catch (e) {
-                    console.warn('[auth] signOut error', e)
-                  }
-                  // Force reload — clears all local state and lets the auth
-                  // listener re-evaluate from scratch (shows login screen).
-                  window.location.reload()
-                }
-              }}
-              style={{
-                width: '100%', padding: '13px', borderRadius: 12, fontSize: 13,
-                border: '1px solid var(--rule)', color: 'var(--ink-2)',
-                fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
-                background: 'var(--paper-3)',
-              }}>
-              Sign out
-            </button>
+            {!confirmLogout ? (
+              <button
+                onClick={() => setConfirmLogout(true)}
+                style={{
+                  width: '100%', padding: '13px', borderRadius: 12, fontSize: 13,
+                  border: '1px solid var(--rule)', color: 'var(--ink-2)',
+                  fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+                  background: 'var(--paper-3)',
+                }}>
+                Sign out
+              </button>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{
+                  padding: '10px 14px', borderRadius: 10,
+                  background: 'var(--warn-soft)',
+                  fontFamily: 'var(--font-mono)', fontSize: 12,
+                  color: 'var(--warn)', textAlign: 'center', letterSpacing: '0.02em',
+                }}>
+                  Sign out of MightyBananaQuest?
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => setConfirmLogout(false)}
+                    style={{
+                      flex: 1, padding: '11px', borderRadius: 10, fontSize: 13,
+                      border: '1px solid var(--rule)', color: 'var(--ink-2)',
+                      fontFamily: 'var(--font-mono)',
+                      background: 'var(--paper-2)',
+                    }}>
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    disabled={loggingOut}
+                    style={{
+                      flex: 1, padding: '11px', borderRadius: 10, fontSize: 13,
+                      border: 'none',
+                      fontFamily: 'var(--font-mono)', fontWeight: 600,
+                      background: loggingOut ? 'var(--ink-3)' : 'var(--ink)',
+                      color: 'var(--paper)',
+                    }}>
+                    {loggingOut ? 'Signing out…' : 'Yes, sign out'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </Section>
 

@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { Task, Category, Goal, JournalEntry, InboxItem, AppSettings, WeeklyReview, ShoppingItem } from '../types'
+import type { Task, Habit, Category, Goal, JournalEntry, InboxItem, AppSettings, WeeklyReview, ShoppingItem } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS, EFFORT } from '../constants'
 import { SEED_TASKS, SEED_GOALS, SEED_JOURNAL, SEED_INBOX } from './seeds'
 import {
@@ -9,6 +9,7 @@ import {
   pushInbox,
   pushCategory,
   pushSettings,
+  pushShoppingItem, pushShoppingItemDelete, pushShoppingItemsDelete,
 } from '../lib/sync'
 
 // ── Habit log entry ──────────────────────────────────────────────────────────
@@ -26,6 +27,7 @@ export interface DeletedTask {
 
 export class LifeAdminDB extends Dexie {
   tasks!:          Table<Task>
+  habits!:         Table<Habit>
   categories!:     Table<Category>
   goals!:          Table<Goal>
   journal!:        Table<JournalEntry>
@@ -113,6 +115,39 @@ export class LifeAdminDB extends Dexie {
       weeklyReviews: 'id, weekStart, completedAt',
       deletedTasks:  'id, deletedAt',
       shoppingItems: 'id, category, createdAt',
+    })
+    // Version 8 — first-class habits table: migrate isHabit tasks → habits
+    this.version(8).stores({
+      tasks:         'id, cat, due, done, effort, quad, createdAt, status',
+      categories:    'id',
+      goals:         'id, area',
+      journal:       'id, date, kind',
+      inbox:         'id, kind, processed',
+      settings:      'id',
+      habitLog:      'id, taskId, date',
+      weeklyReviews: 'id, weekStart, completedAt',
+      deletedTasks:  'id, deletedAt',
+      shoppingItems: 'id, category, createdAt',
+      habits:        'id, cat, done, createdAt',
+    }).upgrade(async tx => {
+      // Move every task flagged as a habit into the new habits table
+      const habitTasks: Task[] = await tx.table('tasks').filter((t: Task) => !!t.isHabit).toArray()
+      if (habitTasks.length > 0) {
+        const habits: Habit[] = habitTasks.map(t => ({
+          id:        t.id,
+          title:     t.title,
+          cat:       t.cat,
+          frequency: t.recurring ?? 'daily',
+          streak:    t.streak ?? 0,
+          done:      t.done ?? false,
+          notes:     t.notes,
+          time:      t.time,
+          createdAt: t.createdAt ?? Date.now(),
+          updatedAt: t.updatedAt ?? Date.now(),
+        }))
+        await tx.table('habits').bulkAdd(habits)
+        await tx.table('tasks').bulkDelete(habitTasks.map(t => t.id))
+      }
     })
   }
 }
@@ -212,14 +247,14 @@ export async function completeTask(taskId: string): Promise<number> {
     if (newSettings) pushSettings(newSettings)
   }
 
-  // Log habit completion
-  if (task.isHabit || task.recurring) {
+  // Log completion for recurring tasks (habits now live in their own table)
+  if (task.recurring) {
     const today = new Date().toISOString().slice(0, 10)
     await logHabitCompletion(taskId, today)
   }
 
-  // For non-habit recurring tasks: create a fresh copy with the next occurrence date
-  if (task.recurring && !task.isHabit) {
+  // For recurring tasks: create a fresh copy with the next occurrence date
+  if (task.recurring) {
     const nextDue = nextOccurrenceISO(task.due, task.recurring)
     const copy: Task = {
       ...task,
@@ -243,7 +278,7 @@ export async function completeTask(taskId: string): Promise<number> {
 // day and should be reset so the user can complete them again today.
 export async function resetRecurringTasks(): Promise<void> {
   const today    = new Date().toISOString().slice(0, 10)
-  const recurring = await db.tasks.filter(t => (!!t.recurring || !!t.isHabit) && t.done).toArray()
+  const recurring = await db.tasks.filter(t => !!t.recurring && t.done).toArray()
   if (recurring.length === 0) return
 
   const resetIds: string[] = []
@@ -267,6 +302,61 @@ export async function resetRecurringTasks(): Promise<void> {
 export async function logHabitCompletion(taskId: string, date: string) {
   const id = `${taskId}:${date}`
   await db.habitLog.put({ id, taskId, date })
+}
+
+// ── Habit CRUD ────────────────────────────────────────────────────────────────
+
+export async function addHabit(habit: Omit<Habit, 'createdAt' | 'updatedAt'>): Promise<Habit> {
+  const now = Date.now()
+  const full: Habit = { ...habit, createdAt: now, updatedAt: now }
+  await db.habits.add(full)
+  return full
+}
+
+export async function updateHabit(habitId: string, patch: Partial<Habit>) {
+  await db.habits.update(habitId, { ...patch, updatedAt: Date.now() })
+}
+
+export async function deleteHabit(habitId: string) {
+  await db.habits.delete(habitId)
+  // Clean up log entries for this habit
+  const logs = await db.habitLog.where('taskId').equals(habitId).toArray()
+  if (logs.length > 0) await db.habitLog.bulkDelete(logs.map(l => l.id))
+}
+
+// ── Helper: complete a habit (award XP, update streak, log) ──────────────────
+export async function completeHabit(habitId: string): Promise<number> {
+  const habit = await db.habits.get(habitId)
+  if (!habit || habit.done) return 0
+  const gained  = 8   // flat XP per habit check-in
+  const newStreak = (habit.streak ?? 0) + 1
+  await db.habits.update(habitId, { done: true, streak: newStreak, updatedAt: Date.now() })
+
+  const settings = await db.settings.get(1)
+  if (settings) {
+    await db.settings.update(1, { xp: (settings.xp ?? 0) + gained })
+    const newSettings = await db.settings.get(1)
+    if (newSettings) pushSettings(newSettings)
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+  await db.habitLog.put({ id: `${habitId}:${today}`, taskId: habitId, date: today })
+  return gained
+}
+
+// ── Helper: reset habits that weren't completed today ─────────────────────────
+// Call alongside resetRecurringTasks on app start.
+export async function resetHabits(): Promise<void> {
+  const today     = new Date().toISOString().slice(0, 10)
+  const doneHabits = await db.habits.filter(h => h.done).toArray()
+  const toReset: string[] = []
+  for (const habit of doneHabits) {
+    const log = await db.habitLog.get(`${habit.id}:${today}`)
+    if (!log) toReset.push(habit.id)
+  }
+  if (toReset.length > 0) {
+    await Promise.all(toReset.map(id => db.habits.update(id, { done: false, updatedAt: Date.now() })))
+  }
 }
 
 // ── Helper: count active tasks (for Slow Productivity cap) ───────────────────
@@ -381,28 +471,35 @@ export async function addShoppingItem(item: Omit<ShoppingItem, 'id' | 'createdAt
   const now = Date.now()
   const full: ShoppingItem = { ...item, id: `s${now}`, createdAt: now, updatedAt: now }
   await db.shoppingItems.add(full)
+  pushShoppingItem(full)
   return full
 }
 
 export async function updateShoppingItem(id: string, patch: Partial<ShoppingItem>) {
-  await db.shoppingItems.update(id, { ...patch, updatedAt: Date.now() })
+  const updatedAt = Date.now()
+  await db.shoppingItems.update(id, { ...patch, updatedAt })
+  const updated = await db.shoppingItems.get(id)
+  if (updated) pushShoppingItem(updated)
 }
 
 export async function deleteShoppingItem(id: string) {
   await db.shoppingItems.delete(id)
+  pushShoppingItemDelete(id)
 }
 
 export async function deleteCheckedShoppingItems() {
   const checked = await db.shoppingItems.filter(i => i.checked).primaryKeys()
   await db.shoppingItems.bulkDelete(checked)
+  if (checked.length > 0) pushShoppingItemsDelete(checked as string[])
 }
 
 // ── Helper: nuclear reset — wipe everything and re-seed ──────────────────────
 export async function resetAllData() {
-  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.goals, db.journal, db.inbox, db.habitLog, db.deletedTasks], async () => {
+  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.habits, db.goals, db.journal, db.inbox, db.habitLog, db.deletedTasks], async () => {
     await db.settings.clear()
     await db.categories.clear()
     await db.tasks.clear()
+    await db.habits.clear()
     await db.goals.clear()
     await db.journal.clear()
     await db.inbox.clear()

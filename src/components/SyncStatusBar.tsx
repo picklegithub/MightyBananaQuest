@@ -7,7 +7,7 @@
 
 import React, { useEffect, useRef } from 'react'
 import { useSyncState, setSyncState, getSyncState } from '../lib/syncState'
-import { previewPull, applyPull, pushOnly } from '../lib/sync'
+import { previewPull, applyPull, pushOnly, pullNonTaskTables } from '../lib/sync'
 
 // ── triggerSync (named export) ────────────────────────────────────────────────
 
@@ -47,9 +47,11 @@ export async function triggerSync(): Promise<void> {
       return
     }
 
-    // No destructive changes — auto-apply
-    setSyncState({ phase: 'pulling', pullProgress: 50 })
+    // No destructive changes — auto-apply tasks, then pull all other tables
+    setSyncState({ phase: 'pulling', pullProgress: 30 })
     await withTimeout(applyPull(preview), 30000, 'Apply')
+    setSyncState({ pullProgress: 70 })
+    await withTimeout(pullNonTaskTables(), 30000, 'Pull')
     setSyncState({ phase: 'done', pullProgress: 100, lastSyncAt: Date.now(), pendingPreview: null })
 
     // Fade back to idle after 3s
@@ -110,9 +112,11 @@ function PullConfirmModal() {
   const { toAdd, toUpdate, toDelete } = pendingPreview
 
   async function handleApply() {
-    setSyncState({ pendingPreview: null, phase: 'pulling', pullProgress: 50 })
+    setSyncState({ pendingPreview: null, phase: 'pulling', pullProgress: 30 })
     try {
       await applyPull(pendingPreview!)  // pendingPreview is non-null here (checked by parent)
+      setSyncState({ pullProgress: 70 })
+      await pullNonTaskTables()
       setSyncState({ phase: 'done', pullProgress: 100, lastSyncAt: Date.now() })
       setTimeout(() => {
         if (getSyncState().phase === 'done') setSyncState({ phase: 'idle' })

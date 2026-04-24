@@ -97,6 +97,7 @@ export const DashboardScreen = ({ navigate }: Props) => {
   const [bursts, setBursts]           = useState<Burst[]>([])
   const [showAddArea, setShowAddArea] = useState(false)
   const tasks    = useLiveQuery(() => db.tasks.toArray(), [])
+  const habits   = useLiveQuery(() => db.habits.toArray(), [])
   const settings = useLiveQuery(() => db.settings.get(1), [])
   const cats     = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
   const inboxCount = useLiveQuery(
@@ -112,8 +113,8 @@ export const DashboardScreen = ({ navigate }: Props) => {
 
   if (!tasks || !settings) return null
 
-  const habitTasks    = tasks.filter(t => t.isHabit)
-  const habitPending  = habitTasks.filter(t => !t.done).length
+  const habitTasks    = habits ?? []
+  const habitPending  = habitTasks.filter(h => !h.done).length
   const allTodayTasks = tasks.filter(t => t.due === 'Today')
   const doneTodayCount = allTodayTasks.filter(t => t.done).length
   const totalToday = allTodayTasks.length
@@ -301,7 +302,7 @@ export const DashboardScreen = ({ navigate }: Props) => {
               const catDone   = catTasks.filter(t => t.done).length
               const catOpen   = catTasks.filter(t => !t.done).length
               const catTotal  = catTasks.length
-              const habitCount = catTasks.filter(t => t.isHabit || t.recurring).length
+              const habitCount = catTasks.filter(t => !!t.recurring).length
               const progress  = catTotal > 0 ? catDone / catTotal : 0
               const I = Icons[cat.icon] ?? Icons.home
               const hue = cat.hue

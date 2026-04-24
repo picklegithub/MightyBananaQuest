@@ -1,10 +1,12 @@
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, addTask } from '../data/db'
+import { db, addTask, addHabit } from '../data/db'
 import { EFFORT_ORDER, DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from './ui/Icons'
 import { UnifiedDuePicker } from './ui/UnifiedDuePicker'
-import type { EffortKey, QuadKey, Task } from '../types'
+import type { EffortKey, QuadKey, Task, Habit } from '../types'
+
+const FREQUENCY_OPTIONS = ['daily', 'weekdays', 'weekends', 'weekly', 'monthly']
 
 interface Props {
   onClose: () => void
@@ -57,9 +59,10 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
   const [due,       setDue]       = useState(defaultDue ?? 'Today')
   const [time,      setTime]      = useState<string | undefined>(undefined)
   const [quad,      setQuad]      = useState<QuadKey>('q2')
-  const [recurring, setRecurring] = useState<string | null>(null)
-  const [notes,     setNotes]     = useState('')
-  const [isHabit,   setIsHabit]   = useState(defaultIsHabit)
+  const [recurring,  setRecurring]  = useState<string | null>(null)
+  const [notes,      setNotes]      = useState('')
+  const [isHabit,    setIsHabit]    = useState(defaultIsHabit)
+  const [frequency,  setFrequency]  = useState('daily')
 
   const liveCategories = useLiveQuery(() => db.categories.toArray(), [])
   const cats = liveCategories ?? DEFAULT_CATEGORIES
@@ -67,15 +70,29 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
 
   async function handleAdd() {
     if (!title.trim()) return
-    const task: Task = {
-      id: `t${Date.now()}`,
-      title: title.trim(),
-      cat, effort, due, time, ctx: '@anywhere', quad, recurring,
-      notes: notes.trim() || undefined,
-      isHabit: isHabit || undefined,
-      done: false, streak: 0, sub: [],
+    if (isHabit) {
+      const habit: Habit = {
+        id: `h${Date.now()}`,
+        title: title.trim(),
+        cat,
+        frequency,
+        streak: 0,
+        done: false,
+        notes: notes.trim() || undefined,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      await addHabit(habit)
+    } else {
+      const task: Task = {
+        id: `t${Date.now()}`,
+        title: title.trim(),
+        cat, effort, due, time, ctx: '@anywhere', quad, recurring,
+        notes: notes.trim() || undefined,
+        done: false, streak: 0, sub: [],
+      }
+      await addTask(task)
     }
-    await addTask(task)
     onClose()
   }
 
@@ -169,59 +186,79 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
             </div>
           </div>
 
-          {/* Priority — above Effort */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Priority</div>
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-              {QUAD_OPTIONS.map(o => (
-                <button key={o.id} onClick={() => setQuad(o.id)} style={{
-                  padding: '7px 13px', borderRadius: 20, fontSize: 12,
-                  fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
-                  background: quad === o.id ? 'var(--ink)' : 'var(--paper-2)',
-                  color: quad === o.id ? 'var(--paper)' : 'var(--ink-2)',
-                  border: '1px solid', borderColor: quad === o.id ? 'var(--ink)' : 'var(--rule)',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                }}>
-                  <span style={{ fontWeight: 600 }}>{o.label}</span>
-                  <span style={{ fontSize: 9, opacity: 0.65 }}>{o.sub}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Effort — pill row matching Area style */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Effort</div>
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-              {EFFORT_ORDER.map(k => {
-                const d = EFFORT_DISPLAY[k]
-                return (
-                  <button key={k} onClick={() => setEffort(k)} style={{
+          {/* Priority — task mode only */}
+          {!isHabit && (
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Priority</div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {QUAD_OPTIONS.map(o => (
+                  <button key={o.id} onClick={() => setQuad(o.id)} style={{
                     padding: '7px 13px', borderRadius: 20, fontSize: 12,
                     fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
-                    background: effort === k ? 'var(--ink)' : 'var(--paper-2)',
-                    color: effort === k ? 'var(--paper)' : 'var(--ink-2)',
-                    border: '1px solid', borderColor: effort === k ? 'var(--ink)' : 'var(--rule)',
+                    background: quad === o.id ? 'var(--ink)' : 'var(--paper-2)',
+                    color: quad === o.id ? 'var(--paper)' : 'var(--ink-2)',
+                    border: '1px solid', borderColor: quad === o.id ? 'var(--ink)' : 'var(--rule)',
                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
                   }}>
-                    <span style={{ fontWeight: 600 }}>{d.label}</span>
-                    <span style={{ fontSize: 9, opacity: 0.65 }}>{d.range}</span>
+                    <span style={{ fontWeight: 600 }}>{o.label}</span>
+                    <span style={{ fontSize: 9, opacity: 0.65 }}>{o.sub}</span>
                   </button>
-                )
-              })}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Due date + Repeat — unified */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Due &amp; Repeat</div>
-            <UnifiedDuePicker
-              due={due}
-              recurring={recurring}
-              time={time}
-              onChange={(d, r, t) => { setDue(d); setRecurring(r); setTime(t) }}
-            />
-          </div>
+          {/* Effort — task mode only */}
+          {!isHabit && (
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Effort</div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {EFFORT_ORDER.map(k => {
+                  const d = EFFORT_DISPLAY[k]
+                  return (
+                    <button key={k} onClick={() => setEffort(k)} style={{
+                      padding: '7px 13px', borderRadius: 20, fontSize: 12,
+                      fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                      background: effort === k ? 'var(--ink)' : 'var(--paper-2)',
+                      color: effort === k ? 'var(--paper)' : 'var(--ink-2)',
+                      border: '1px solid', borderColor: effort === k ? 'var(--ink)' : 'var(--rule)',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                    }}>
+                      <span style={{ fontWeight: 600 }}>{d.label}</span>
+                      <span style={{ fontSize: 9, opacity: 0.65 }}>{d.range}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Frequency — habit mode only */}
+          {isHabit && (
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Frequency</div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {FREQUENCY_OPTIONS.map(f => (
+                  <OptionPill key={f} active={frequency === f} onClick={() => setFrequency(f)}>
+                    {f}
+                  </OptionPill>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Due date + Repeat — task mode only */}
+          {!isHabit && (
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Due &amp; Repeat</div>
+              <UnifiedDuePicker
+                due={due}
+                recurring={recurring}
+                time={time}
+                onChange={(d, r, t) => { setDue(d); setRecurring(r); setTime(t) }}
+              />
+            </div>
+          )}
 
           {/* Notes */}
           <div>

@@ -91,6 +91,9 @@ export function GlobalPomodoro({ workMins }: Props) {
 
   // ── Collapsed pill ────────────────────────────────────────────────────────
   if (!expanded) {
+    // Hide entirely when idle — no timer is running
+    if (state === 'idle') return null
+
     const isDone    = state === 'done'
     const isRunning = state === 'running'
     const pillBg    = isDone ? 'hsl(145,55%,40%)' : isRunning ? color : 'var(--paper)'

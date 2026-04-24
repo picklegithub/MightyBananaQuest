@@ -199,9 +199,6 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
             <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
               <Icons.settings size={20} />
             </button>
-            <button onClick={() => onAddTask?.()} style={{ color: 'var(--ink-2)' }}>
-              <Icons.plus size={22} />
-            </button>
           </div>
         )}
       </div>

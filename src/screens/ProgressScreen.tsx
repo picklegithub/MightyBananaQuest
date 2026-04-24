@@ -122,9 +122,9 @@ export const ProgressScreen = ({ back }: Props) => {
   const { level, next, prev } = xpToLevel(xp)
   const xpProgress = (xp - prev) / (next - prev)
 
-  // Habit tasks = isHabit flag OR recurring
+  // Recurring tasks shown in heatmap (habits now live in the habits table; recurring tasks stay here)
   const habitTasks = useMemo(
-    () => (tasks ?? []).filter(t => t.isHabit || !!t.recurring),
+    () => (tasks ?? []).filter(t => !!t.recurring),
     [tasks]
   )
 
@@ -266,11 +266,6 @@ export const ProgressScreen = ({ back }: Props) => {
                         {task.recurring && (
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 3 }}>
                             <Icons.repeat size={9} /> {task.recurring}
-                          </span>
-                        )}
-                        {task.isHabit && (
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--warn)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                            <Icons.flame size={9} /> Habit
                           </span>
                         )}
                       </div>

@@ -46,11 +46,9 @@ export function notify(
   // Per-channel pref check (skipped for always-on channels)
   if (!opts.alwaysOn && !settings.notifications[opts.key]) return
 
-  // Quiet hours: 10pm (22) – 7am (7)
-  if (settings.notifications.quiet) {
-    const h = new Date().getHours()
-    if (h >= 22 || h < 7) return
-  }
+  // Quiet hours: 10pm–7am — always enforced
+  const h = new Date().getHours()
+  if (h >= 22 || h < 7) return
 
   const { key: _key, ...rest } = opts
   try {

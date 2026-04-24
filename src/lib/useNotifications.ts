@@ -7,6 +7,7 @@
  *   • App start       → due-today summary (due channel), only when no overdue
  *   • Daily timers    → morning journal prompt at 8am, evening at 8pm (journal channel)
  *   • Daily timer     → streak nudge at 9pm when streak > 0 (streak channel)
+ *   • Per-task timers → fire at the task's specific due time for today's tasks (overdue channel)
  *
  * Called once from App.tsx with live settings + authed flag.
  */
@@ -73,7 +74,6 @@ export function useNotifications(
           settings,
         )
       } else if (dueToday.length > 0) {
-        // Only show due-today if nothing is overdue (avoids notification pile-up)
         const preview = dueToday.slice(0, 3).map(t => t.title).join(', ')
         notify(
           `${dueToday.length} task${dueToday.length > 1 ? 's' : ''} due today`,
@@ -89,6 +89,63 @@ export function useNotifications(
 
     check().catch(e => console.warn('[notifications] start check failed', e))
   }, [settings, authed])
+
+  // ── Due-time reminders: schedule notifications at each task's specific time ─
+  useEffect(() => {
+    if (!settings || !authed) return
+    if (getPermission() !== 'granted') return
+
+    const timers: ReturnType<typeof setTimeout>[] = []
+
+    async function scheduleDueTimeNotifs() {
+      if (!settings) return
+      const todayISO = new Date().toISOString().slice(0, 10)
+      const now = Date.now()
+
+      // Grab all incomplete tasks due today (either "Today" string or ISO today) with a time set
+      const tasks = await db.tasks
+        .filter(t => !t.done && !!t.time && (t.due === 'Today' || t.due === todayISO))
+        .toArray()
+
+      for (const task of tasks) {
+        if (!task.time) continue
+        const [hh, mm] = task.time.split(':').map(Number)
+        const fire = new Date()
+        fire.setHours(hh, mm, 0, 0)
+        const ms = fire.getTime() - now
+
+        // Only schedule if the time is in the future and within today
+        if (ms > 0 && ms < 24 * 60 * 60 * 1000) {
+          timers.push(
+            setTimeout(() => {
+              if (!settings) return
+              notify(
+                `⏰ Due now: ${task.title}`,
+                {
+                  key:  'overdue',
+                  body: task.notes
+                    ? task.notes.slice(0, 100)
+                    : 'This task is due right now.',
+                  tag:  `due-time-${task.id}`,
+                },
+                settings,
+              )
+            }, ms),
+          )
+        }
+      }
+
+      if (tasks.length > 0) {
+        console.log(`[notifications] scheduled ${timers.length} due-time reminder(s)`)
+      }
+    }
+
+    scheduleDueTimeNotifs().catch(e => console.warn('[notifications] due-time schedule failed', e))
+
+    return () => timers.forEach(clearTimeout)
+  // Re-run whenever authed status changes so we reschedule on login
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed, settings?.notifications.overdue, settings?.notifications.quiet])
 
   // ── Journal reminders: 8am morning, 8pm evening ───────────────────────────
   useEffect(() => {
@@ -116,12 +173,10 @@ export function useNotifications(
     }
 
     const h = new Date().getHours()
-    // Only schedule what hasn't passed yet today
     if (h < 8)  scheduleAt(8,  'Good morning! 🌅', 'Start your day with 5 minutes of reflection.', 'journal-morning')
     if (h < 20) scheduleAt(20, 'Evening reflection 🌙', "How did today go? Take a moment to close the day.", 'journal-evening')
 
     return () => timers.forEach(clearTimeout)
-  // Re-evaluate if the journal or quiet-hours pref changes
   }, [settings?.notifications.journal, settings?.notifications.quiet])
 
   // ── Streak nudge: 9pm when streak > 0 ────────────────────────────────────

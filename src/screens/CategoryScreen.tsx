@@ -334,16 +334,16 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
 
   if (!tasks || !cat) return null
 
-  // Split habits from regular tasks
-  const habitTasks   = tasks.filter(t => t.isHabit || !!t.recurring)
-  const regularTasks = tasks.filter(t => !t.isHabit && !t.recurring)
+  // Split recurring tasks from regular tasks (habits now live in the habits table)
+  const habitTasks   = tasks.filter(t => !!t.recurring)
+  const regularTasks = tasks.filter(t => !t.recurring)
 
   const filteredRegular = regularTasks.filter(t =>
     filter === 'all'  ? true :
     filter === 'open' ? !t.done : t.done
   )
 
-  const doneCount  = tasks.filter(t => t.done && !t.isHabit && !t.recurring).length
+  const doneCount  = tasks.filter(t => t.done && !t.recurring).length
   const totalCount = regularTasks.length
   const hue = cat.hue
 
@@ -389,10 +389,10 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
             <Icons.back size={16} /> Back
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ThemeToggle />
             <button onClick={() => setShowEdit(true)} style={{ color: 'var(--ink-3)' }} title="Edit area">
               <Icons.edit size={17} />
             </button>
+            <ThemeToggle />
             <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
               <Icons.settings size={20} />
             </button>

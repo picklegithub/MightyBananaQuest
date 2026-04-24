@@ -2,8 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from './data/db'
 import { supabase } from './lib/supabase'
-import { pullAll, startRealtime, stopRealtime, pushOnly, previewPull, applyPull } from './lib/sync'
-import { resetRecurringTasks } from './data/db'
+import { startRealtime, stopRealtime, pushOnly, previewPull, applyPull, pullNonTaskTables, setCachedUserId } from './lib/sync'
+import { resetRecurringTasks, resetHabits } from './data/db'
 import { setSyncState } from './lib/syncState'
 import { useNotifications } from './lib/useNotifications'
 import { BottomNav }          from './components/layout/BottomNav'
@@ -13,7 +13,7 @@ import { AddTaskSheet }       from './components/AddTaskSheet'
 import { AddGoalSheet }       from './components/AddGoalSheet'
 import { FabMenu }            from './components/FabMenu'
 import type { FabAction }     from './components/FabMenu'
-import { Icons }              from './components/ui/Icons'
+import { Icons, setPetStyle } from './components/ui/Icons'
 import SyncStatusBar, { triggerSync } from './components/SyncStatusBar'
 import { DashboardScreen }    from './screens/DashboardScreen'
 import { TaskDetailScreen }   from './screens/TaskDetailScreen'
@@ -44,12 +44,13 @@ function applyTheme(settings: AppSettings) {
 }
 
 // ── Nav screens that show BottomNav ───────────────────────────────────────────
-const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar', 'category', 'inbox', 'shopping-list', 'all-tasks'])
+const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar', 'category', 'inbox', 'shopping-list', 'all-tasks', 'all-habits'])
 function showsNav(screen: Screen): boolean { return NAV_SCREENS.has(screen.name) }
 function activeTab(screen: Screen): string {
-  if (screen.name === 'journal')  return 'journal'
-  if (screen.name === 'goals')    return 'goals'
-  if (screen.name === 'calendar') return 'calendar'
+  if (screen.name === 'journal')    return 'journal'
+  if (screen.name === 'goals')      return 'goals'
+  if (screen.name === 'calendar')   return 'calendar'
+  if (screen.name === 'all-habits') return 'goals'  // habits lives under Goals tab
   return 'dashboard'  // category + dashboard + inbox + shopping-list + all-tasks highlight Today tab
 }
 
@@ -74,6 +75,9 @@ export default function App() {
 
   // Theme
   useEffect(() => { if (settings) applyTheme(settings) }, [settings])
+
+  // Pet icon style — update the module-level variable so Icons.pet renders the right variant
+  useEffect(() => { if (settings?.petIcon) setPetStyle(settings.petIcon) }, [settings?.petIcon])
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const handler = () => { if (settings) applyTheme(settings) }
@@ -81,9 +85,10 @@ export default function App() {
     return () => mq.removeEventListener('change', handler)
   }, [settings])
 
-  // Auth — on sign-in: push, then pull (auto-apply, no confirmation on first sync)
+  // Auth — on sign-in: push everything, then pull all tables
   const handleSignIn = useCallback(async (userId: string) => {
     setAuthState('authed')
+    setCachedUserId(userId)  // cache so push functions skip repeated auth calls
     setSyncState({ phase: 'pushing', pushProgress: 0, errorMsg: null })
     try {
       await pushOnly((done, total) => {
@@ -91,8 +96,11 @@ export default function App() {
       })
       setSyncState({ phase: 'previewing', pullProgress: 0 })
       const preview = await previewPull()
-      setSyncState({ phase: 'pulling', pullProgress: 50 })
+      setSyncState({ phase: 'pulling', pullProgress: 30 })
       await applyPull(preview)
+      // Pull goals, journal, inbox, categories, settings, shopping_items
+      setSyncState({ pullProgress: 70 })
+      await pullNonTaskTables()
       startRealtime(userId)
       setSyncState({ phase: 'done', pullProgress: 100, lastSyncAt: Date.now() })
       setTimeout(() => {
@@ -100,6 +108,7 @@ export default function App() {
       }, 3000)
       // Reset recurring tasks that weren't completed today
       resetRecurringTasks().catch(e => console.warn('[recurring] reset failed', e))
+      resetHabits().catch(e => console.warn('[habits] reset failed', e))
     } catch (e) {
       console.warn('[sync] initial sync failed', e)
       setSyncState({ phase: 'error', errorMsg: e instanceof Error ? e.message : 'Sync failed' })
@@ -113,7 +122,7 @@ export default function App() {
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) await handleSignIn(session.user.id)
-      else if (event === 'SIGNED_OUT') { stopRealtime(); setAuthState('unauthed') }
+      else if (event === 'SIGNED_OUT') { stopRealtime(); setCachedUserId(null); setAuthState('unauthed') }
     })
     return () => subscription.unsubscribe()
   }, [handleSignIn])
@@ -150,6 +159,14 @@ export default function App() {
     }
   }, [])
 
+  // ── Logout ────────────────────────────────────────────────────────────────
+  function handleLogout() {
+    stopRealtime()
+    setCachedUserId(null)
+    setAuthState('unauthed')
+    setScreenStack([{ name: 'dashboard' }])
+  }
+
   // Navigation
   function navigate(s: Screen) {
     // Cache task titles for breadcrumb display
@@ -184,6 +201,11 @@ export default function App() {
       setFabSheet('capture')
       return
     }
+    if (screen.name === 'all-habits') {
+      setTaskPrefill({ isHabit: true })
+      setFabSheet('task')
+      return
+    }
     const tab = activeTab(screen)
     if (tab === 'goals')   { setFabSheet('goal') }
     else if (tab === 'journal') {
@@ -201,6 +223,12 @@ export default function App() {
     else if (action === 'habit')    { setTaskPrefill({ isHabit: true }); setFabSheet('task') }
     else if (action === 'journal')  { setFabSheet('none'); navigate({ name: 'journal' }) }
     else if (action === 'pomodoro') { setFabSheet('none'); window.dispatchEvent(new CustomEvent('pom:expand')) }
+    else if (action === 'item')     {
+      setFabSheet('none')
+      // Navigate to shopping list then dispatch add event
+      navigateTab({ name: 'shopping-list' })
+      setTimeout(() => window.dispatchEvent(new CustomEvent('shopping:add-item')), 120)
+    }
     else                            { setFabSheet('none') }
   }
 
@@ -278,7 +306,7 @@ export default function App() {
             />
           )}
           {screen.name === 'journal'    && <JournalScreen navigate={navigate} back={() => navigateTab({ name: 'dashboard' })} phase={screen.phase} />}
-          {screen.name === 'settings'   && <SettingsScreen navigate={navigate} back={back} />}
+          {screen.name === 'settings'   && <SettingsScreen navigate={navigate} back={back} onLogout={handleLogout} />}
           {screen.name === 'calendar'   && (
             <CalendarScreen
               navigate={navigate}
@@ -301,7 +329,11 @@ export default function App() {
             />
           )}
           {screen.name === 'all-habits' && (
-            <AllHabitsScreen navigate={navigate} back={back} />
+            <AllHabitsScreen
+              navigate={navigate}
+              back={back}
+              onAddHabit={() => { setTaskPrefill({ isHabit: true }); setFabSheet('task') }}
+            />
           )}
           {screen.name === 'schedule'   && <ScheduleScreen taskId={screen.taskId} navigate={navigate} back={back} />}
           {screen.name === 'progress'   && <ProgressScreen navigate={navigate} back={back} />}

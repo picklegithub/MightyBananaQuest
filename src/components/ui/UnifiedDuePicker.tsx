@@ -42,7 +42,6 @@ const DATE_CHIPS = [
 
 // ── Time helpers ──────────────────────────────────────────────────────────────
 
-// Preset reminder times
 const TIME_PRESETS = [
   { label: '9:00 AM',  value: '09:00' },
   { label: '12:00 PM', value: '12:00' },
@@ -51,21 +50,18 @@ const TIME_PRESETS = [
   { label: '8:00 PM',  value: '20:00' },
 ]
 
-// Full hour list for custom wheel (6am–11pm)
-const CUSTOM_HOURS = [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]
-const CUSTOM_MINUTES: { label: string; value: string }[] = [
-  { label: ':00', value: '00' },
-  { label: ':15', value: '15' },
-  { label: ':30', value: '30' },
-  { label: ':45', value: '45' },
-]
+const HOUR_ITEMS = Array.from({ length: 18 }, (_, i) => {
+  const h = i + 6 // 6am–11pm
+  const label = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`
+  return { label, value: h }
+})
 
-function formatHourLabel(h: number): string {
-  if (h === 0)  return '12am'
-  if (h < 12)  return `${h}am`
-  if (h === 12) return '12pm'
-  return `${h - 12}pm`
-}
+const MINUTE_ITEMS = [
+  { label: '00', value: '00' },
+  { label: '15', value: '15' },
+  { label: '30', value: '30' },
+  { label: '45', value: '45' },
+]
 
 function parseTimeParts(t?: string): { h: number | null; m: string | null } {
   if (!t) return { h: null, m: null }
@@ -114,91 +110,130 @@ const scrollRow: React.CSSProperties = {
 
 // ── iPhone-style scroll wheel picker ─────────────────────────────────────────
 
-const ITEM_H = 44
+const ITEM_H = 40       // height of each wheel item
+const VISIBLE = 1       // items above/below center → 3 total visible rows
 
 function WheelPicker<T extends string | number>({
-  items, value, onChange,
+  items, value, onChange, width = 80,
 }: {
   items: { label: string; value: T }[]
   value: T | null
   onChange: (v: T) => void
+  width?: number
 }) {
-  const ref = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const PADDING = 2 // visible rows above/below centre
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const programmaticRef = useRef(false) // suppress snap during programmatic scroll
 
-  // Scroll to selected value
+  const containerH = (VISIBLE * 2 + 1) * ITEM_H  // 3 × 40 = 120px
+
+  // Scroll to selected value whenever value changes from outside
   useEffect(() => {
-    if (!scrollRef.current) return
+    const el = scrollRef.current
+    if (!el) return
     const idx = items.findIndex(i => i.value === value)
-    if (idx >= 0) {
-      scrollRef.current.scrollTop = idx * ITEM_H
-    }
+    if (idx < 0) return
+    programmaticRef.current = true
+    // scrollTop = idx * ITEM_H (padding-top pushes item 0 to the center slot)
+    el.scrollTop = idx * ITEM_H
+    // Clear programmatic flag after browser processes the scroll
+    requestAnimationFrame(() => { programmaticRef.current = false })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
-  function handleScroll() {
-    if (!scrollRef.current) return
-    if (debounce.current) clearTimeout(debounce.current)
-    debounce.current = setTimeout(() => {
-      if (!scrollRef.current) return
-      const idx = Math.round(scrollRef.current.scrollTop / ITEM_H)
-      const clamped = Math.max(0, Math.min(items.length - 1, idx))
-      if (items[clamped].value !== value) onChange(items[clamped].value)
-    }, 80)
+  function snapToNearest() {
+    const el = scrollRef.current
+    if (!el || programmaticRef.current) return
+    const rawIdx = el.scrollTop / ITEM_H
+    const idx = Math.round(rawIdx)
+    const clamped = Math.max(0, Math.min(items.length - 1, idx))
+    // Snap scroll position
+    programmaticRef.current = true
+    el.scrollTo({ top: clamped * ITEM_H, behavior: 'smooth' })
+    requestAnimationFrame(() => { programmaticRef.current = false })
+    if (items[clamped].value !== value) {
+      onChange(items[clamped].value)
+    }
   }
 
-  const containerH = (PADDING * 2 + 1) * ITEM_H
+  function handleScroll() {
+    if (programmaticRef.current) return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(snapToNearest, 150)
+  }
 
   return (
-    <div ref={ref} style={{ position: 'relative', height: containerH, overflow: 'hidden', minWidth: 70 }}>
+    <div style={{ position: 'relative', height: containerH, width, overflow: 'hidden' }}>
+
       {/* Centre highlight band */}
       <div style={{
-        position: 'absolute', top: PADDING * ITEM_H, height: ITEM_H,
-        left: 0, right: 0,
+        position: 'absolute',
+        top: VISIBLE * ITEM_H,
+        height: ITEM_H,
+        left: 4, right: 4,
         background: 'var(--paper-3)',
-        borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)',
-        pointerEvents: 'none', zIndex: 1,
+        borderRadius: 8,
+        border: '1px solid var(--rule)',
+        pointerEvents: 'none',
+        zIndex: 1,
       }} />
-      {/* Scrollable track */}
+
+      {/* Scrollable track — padding-top/bottom let first/last item reach centre */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
         style={{
-          height: '100%', overflowY: 'scroll',
-          scrollSnapType: 'y mandatory',
+          height: '100%',
+          overflowY: 'scroll',
           scrollbarWidth: 'none',
-          // hide webkit scrollbar
-          msOverflowStyle: 'none',
+          // Padding lets item[0] scroll into the centre slot
+          paddingTop: VISIBLE * ITEM_H,
+          paddingBottom: VISIBLE * ITEM_H,
+          boxSizing: 'content-box',
         } as React.CSSProperties}
       >
-        {/* Top padding */}
-        {Array.from({ length: PADDING }).map((_, i) => (
-          <div key={`tp-${i}`} style={{ height: ITEM_H, scrollSnapAlign: 'center' }} />
-        ))}
-        {items.map(item => (
-          <div key={String(item.value)} style={{
-            height: ITEM_H, scrollSnapAlign: 'center',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 15,
-            fontWeight: item.value === value ? 600 : 400,
-            color: item.value === value ? 'var(--ink)' : 'var(--ink-3)',
-            fontFamily: 'var(--font-mono)',
-            userSelect: 'none',
-          }}>
-            {item.label}
-          </div>
-        ))}
-        {/* Bottom padding */}
-        {Array.from({ length: PADDING }).map((_, i) => (
-          <div key={`bp-${i}`} style={{ height: ITEM_H, scrollSnapAlign: 'center' }} />
-        ))}
+        {items.map((item, idx) => {
+          const isSelected = item.value === value
+          return (
+            <div
+              key={String(item.value)}
+              onClick={() => {
+                const el = scrollRef.current
+                if (el) {
+                  programmaticRef.current = true
+                  el.scrollTo({ top: idx * ITEM_H, behavior: 'smooth' })
+                  requestAnimationFrame(() => { programmaticRef.current = false })
+                }
+                onChange(item.value)
+              }}
+              style={{
+                height: ITEM_H,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: isSelected ? 17 : 14,
+                fontWeight: isSelected ? 700 : 400,
+                color: isSelected ? 'var(--ink)' : 'var(--ink-3)',
+                fontFamily: 'var(--font-mono)',
+                userSelect: 'none',
+                cursor: 'pointer',
+                position: 'relative', zIndex: 2,
+                transition: 'font-size 0.1s, color 0.1s',
+              }}
+            >
+              {item.label}
+            </div>
+          )
+        })}
       </div>
-      {/* Fade overlay top + bottom */}
+
+      {/* Fade gradient top + bottom */}
       <div style={{
-        position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2,
-        background: 'linear-gradient(to bottom, var(--paper) 0%, transparent 35%, transparent 65%, var(--paper) 100%)',
+        position: 'absolute', inset: 0,
+        pointerEvents: 'none', zIndex: 3,
+        background: `linear-gradient(to bottom,
+          var(--paper) 0%,
+          transparent ${VISIBLE * ITEM_H}px,
+          transparent ${(VISIBLE + 1) * ITEM_H}px,
+          var(--paper) 100%)`,
       }} />
     </div>
   )
@@ -209,7 +244,6 @@ function WheelPicker<T extends string | number>({
 const PERIOD_OPTIONS = ['Days', 'Weeks', 'Months', 'Years']
 
 function parseCustomRepeat(val: string): { n: number; period: string } {
-  // "Every 3 Weeks" → {n:3, period:'Weeks'}
   const m = val.match(/every\s+(\d+)\s+(\w+)/i)
   if (m) {
     const p = PERIOD_OPTIONS.find(o => o.toLowerCase().startsWith(m[2].toLowerCase())) ?? 'Weeks'
@@ -227,12 +261,10 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
 
   const isCustomRepeat = !!recurring && !REPEAT_CHIPS.slice(0, -1).some(c => c.value === recurring)
 
-  // Custom repeat number + period state
   const parsedCustom = isCustomRepeat ? parseCustomRepeat(recurring!) : { n: 1, period: 'Weeks' }
   const [customN,      setCustomN]      = useState(parsedCustom.n)
   const [customPeriod, setCustomPeriod] = useState(parsedCustom.period)
 
-  // Custom time wheel visibility
   const isPresetTime = TIME_PRESETS.some(p => p.value === time)
   const [showCustomTime, setShowCustomTime] = useState(!isPresetTime && !!time)
 
@@ -257,7 +289,7 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
 
   function setHour(h: number) {
     const { m } = parseTimeParts(time)
-    const newMin = (m && CUSTOM_MINUTES.some(x => x.value === m)) ? m : '00'
+    const newMin = (m && MINUTE_ITEMS.some(x => x.value === m)) ? m : '00'
     onChange(due, recurring, `${String(h).padStart(2, '0')}:${newMin}`)
   }
 
@@ -271,11 +303,7 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
 
   function setRepeat(val: string | null) {
     if (val === '__custom__') {
-      // Show custom picker — pre-set to "Every 1 Week" if nothing custom yet
-      if (!isCustomRepeat) {
-        setCustomN(1)
-        setCustomPeriod('Weeks')
-      }
+      if (!isCustomRepeat) { setCustomN(1); setCustomPeriod('Weeks') }
       onChange(due, `Every 1 Weeks`, time)
     } else {
       onChange(due, val, time)
@@ -292,7 +320,6 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
   const displayLabel = hasValue ? dueSummary(due, recurring, time) : 'No date'
 
   const { h: selHour, m: selMin } = parseTimeParts(time)
-  const showMinutePicker = selHour !== null
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -349,14 +376,12 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
               </button>
             )
           })}
-          {/* Date picker pill — hidden native input behind a clean visible button */}
-          <div style={{ position: 'relative', display: 'inline-flex' }}>
-            <button
-              style={chip(/^\d{4}-\d{2}-\d{2}$/.test(due))}
-              onClick={() => dateInputRef.current?.showPicker?.() ?? dateInputRef.current?.click()}
-            >
+
+          {/* ── Date picker pill — label wraps hidden input so the whole area is clickable ── */}
+          <label style={{ position: 'relative', display: 'inline-flex', cursor: 'pointer' }}>
+            <span style={chip(/^\d{4}-\d{2}-\d{2}$/.test(due))}>
               {/^\d{4}-\d{2}-\d{2}$/.test(due) ? formatDueLabel(due) : '📅 Pick'}
-            </button>
+            </span>
             <input
               ref={dateInputRef}
               type="date"
@@ -364,20 +389,25 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
               onChange={e => e.target.value && setDate(e.target.value)}
               style={{
                 position: 'absolute', inset: 0, opacity: 0,
-                cursor: 'pointer', width: '100%', height: '100%',
+                width: '100%', height: '100%',
+                cursor: 'pointer',
               }}
             />
-          </div>
+          </label>
         </div>
       </div>
 
-      {/* TIME — due time presets + custom iPhone-style wheel */}
+      {/* TIME — presets + iPhone-style wheel */}
       <div>
         <div style={sectionLabel}>Due time</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
           {/* Preset row */}
           <div style={scrollRow}>
-            <button onClick={() => { clearTime(); setShowCustomTime(false) }} style={chip(!time && !showCustomTime)}>
+            <button
+              onClick={() => { clearTime(); setShowCustomTime(false) }}
+              style={chip(!time && !showCustomTime)}
+            >
               No time
             </button>
             {TIME_PRESETS.map(p => (
@@ -390,7 +420,6 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
             <button
               onClick={() => {
                 if (!showCustomTime) {
-                  // Open with current time or a sensible default
                   const h = selHour ?? 9
                   const m = selMin ?? '00'
                   setShowCustomTime(true)
@@ -404,30 +433,58 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
             </button>
           </div>
 
-          {/* Custom time — iPhone-style scroll wheels */}
+          {/* ── iPhone-style wheel time picker ── */}
           {showCustomTime && (
-            <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--paper-2)', border: '1px solid var(--accent)' }}>
-              <div style={{ display: 'flex', gap: 0, alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{
+              borderRadius: 14,
+              background: 'var(--paper-2)',
+              border: '1px solid var(--rule)',
+              overflow: 'hidden',
+            }}>
+              {/* Selected time display */}
+              <div style={{
+                padding: '10px 16px 6px',
+                textAlign: 'center',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 20,
+                fontWeight: 700,
+                color: 'var(--ink)',
+                letterSpacing: '0.04em',
+              }}>
+                {time ? formatTime(time) : '--:--'}
+              </div>
+
+              {/* Wheels */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0, padding: '0 12px 12px' }}>
                 {/* Hour wheel */}
                 <WheelPicker<number>
-                  items={CUSTOM_HOURS.map(h => ({ label: formatHourLabel(h), value: h }))}
+                  items={HOUR_ITEMS}
                   value={selHour}
                   onChange={h => setHour(h)}
+                  width={90}
                 />
-                {/* Separator */}
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: 'var(--ink-2)', padding: '0 6px', alignSelf: 'center' }}>:</div>
+
+                {/* Colon separator */}
+                <div style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: 'var(--ink-2)',
+                  padding: '0 4px',
+                  marginBottom: 2,
+                  userSelect: 'none',
+                }}>
+                  :
+                </div>
+
                 {/* Minute wheel */}
                 <WheelPicker<string>
-                  items={CUSTOM_MINUTES.map(m => ({ label: m.label.replace(':', ''), value: m.value }))}
+                  items={MINUTE_ITEMS}
                   value={selMin}
                   onChange={m => setMinute(m)}
+                  width={72}
                 />
               </div>
-              {time && (
-                <div style={{ marginTop: 6, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.05em' }}>
-                  {formatTime(time)}
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -450,12 +507,10 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
             )
           })}
         </div>
-        {/* Custom repeat structured picker */}
         {isCustomRepeat && (
           <div style={{ marginTop: 10, padding: '12px 14px', borderRadius: 12, background: 'var(--paper-2)', border: '1px solid var(--accent)' }}>
             <div style={{ ...sectionLabel, marginBottom: 10 }}>Every…</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {/* Number input */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <button
                   onClick={() => { const n = Math.max(1, customN - 1); setCustomN(n); commitCustomRepeat(n, customPeriod) }}
@@ -469,7 +524,6 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
                   style={{ ...chip(false), padding: '6px 10px', fontSize: 14, fontWeight: 700 }}
                 >+</button>
               </div>
-              {/* Period selector */}
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {PERIOD_OPTIONS.map(p => (
                   <button key={p} onClick={() => { setCustomPeriod(p); commitCustomRepeat(customN, p) }}

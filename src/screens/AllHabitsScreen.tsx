@@ -1,14 +1,14 @@
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, completeTask, deleteTask } from '../data/db'
+import { db, completeHabit, deleteHabit } from '../data/db'
 import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { SwipeableRow } from '../components/SwipeableRow'
-import type { Screen, Task } from '../types'
+import type { Screen, Habit } from '../types'
 
-interface Props { navigate: (s: Screen) => void; back: () => void }
+interface Props { navigate: (s: Screen) => void; back: () => void; onAddHabit?: () => void }
 interface Burst { id: number; x: number; y: number; xp: number }
 
 // ── Today's ISO date ───────────────────────────────────────────────────────────
@@ -29,16 +29,16 @@ function StreakBadge({ streak }: { streak: number }) {
 
 // ── Habit card row ────────────────────────────────────────────────────────────
 function HabitRow({
-  task, hue,
+  habit, hue,
   onCheckin, onDelete, onTap,
 }: {
-  task: Task
+  habit: Habit
   hue?: number
   onCheckin: (e: React.MouseEvent) => void
   onDelete: () => void
   onTap: () => void
 }) {
-  const loggedToday = !!task.done
+  const loggedToday = !!habit.done
   const safeHue = hue ?? 220
   const color    = `hsl(${safeHue}, 55%, 42%)`
   const softBg   = `hsl(${safeHue}, 40%, 93%)`
@@ -77,21 +77,28 @@ function HabitRow({
             color: loggedToday ? `hsl(${safeHue}, 40%, 35%)` : 'var(--ink)',
             marginBottom: 3,
           }}>
-            {task.title}
+            {habit.title}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <StreakBadge streak={task.streak} />
-            {task.recurring && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <StreakBadge streak={habit.streak} />
+            {habit.frequency && (
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>
-                {task.recurring}
-              </span>
-            )}
-            {task.due && task.due !== '' && (
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>
-                {task.due}
+                🔁 {habit.frequency}
               </span>
             )}
           </div>
+          {/* Notes preview */}
+          {habit.notes && habit.notes.trim().length > 0 && (
+            <div style={{
+              marginTop: 4,
+              fontSize: 11, color: 'var(--ink-4)',
+              fontFamily: 'var(--font-mono)', letterSpacing: '0.01em',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              maxWidth: '100%',
+            }}>
+              {habit.notes.trim()}
+            </div>
+          )}
         </button>
 
         {/* Done label */}
@@ -109,23 +116,23 @@ function HabitRow({
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-export const AllHabitsScreen = ({ navigate, back }: Props) => {
+export const AllHabitsScreen = ({ navigate, back, onAddHabit }: Props) => {
   const [catFilter, setCatFilter] = useState<string>('all')
   const [bursts, setBursts]       = useState<Burst[]>([])
 
-  const tasks = useLiveQuery(() => db.tasks.filter(t => !!t.isHabit).toArray(), [])
-  const cats  = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
+  const habits = useLiveQuery(() => db.habits.toArray(), [])
+  const cats   = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
 
-  if (!tasks) return null
+  if (!habits) return null
 
-  const filtered = catFilter === 'all' ? tasks : tasks.filter(t => t.cat === catFilter)
-  const pending  = filtered.filter(t => !t.done)
-  const logged   = filtered.filter(t => t.done)
+  const filtered = catFilter === 'all' ? habits : habits.filter(h => h.cat === catFilter)
+  const pending  = filtered.filter(h => !h.done)
+  const logged   = filtered.filter(h => h.done)
 
-  async function handleCheckin(e: React.MouseEvent, task: Task) {
+  async function handleCheckin(e: React.MouseEvent, habit: Habit) {
     e.stopPropagation()
-    if (task.done) return
-    const gained = await completeTask(task.id)
+    if (habit.done) return
+    const gained = await completeHabit(habit.id)
     if (gained > 0) {
       const rect = (e.target as HTMLElement).getBoundingClientRect()
       const burst: Burst = { id: Date.now(), x: rect.left + rect.width / 2, y: rect.top, xp: gained }
@@ -184,9 +191,15 @@ export const AllHabitsScreen = ({ navigate, back }: Props) => {
           <div style={{ textAlign: 'center', padding: '72px 20px' }}>
             <div style={{ fontSize: 36, marginBottom: 12 }}>🔁</div>
             <div className="t-display" style={{ fontSize: 20, marginBottom: 6 }}>No habits yet</div>
-            <div style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6 }}>
-              Create a task and toggle it as a Habit<br />to start tracking streaks.
+            <div style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
+              Daily/weekly habits with streak tracking.
             </div>
+            <button onClick={() => onAddHabit?.()} style={{
+              padding: '12px 24px', borderRadius: 12, background: 'var(--ink)', color: 'var(--paper)',
+              fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8,
+            }}>
+              <Icons.plus size={16} /> Add habit
+            </button>
           </div>
         ) : (
           <>
@@ -197,14 +210,14 @@ export const AllHabitsScreen = ({ navigate, back }: Props) => {
                   <div className="eyebrow" style={{ marginBottom: 10 }}>To do today</div>
                 )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  {pending.map(task => (
+                  {pending.map(habit => (
                     <HabitRow
-                      key={task.id}
-                      task={task}
-                      hue={cats.find(c => c.id === task.cat)?.hue}
-                      onCheckin={e => handleCheckin(e, task)}
-                      onDelete={() => deleteTask(task.id)}
-                      onTap={() => navigate({ name: 'task', taskId: task.id })}
+                      key={habit.id}
+                      habit={habit}
+                      hue={cats.find(c => c.id === habit.cat)?.hue}
+                      onCheckin={e => handleCheckin(e, habit)}
+                      onDelete={() => deleteHabit(habit.id)}
+                      onTap={() => navigate({ name: 'all-habits' })}
                     />
                   ))}
                 </div>
@@ -216,14 +229,14 @@ export const AllHabitsScreen = ({ navigate, back }: Props) => {
               <div>
                 <div className="eyebrow" style={{ marginBottom: 10, opacity: 0.5 }}>Logged today</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  {logged.map(task => (
+                  {logged.map(habit => (
                     <HabitRow
-                      key={task.id}
-                      task={task}
-                      hue={cats.find(c => c.id === task.cat)?.hue}
-                      onCheckin={e => handleCheckin(e, task)}
-                      onDelete={() => deleteTask(task.id)}
-                      onTap={() => navigate({ name: 'task', taskId: task.id })}
+                      key={habit.id}
+                      habit={habit}
+                      hue={cats.find(c => c.id === habit.cat)?.hue}
+                      onCheckin={e => handleCheckin(e, habit)}
+                      onDelete={() => deleteHabit(habit.id)}
+                      onTap={() => navigate({ name: 'all-habits' })}
                     />
                   ))}
                 </div>

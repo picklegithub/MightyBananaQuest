@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { Icons } from './ui/Icons'
 
-export type FabAction = 'capture' | 'task' | 'goal' | 'habit' | 'journal' | 'pomodoro'
+export type FabAction = 'capture' | 'task' | 'goal' | 'habit' | 'journal' | 'pomodoro' | 'item'
 
 interface MenuItem {
   action: FabAction
@@ -10,10 +10,11 @@ interface MenuItem {
   accent?: boolean
 }
 
+// Order = bottom-to-top above FAB (array is reversed before render)
 const ITEMS: MenuItem[] = [
-  { action: 'journal',  label: 'Journal entry',  icon: 'journal' },
   { action: 'goal',     label: 'New goal',        icon: 'target'  },
   { action: 'habit',    label: 'New habit',       icon: 'flame', accent: true },
+  { action: 'item',     label: 'New item',        icon: 'cart'    },
   { action: 'task',     label: 'New task',        icon: 'plus'    },
   { action: 'pomodoro', label: 'Pomodoro',        icon: 'timer'   },
 ]

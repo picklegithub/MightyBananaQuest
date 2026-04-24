@@ -119,7 +119,6 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
           color: 'var(--ink)',
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
-          {task.isHabit && <span style={{ color: 'var(--warn)', marginRight: 4, fontSize: 11 }}>🔥</span>}
           {task.title}
         </div>
 

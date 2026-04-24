@@ -211,6 +211,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
 
   // Bursts + timer
   const [bursts,     setBursts]     = useState<Burst[]>([])
+  const [savedFlash, setSavedFlash] = useState(false)
   const [timerState, setTimerState] = useState<'idle' | 'running' | 'paused' | 'done'>('idle')
   const [secsLeft,   setSecsLeft]   = useState(pomMins * 60)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -315,6 +316,20 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
   }
 
   function resetTimer() { setTimerState('idle'); setSecsLeft(pomMins * 60) }
+
+  // ── Save Changes — commits any pending title/notes, then navigates back ──
+  function handleSaveChanges() {
+    // Commit title if editing
+    const trimmedTitle = localTitle.trim()
+    if (trimmedTitle && trimmedTitle !== task?.title) save({ title: trimmedTitle })
+    setEditingTitle(false)
+    // Flush notes debounce immediately
+    if (notesTimer.current) { clearTimeout(notesTimer.current); notesTimer.current = null }
+    save({ notes: localNotes })
+    setSavedFlash(true)
+    // Brief "Saved!" flash then exit
+    setTimeout(() => { setSavedFlash(false); back() }, 700)
+  }
 
   if (!task) return (
     <div className="screen">
@@ -777,41 +792,64 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
           </div>
         </div>
 
-        {/* ── Delete task ── */}
-        <div style={{ marginTop: 24, paddingBottom: 8, display: 'flex', justifyContent: 'center' }}>
+        {/* ── Save Changes + Delete ── */}
+        <div style={{ marginTop: 24, paddingBottom: 8, display: 'flex', gap: 8 }}>
+
+          {/* Save — hidden while confirming delete */}
+          {!confirmDelete && (
+            <button
+              onClick={handleSaveChanges}
+              style={{
+                flex: 6, padding: '11px 12px', borderRadius: 10, fontSize: 13, fontWeight: 600,
+                background: savedFlash ? 'var(--accent)' : (areaHue !== undefined ? `hsl(${areaHue}, 55%, 42%)` : 'var(--ink)'),
+                color: 'var(--paper)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                transition: 'background .2s',
+              }}
+            >
+              {savedFlash ? (
+                <><Icons.check size={13} sw={2.5} /> Saved!</>
+              ) : (
+                <><Icons.check size={13} sw={2} /> Save</>
+              )}
+            </button>
+          )}
+
+          {/* Delete — confirm/cancel only (no Save when confirming) */}
           {confirmDelete ? (
-            <div style={{ display: 'flex', gap: 8 }}>
+            <>
               <button
                 onClick={async () => { await deleteTask(taskId); back() }}
                 style={{
-                  padding: '9px 20px', borderRadius: 10, fontSize: 12, fontWeight: 600,
+                  flex: 4, padding: '11px 8px', borderRadius: 10, fontSize: 12, fontWeight: 600,
                   background: 'var(--warn)', color: 'white',
-                  fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+                  fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
                 }}
               >
-                Yes, delete
+                Confirm
               </button>
               <button
                 onClick={() => setConfirmDelete(false)}
                 style={{
-                  padding: '9px 16px', borderRadius: 10, fontSize: 12,
+                  flex: 2, padding: '11px 8px', borderRadius: 10, fontSize: 12,
                   background: 'var(--paper-2)', color: 'var(--ink-3)',
                   border: '1px solid var(--rule)', fontFamily: 'var(--font-mono)',
                 }}
               >
-                Cancel
+                ✕
               </button>
-            </div>
+            </>
           ) : (
             <button
               onClick={() => setConfirmDelete(true)}
               style={{
-                fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)',
-                letterSpacing: '0.06em', padding: '8px 16px', borderRadius: 8,
-                border: '1px solid var(--rule)',
+                flex: 3, padding: '11px 8px', borderRadius: 10, fontSize: 12, fontWeight: 500,
+                background: 'var(--warn-soft)', color: 'var(--warn)',
+                border: '1px solid var(--warn-soft)',
+                fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
               }}
             >
-              {task.isHabit ? 'Delete habit' : 'Delete task'}
+              Delete
             </button>
           )}
         </div>

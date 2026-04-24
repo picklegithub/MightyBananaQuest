@@ -4,14 +4,29 @@
  * Strategy:
  *  - All writes go to Dexie first (instant local feedback)
  *  - Then mirror to Supabase (fire-and-forget, retried on next pull)
- *  - On sign-in / app start: pull all remote rows, merge with last-write-wins
+ *  - On sign-in / app start: push everything, then pull all tables
  *  - Realtime subscriptions push remote changes back into Dexie
  *  - Tombstone table prevents deleted tasks from reappearing on sync
  */
 
 import { supabase } from './supabase'
 import { db, getTombstoneIds } from '../data/db'
-import type { Task, Goal, JournalEntry, InboxItem, Category, AppSettings } from '../types'
+import type { Task, Goal, JournalEntry, InboxItem, Category, AppSettings, ShoppingItem } from '../types'
+
+// ── Cached user ID (avoids network auth call on every push) ──────────────────
+let _cachedUserId: string | null = null
+
+export function setCachedUserId(id: string | null): void {
+  _cachedUserId = id
+}
+
+export async function getUserIdAsync(): Promise<string | null> {
+  if (_cachedUserId) return _cachedUserId
+  // getSession() is cached locally — no network round-trip
+  const { data } = await supabase.auth.getSession()
+  _cachedUserId = data.session?.user?.id ?? null
+  return _cachedUserId
+}
 
 // ── localStorage key for last pull timestamp ──────────────────────────────────
 const LAST_PULL_KEY = 'mbq_last_pull_at'
@@ -43,11 +58,6 @@ export interface PullPreview {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function now() { return new Date().toISOString() }
-
-export async function getUserIdAsync(): Promise<string | null> {
-  const { data } = await supabase.auth.getUser()
-  return data.user?.id ?? null
-}
 
 // ── Task serialisation ────────────────────────────────────────────────────────
 
@@ -241,7 +251,37 @@ function rowToSettings(row: Record<string, unknown>): Partial<AppSettings> {
   }
 }
 
-// ── Preview pull (compute what would change, don't apply) ────────────────────
+// ── Shopping item serialisation ───────────────────────────────────────────────
+
+function shoppingItemToRow(item: ShoppingItem, userId: string) {
+  return {
+    id:         item.id,
+    user_id:    userId,
+    title:      item.title,
+    category:   item.category,
+    checked:    item.checked,
+    quantity:   item.quantity ?? null,
+    notes:      item.notes ?? null,
+    created_at: item.createdAt ?? null,
+    updated_at: item.updatedAt ? new Date(item.updatedAt).toISOString() : now(),
+  }
+}
+
+function rowToShoppingItem(row: Record<string, unknown>): ShoppingItem {
+  const ts = Date.now()
+  return {
+    id:        row.id as string,
+    title:     (row.title as string) ?? '',
+    category:  (row.category as string) ?? '',
+    checked:   (row.checked as boolean) ?? false,
+    quantity:  (row.quantity as string | undefined) ?? undefined,
+    notes:     (row.notes as string | undefined) ?? undefined,
+    createdAt: (row.created_at as number | undefined) ?? ts,
+    updatedAt: row.updated_at ? new Date(row.updated_at as string).getTime() : ts,
+  }
+}
+
+// ── Preview pull (compute what would change for tasks, don't apply) ───────────
 
 export async function previewPull(): Promise<PullPreview> {
   const userId = await getUserIdAsync()
@@ -330,90 +370,107 @@ export async function applyPull(preview: PullPreview): Promise<void> {
   setLastPullAt(Date.now())
 }
 
-// ── Full pull (on sign-in or app start) ───────────────────────────────────────
+// ── Pull non-task tables (goals, journal, inbox, categories, settings, shopping) ─
 
-export async function pullAll(): Promise<void> {
+export async function pullNonTaskTables(): Promise<void> {
   const userId = await getUserIdAsync()
   if (!userId) return
 
-  // Tasks via previewPull + applyPull
-  const preview = await previewPull()
-  await applyPull(preview)
-
-  // Goals, Journal, Inbox, Categories, Settings
   const [
     { data: remoteGoals },
     { data: remoteJournal },
     { data: remoteInbox },
     { data: remoteCategories },
     { data: remoteSettings },
+    { data: remoteShoppingItems },
   ] = await Promise.all([
     supabase.from('goals').select('*').eq('user_id', userId),
     supabase.from('journal').select('*').eq('user_id', userId),
     supabase.from('inbox').select('*').eq('user_id', userId),
     supabase.from('categories').select('*').eq('user_id', userId),
     supabase.from('settings').select('*').eq('user_id', userId).maybeSingle(),
+    supabase.from('shopping_items').select('*').eq('user_id', userId),
   ])
 
-  // Goals
+  // Goals — last-write-wins
   if (remoteGoals && remoteGoals.length > 0) {
     const localGoals = await db.goals.toArray()
-    const localMap = new Map(localGoals.map(g => [g.id, g]))
+    const localMap   = new Map(localGoals.map(g => [g.id, g]))
     const toUpsert: Goal[] = []
     for (const row of remoteGoals) {
-      const local = localMap.get(row.id as string)
+      const local      = localMap.get(row.id as string)
       const remoteTime = new Date(row.updated_at as string).getTime()
-      const localTime = (local as (Goal & { updatedAt?: number }) | undefined)?.updatedAt ?? 0
-      if (!local || remoteTime > localTime) {
-        toUpsert.push(rowToGoal(row as Record<string, unknown>))
-      }
+      const localTime  = (local as (Goal & { updatedAt?: number }) | undefined)?.updatedAt ?? 0
+      if (!local || remoteTime > localTime) toUpsert.push(rowToGoal(row as Record<string, unknown>))
     }
     if (toUpsert.length > 0) await db.goals.bulkPut(toUpsert)
   }
 
-  // Journal
+  // Journal — last-write-wins
   if (remoteJournal && remoteJournal.length > 0) {
     const localJournal = await db.journal.toArray()
-    const localMap = new Map(localJournal.map(j => [j.id, j]))
+    const localMap     = new Map(localJournal.map(j => [j.id, j]))
     const toUpsert: JournalEntry[] = []
     for (const row of remoteJournal) {
-      const local = localMap.get(row.id as string)
+      const local      = localMap.get(row.id as string)
       const remoteTime = new Date(row.updated_at as string).getTime()
-      const localTime = (local as (JournalEntry & { updatedAt?: number }) | undefined)?.updatedAt ?? 0
-      if (!local || remoteTime > localTime) {
-        toUpsert.push(rowToJournal(row as Record<string, unknown>))
-      }
+      const localTime  = (local as (JournalEntry & { updatedAt?: number }) | undefined)?.updatedAt ?? 0
+      if (!local || remoteTime > localTime) toUpsert.push(rowToJournal(row as Record<string, unknown>))
     }
     if (toUpsert.length > 0) await db.journal.bulkPut(toUpsert)
   }
 
-  // Inbox
+  // Inbox — last-write-wins
   if (remoteInbox && remoteInbox.length > 0) {
     const localInbox = await db.inbox.toArray()
-    const localMap = new Map(localInbox.map(i => [i.id, i]))
+    const localMap   = new Map(localInbox.map(i => [i.id, i]))
     const toUpsert: InboxItem[] = []
     for (const row of remoteInbox) {
-      const local = localMap.get(row.id as string)
+      const local      = localMap.get(row.id as string)
       const remoteTime = new Date(row.updated_at as string).getTime()
-      const localTime = (local as (InboxItem & { updatedAt?: number }) | undefined)?.updatedAt ?? 0
-      if (!local || remoteTime > localTime) {
-        toUpsert.push(rowToInbox(row as Record<string, unknown>))
-      }
+      const localTime  = (local as (InboxItem & { updatedAt?: number }) | undefined)?.updatedAt ?? 0
+      if (!local || remoteTime > localTime) toUpsert.push(rowToInbox(row as Record<string, unknown>))
     }
     if (toUpsert.length > 0) await db.inbox.bulkPut(toUpsert)
   }
 
-  // Categories
+  // Categories — remote wins (small set, no conflict risk)
   if (remoteCategories && remoteCategories.length > 0) {
-    const toUpsert = remoteCategories.map(r => rowToCategory(r as Record<string, unknown>))
-    await db.categories.bulkPut(toUpsert)
+    await db.categories.bulkPut(remoteCategories.map(r => rowToCategory(r as Record<string, unknown>)))
   }
 
-  // Settings (single row)
+  // Settings — single row, remote wins
   if (remoteSettings) {
-    const patch = rowToSettings(remoteSettings as Record<string, unknown>)
-    await db.settings.update(1, patch)
+    await db.settings.update(1, rowToSettings(remoteSettings as Record<string, unknown>))
   }
+
+  // Shopping items — last-write-wins
+  if (remoteShoppingItems && remoteShoppingItems.length > 0) {
+    const localItems = await db.shoppingItems.toArray()
+    const localMap   = new Map(localItems.map(i => [i.id, i]))
+    const toUpsert: ShoppingItem[] = []
+    for (const row of remoteShoppingItems) {
+      const local      = localMap.get(row.id as string)
+      const remoteTime = new Date(row.updated_at as string).getTime()
+      const localTime  = local?.updatedAt ?? 0
+      if (!local || remoteTime > localTime) toUpsert.push(rowToShoppingItem(row as Record<string, unknown>))
+    }
+    if (toUpsert.length > 0) await db.shoppingItems.bulkPut(toUpsert)
+  }
+}
+
+// ── Full pull (tasks + all other tables) ──────────────────────────────────────
+
+export async function pullAll(): Promise<void> {
+  const userId = await getUserIdAsync()
+  if (!userId) return
+
+  // Tasks via previewPull + applyPull (handles LWW + tombstones + deletion detection)
+  const preview = await previewPull()
+  await applyPull(preview)
+
+  // All other tables in parallel
+  await pullNonTaskTables()
 }
 
 // ── Push individual records ───────────────────────────────────────────────────
@@ -478,6 +535,24 @@ export async function pushSettings(settings: AppSettings): Promise<void> {
   await supabase.from('settings').upsert(settingsToRow(settings, userId), { onConflict: 'user_id' })
 }
 
+export async function pushShoppingItem(item: ShoppingItem): Promise<void> {
+  const userId = await getUserIdAsync()
+  if (!userId) return
+  await supabase.from('shopping_items').upsert(shoppingItemToRow(item, userId), { onConflict: 'id' })
+}
+
+export async function pushShoppingItemDelete(itemId: string): Promise<void> {
+  const userId = await getUserIdAsync()
+  if (!userId) return
+  await supabase.from('shopping_items').delete().eq('id', itemId).eq('user_id', userId)
+}
+
+export async function pushShoppingItemsDelete(itemIds: string[]): Promise<void> {
+  const userId = await getUserIdAsync()
+  if (!userId) return
+  await supabase.from('shopping_items').delete().in('id', itemIds).eq('user_id', userId)
+}
+
 // ── Push all local data ───────────────────────────────────────────────────────
 
 export async function pushAllLocal(): Promise<void> {
@@ -486,25 +561,27 @@ export async function pushAllLocal(): Promise<void> {
 
   const tombstoneIds = await getTombstoneIds()
 
-  const [tasks, goals, journal, inbox, categories, settings] = await Promise.all([
+  const [tasks, goals, journal, inbox, categories, settings, shoppingItems] = await Promise.all([
     db.tasks.toArray(),
     db.goals.toArray(),
     db.journal.toArray(),
     db.inbox.toArray(),
     db.categories.toArray(),
     db.settings.get(1),
+    db.shoppingItems.toArray(),
   ])
 
   // Filter out tombstoned tasks before pushing
   const filteredTasks = tasks.filter(t => !tombstoneIds.has(t.id))
 
   await Promise.all([
-    filteredTasks.length ? supabase.from('tasks').upsert(filteredTasks.map(t => taskToRow(t, userId)), { onConflict: 'id' }) : null,
-    goals.length         ? supabase.from('goals').upsert(goals.map(g => goalToRow(g, userId)), { onConflict: 'id' }) : null,
-    journal.length       ? supabase.from('journal').upsert(journal.map(j => journalToRow(j, userId)), { onConflict: 'id' }) : null,
-    inbox.length         ? supabase.from('inbox').upsert(inbox.map(i => inboxToRow(i, userId)), { onConflict: 'id' }) : null,
-    categories.length    ? supabase.from('categories').upsert(categories.map(c => categoryToRow(c, userId)), { onConflict: 'id' }) : null,
-    settings             ? supabase.from('settings').upsert(settingsToRow(settings, userId), { onConflict: 'user_id' }) : null,
+    filteredTasks.length    ? supabase.from('tasks').upsert(filteredTasks.map(t => taskToRow(t, userId)), { onConflict: 'id' }) : null,
+    goals.length            ? supabase.from('goals').upsert(goals.map(g => goalToRow(g, userId)), { onConflict: 'id' }) : null,
+    journal.length          ? supabase.from('journal').upsert(journal.map(j => journalToRow(j, userId)), { onConflict: 'id' }) : null,
+    inbox.length            ? supabase.from('inbox').upsert(inbox.map(i => inboxToRow(i, userId)), { onConflict: 'id' }) : null,
+    categories.length       ? supabase.from('categories').upsert(categories.map(c => categoryToRow(c, userId)), { onConflict: 'id' }) : null,
+    settings                ? supabase.from('settings').upsert(settingsToRow(settings, userId), { onConflict: 'user_id' }) : null,
+    shoppingItems.length    ? supabase.from('shopping_items').upsert(shoppingItems.map(i => shoppingItemToRow(i, userId)), { onConflict: 'id' }) : null,
   ])
 }
 
@@ -518,17 +595,18 @@ export async function pushOnly(
 
   const tombstoneIds = await getTombstoneIds()
 
-  const [tasks, goals, journal, inbox, categories, settings] = await Promise.all([
+  const [tasks, goals, journal, inbox, categories, settings, shoppingItems] = await Promise.all([
     db.tasks.toArray(),
     db.goals.toArray(),
     db.journal.toArray(),
     db.inbox.toArray(),
     db.categories.toArray(),
     db.settings.get(1),
+    db.shoppingItems.toArray(),
   ])
 
   const filteredTasks = tasks.filter(t => !tombstoneIds.has(t.id))
-  const total = 6
+  const total = 7
   let done = 0
 
   const tick = () => { done++; onProgress?.(done, total) }
@@ -560,6 +638,11 @@ export async function pushOnly(
 
   await (settings
     ? supabase.from('settings').upsert(settingsToRow(settings, userId), { onConflict: 'user_id' })
+    : Promise.resolve(null))
+  tick()
+
+  await (shoppingItems.length
+    ? supabase.from('shopping_items').upsert(shoppingItems.map(i => shoppingItemToRow(i, userId)), { onConflict: 'id' })
     : Promise.resolve(null))
   tick()
 
@@ -603,11 +686,38 @@ export function startRealtime(userId: string): void {
         }
       }
     )
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'inbox', filter: `user_id=eq.${userId}` },
+      async (payload) => {
+        if (payload.eventType === 'DELETE') {
+          await db.inbox.delete((payload.old as { id: string }).id)
+        } else {
+          await db.inbox.put(rowToInbox(payload.new as Record<string, unknown>))
+        }
+      }
+    )
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'categories', filter: `user_id=eq.${userId}` },
+      async (payload) => {
+        if (payload.eventType === 'DELETE') {
+          await db.categories.delete((payload.old as { id: string }).id)
+        } else {
+          await db.categories.put(rowToCategory(payload.new as Record<string, unknown>))
+        }
+      }
+    )
     .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: `user_id=eq.${userId}` },
       async (payload) => {
         if (payload.eventType !== 'DELETE') {
           const patch = rowToSettings(payload.new as Record<string, unknown>)
           await db.settings.update(1, patch)
+        }
+      }
+    )
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopping_items', filter: `user_id=eq.${userId}` },
+      async (payload) => {
+        if (payload.eventType === 'DELETE') {
+          await db.shoppingItems.delete((payload.old as { id: string }).id)
+        } else {
+          await db.shoppingItems.put(rowToShoppingItem(payload.new as Record<string, unknown>))
         }
       }
     )

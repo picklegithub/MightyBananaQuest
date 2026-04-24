@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, addGoal, updateGoal, deleteGoal, completeTask } from '../data/db'
+import { db, addGoal, updateGoal, deleteGoal, completeTask, completeHabit } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { Seg } from '../components/ui'
 import { ThemeToggle } from '../components/ThemeToggle'
-import type { Screen, Goal, Task } from '../types'
+import type { Screen, Goal, Task, Habit } from '../types'
 
 interface Props { navigate: (s: Screen) => void; back?: () => void; onAddTask?: () => void }
 
@@ -56,7 +56,6 @@ export const GoalsScreen = ({ navigate, back, onAddTask }: Props) => {
   if (!goals || !allTasks) return null
 
   const cats = categories ?? []
-  const habits = allTasks.filter(t => t.recurring)
 
   return (
     <div className="screen">
@@ -191,7 +190,7 @@ export const GoalsScreen = ({ navigate, back, onAddTask }: Props) => {
 
         {/* ── Habits tab ── */}
         {tab === 'habits' && (
-          <HabitsTab habits={habits} cats={cats} navigate={navigate} onAddTask={onAddTask} />
+          <HabitsTab cats={cats} navigate={navigate} onAddTask={onAddTask} />
         )}
       </div>
 
@@ -210,10 +209,11 @@ export const GoalsScreen = ({ navigate, back, onAddTask }: Props) => {
 }
 
 // ── Habits tab ────────────────────────────────────────────────────────────────
-function HabitsTab({ habits, cats, navigate, onAddTask }: { habits: Task[]; cats: { id: string; name: string; hue: number }[]; navigate: (s: Screen) => void; onAddTask?: () => void }) {
-  const logs = useLiveQuery(() => db.habitLog.toArray(), [])
+function HabitsTab({ cats, navigate, onAddTask }: { cats: { id: string; name: string; hue: number }[]; navigate: (s: Screen) => void; onAddTask?: () => void }) {
+  const habits = useLiveQuery(() => db.habits.toArray(), [])
+  const logs   = useLiveQuery(() => db.habitLog.toArray(), [])
 
-  if (!logs) return null
+  if (!habits || !logs) return null
 
   if (habits.length === 0) {
     return (
@@ -221,13 +221,13 @@ function HabitsTab({ habits, cats, navigate, onAddTask }: { habits: Task[]; cats
         <div style={{ fontSize: 36, marginBottom: 12 }}>🔁</div>
         <div className="t-display" style={{ fontSize: 20, marginBottom: 8 }}>No habits yet</div>
         <div style={{ color: 'var(--ink-3)', fontSize: 13, marginBottom: 20 }}>
-          Tasks with a recurring schedule appear here as habits.
+          Daily/weekly habits with streak tracking.
         </div>
         <button onClick={() => onAddTask?.()} style={{
           padding: '12px 24px', borderRadius: 12, background: 'var(--ink)', color: 'var(--paper)',
           fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8,
         }}>
-          <Icons.plus size={16} /> Add a recurring task
+          <Icons.plus size={16} /> Add habit
         </button>
       </div>
     )
@@ -249,33 +249,31 @@ function HabitsTab({ habits, cats, navigate, onAddTask }: { habits: Task[]; cats
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {habits.map(task => {
-        const hue = cats.find(c => c.id === task.cat)?.hue ?? 200
-        // Completed today = a log entry exists for today (task.done may still be true from yesterday
-        // before resetRecurringTasks runs, so don't rely solely on task.done)
-        const completedToday = logSet.has(`${task.id}:${TODAY_ISO}`)
-        const streak = task.streak
+      {habits.map((habit: Habit) => {
+        const hue = cats.find(c => c.id === habit.cat)?.hue ?? 200
+        const completedToday = logSet.has(`${habit.id}:${TODAY_ISO}`)
+        const streak = habit.streak
 
         async function handleDone() {
           if (completedToday) return
-          await completeTask(task.id)
+          await completeHabit(habit.id)
         }
 
-        const catName = cats.find(c => c.id === task.cat)?.name ?? task.cat
+        const catName = cats.find(c => c.id === habit.cat)?.name ?? habit.cat
 
         return (
-          <div key={task.id} style={{
+          <div key={habit.id} style={{
             background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 16, padding: '16px',
           }}>
             {/* Habit header */}
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <button
-                  onClick={() => navigate({ name: 'task', taskId: task.id })}
+                  onClick={() => navigate({ name: 'all-habits' })}
                   style={{ textAlign: 'left', display: 'block', width: '100%' }}
                 >
                   <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 3, textDecoration: completedToday ? 'line-through' : 'none', color: completedToday ? 'var(--ink-3)' : 'var(--ink)' }}>
-                    {task.title}
+                    {habit.title}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{
@@ -284,7 +282,7 @@ function HabitsTab({ habits, cats, navigate, onAddTask }: { habits: Task[]; cats
                       background: `hsl(${hue},40%,92%)`, color: `hsl(${hue},55%,38%)`,
                     }}>{catName.toUpperCase()}</span>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.04em' }}>
-                      {task.recurring}
+                      {habit.frequency}
                     </span>
                   </div>
                 </button>
@@ -338,7 +336,7 @@ function HabitsTab({ habits, cats, navigate, onAddTask }: { habits: Task[]; cats
                 {weeks.map((week, wi) => (
                   <div key={wi} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {week.map((date, di) => {
-                      const logged = logSet.has(`${task.id}:${date}`)
+                      const logged = logSet.has(`${habit.id}:${date}`)
                       const isToday = date === TODAY_ISO
                       return (
                         <div
@@ -366,7 +364,7 @@ function HabitsTab({ habits, cats, navigate, onAddTask }: { habits: Task[]; cats
             {/* Streak summary */}
             <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
               <span>{streak > 0 ? `${streak}-DAY STREAK` : 'NO STREAK YET'}</span>
-              <span>{logs.filter(l => l.taskId === task.id).length} TOTAL COMPLETIONS</span>
+              <span>{logs.filter(l => l.taskId === habit.id).length} TOTAL COMPLETIONS</span>
             </div>
           </div>
         )

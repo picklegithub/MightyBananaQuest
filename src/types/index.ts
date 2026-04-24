@@ -41,6 +41,22 @@ export interface Task {
   updatedAt?: number
 }
 
+// ── Habit (first-class — separate table from tasks) ──────────────────────────
+// Recurring tasks stay in the tasks table. Habits are behavioural routines
+// tracked by streak and daily/weekly check-in, never assigned a due date.
+export interface Habit {
+  id: string
+  title: string
+  cat: string           // area
+  frequency: string     // 'daily' | 'weekly' | 'weekdays' | 'weekends' | 'weekly on Mon' | etc.
+  streak: number
+  done: boolean         // completed today — reset daily by resetHabits()
+  notes?: string
+  time?: string         // optional reminder time 'HH:MM'
+  createdAt?: number
+  updatedAt?: number
+}
+
 // ── Category ─────────────────────────────────────────────────────────────────
 export interface Category {
   id: string
@@ -109,6 +125,7 @@ export interface AppSettings {
   onboarded: boolean
   xp: number
   streak: number
+  petIcon?: 'classic' | 'face' | 'paw'  // which pet icon style to use in areas
 }
 
 // ── Weekly Review ────────────────────────────────────────────────────────────
@@ -145,6 +162,7 @@ export interface ShoppingItem {
   checked: boolean
   quantity?: string  // free-form: "2", "500g", "a bunch of"
   notes?: string
+  store?: string     // which shop this item is for (e.g. "Coles", "Aldi")
   createdAt: number
   updatedAt: number
 }

@@ -5,8 +5,11 @@ import { Icons } from '../components/ui/Icons'
 import { ThemeToggle } from '../components/ThemeToggle'
 import type { ShoppingItem, Screen } from '../types'
 
+// ── Store chooser ─────────────────────────────────────────────────────────────
+const STORES = ['Aldi', 'Coles', 'Drakes', 'Woolies']
+
 // ── Inline ghost input for quick item entry ───────────────────────────────────
-function GhostInputShopping({ onSaved }: { onSaved: () => void }) {
+function GhostInputShopping({ defaultStore, onSaved }: { defaultStore: string | null; onSaved: () => void }) {
   const [active, setActive] = useState(false)
   const [value, setValue]   = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -15,7 +18,6 @@ function GhostInputShopping({ onSaved }: { onSaved: () => void }) {
     if (active) setTimeout(() => inputRef.current?.focus(), 40)
   }, [active])
 
-  // Listen for FAB-triggered open event
   useEffect(() => {
     const handler = () => setActive(true)
     window.addEventListener('shopping:add-item', handler)
@@ -25,7 +27,10 @@ function GhostInputShopping({ onSaved }: { onSaved: () => void }) {
   async function handleSave() {
     const t = value.trim()
     if (!t) { setActive(false); return }
-    await addShoppingItem({ title: t, category: '', checked: false })
+    await addShoppingItem({
+      title: t, category: '', checked: false,
+      store: defaultStore || undefined,
+    })
     setValue('')
     setActive(false)
     onSaved()
@@ -51,7 +56,7 @@ function GhostInputShopping({ onSaved }: { onSaved: () => void }) {
         }}>
           <Icons.plus size={11} />
         </span>
-        Add item…
+        Add item{defaultStore ? ` to ${defaultStore}` : ''}…
       </button>
     )
   }
@@ -96,228 +101,314 @@ function GhostInputShopping({ onSaved }: { onSaved: () => void }) {
   )
 }
 
-// ── Add / Edit item sheet ─────────────────────────────────────────────────────
-function ItemSheet({
-  initial,
+// ── Item edit panel — full-screen edit mode (mirrors task detail layout) ───────
+function ItemEditPanel({
+  item,
   existingCategories,
   onSave,
-  onClose,
+  onDelete,
+  onBack,
+  onSettings,
 }: {
-  initial?: ShoppingItem
+  item: ShoppingItem
   existingCategories: string[]
-  onSave: (data: { title: string; category: string; quantity: string; notes: string }) => void
-  onClose: () => void
+  onSave: (patch: Partial<ShoppingItem>) => Promise<void>
+  onDelete: () => Promise<void>
+  onBack: () => void
+  onSettings?: () => void
 }) {
-  const [title,    setTitle]    = useState(initial?.title    ?? '')
-  const [category, setCategory] = useState(initial?.category ?? '')
-  const [quantity, setQuantity] = useState(initial?.quantity ?? '')
-  const [notes,    setNotes]    = useState(initial?.notes    ?? '')
+  const [title,    setTitle]    = useState(item.title)
+  const [quantity, setQuantity] = useState(item.quantity ?? '')
+  const [category, setCategory] = useState(item.category)
+  const [notes,    setNotes]    = useState(item.notes ?? '')
+  const [store,    setStore]    = useState(item.store ?? '')
   const [showCats, setShowCats] = useState(false)
-
-  const canSave = title.trim().length > 0
+  const [savedFlash,     setSavedFlash]     = useState(false)
+  const [confirmDelete,  setConfirmDelete]  = useState(false)
 
   const uniqueCats = Array.from(new Set(existingCategories.filter(c => c.length > 0)))
 
+  async function handleSave() {
+    if (!title.trim()) return
+    setSavedFlash(true)
+    await onSave({
+      title:    title.trim(),
+      quantity: quantity.trim() || undefined,
+      category: category.trim(),
+      notes:    notes.trim() || undefined,
+      store:    store.trim() || undefined,
+    })
+    setTimeout(() => { setSavedFlash(false); onBack() }, 700)
+  }
+
+  const fieldStyle: React.CSSProperties = {
+    width: '100%', padding: '12px 14px', borderRadius: 10,
+    border: '1px solid var(--rule)', background: 'var(--paper-2)',
+    fontSize: 14, color: 'var(--ink)', boxSizing: 'border-box' as const,
+  }
+  const label: React.CSSProperties = {
+    fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em',
+    textTransform: 'uppercase' as const, color: 'var(--ink-4)', marginBottom: 6,
+    display: 'block',
+  }
+
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '24px 20px 40px', width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 className="t-display" style={{ fontSize: 20 }}>{initial ? 'Edit item' : 'Add item'}</h2>
-          <button onClick={onClose} style={{ color: 'var(--ink-3)' }}><Icons.close size={20} /></button>
+    <div className="screen">
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '14px 16px', borderBottom: '1px solid var(--rule)', flexShrink: 0,
+      }}>
+        <button onClick={onBack} style={{ color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
+          <Icons.back size={16} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>Shopping List</span>
+        </button>
+        <div style={{ flex: 1 }} />
+        <ThemeToggle />
+        {onSettings && (
+          <button onClick={onSettings} style={{ color: 'var(--ink-2)' }}>
+            <Icons.settings size={20} />
+          </button>
+        )}
+      </div>
+
+      {/* Scrollable fields */}
+      <div className="screen-scroll" style={{ padding: '20px 20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* Item name */}
+        <div>
+          <span style={label}>Item</span>
+          <input
+            autoFocus
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSave()}
+            placeholder="Item name…"
+            style={fieldStyle}
+          />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* Title */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>Item</div>
-            <input
-              autoFocus
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && canSave && onSave({ title: title.trim(), category: category.trim(), quantity: quantity.trim(), notes: notes.trim() })}
-              placeholder="e.g. Oat milk, Bananas…"
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--rule)', background: 'var(--paper-2)', fontSize: 15, color: 'var(--ink)', boxSizing: 'border-box' }}
-            />
-          </div>
+        {/* Quantity */}
+        <div>
+          <span style={label}>Quantity <span style={{ opacity: 0.5, fontWeight: 400 }}>(optional)</span></span>
+          <input
+            value={quantity}
+            onChange={e => setQuantity(e.target.value)}
+            placeholder="e.g. 2, 500g, a bunch…"
+            style={fieldStyle}
+          />
+        </div>
 
-          {/* Quantity */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>Quantity <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional)</span></div>
-            <input
-              value={quantity}
-              onChange={e => setQuantity(e.target.value)}
-              placeholder="e.g. 2, 500g, a bunch…"
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--rule)', background: 'var(--paper-2)', fontSize: 15, color: 'var(--ink)', boxSizing: 'border-box' }}
-            />
-          </div>
+        {/* Category */}
+        <div>
+          <span style={label}>Category <span style={{ opacity: 0.5, fontWeight: 400 }}>(optional)</span></span>
+          <input
+            value={category}
+            onChange={e => { setCategory(e.target.value); setShowCats(true) }}
+            onFocus={() => setShowCats(true)}
+            onBlur={() => setTimeout(() => setShowCats(false), 150)}
+            placeholder="e.g. Produce, Dairy, Bakery…"
+            style={fieldStyle}
+          />
+          {showCats && uniqueCats.length > 0 && (
+            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {uniqueCats.map(c => (
+                <button
+                  key={c}
+                  onMouseDown={() => { setCategory(c); setShowCats(false) }}
+                  style={{
+                    padding: '4px 10px', borderRadius: 20,
+                    background: category === c ? 'var(--ink)' : 'var(--paper-3)',
+                    color: category === c ? 'var(--paper)' : 'var(--ink-2)',
+                    border: '1px solid var(--rule)',
+                    fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.04em',
+                  }}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
-          {/* Category */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>Category <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional)</span></div>
-            <input
-              value={category}
-              onChange={e => { setCategory(e.target.value); setShowCats(true) }}
-              onFocus={() => setShowCats(true)}
-              onBlur={() => setTimeout(() => setShowCats(false), 150)}
-              placeholder="e.g. Produce, Dairy, Bakery…"
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--rule)', background: 'var(--paper-2)', fontSize: 15, color: 'var(--ink)', boxSizing: 'border-box' }}
-            />
-            {showCats && uniqueCats.length > 0 && (
-              <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {uniqueCats.map(c => (
-                  <button
-                    key={c}
-                    onMouseDown={() => { setCategory(c); setShowCats(false) }}
-                    style={{
-                      padding: '4px 10px', borderRadius: 20,
-                      background: category === c ? 'var(--ink)' : 'var(--paper-3)',
-                      color: category === c ? 'var(--paper)' : 'var(--ink-2)',
-                      border: '1px solid var(--rule)',
-                      fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.04em',
-                    }}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            )}
+        {/* Store */}
+        <div>
+          <span style={label}>Shop</span>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setStore('')}
+              style={{
+                padding: '6px 13px', borderRadius: 20, fontSize: 11, flexShrink: 0,
+                fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                background: !store ? 'var(--ink)' : 'var(--paper-2)',
+                color: !store ? 'var(--paper)' : 'var(--ink-3)',
+                border: '1px solid', borderColor: !store ? 'var(--ink)' : 'var(--rule)',
+              }}
+            >
+              Any
+            </button>
+            {STORES.map(s => (
+              <button
+                key={s}
+                onClick={() => setStore(store === s ? '' : s)}
+                style={{
+                  padding: '6px 13px', borderRadius: 20, fontSize: 11, flexShrink: 0,
+                  fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                  background: store === s ? 'var(--ink)' : 'var(--paper-2)',
+                  color: store === s ? 'var(--paper)' : 'var(--ink-3)',
+                  border: '1px solid', borderColor: store === s ? 'var(--ink)' : 'var(--rule)',
+                }}
+              >
+                {s}
+              </button>
+            ))}
           </div>
+        </div>
 
-          {/* Notes */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>Notes <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional)</span></div>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Any details…"
-              rows={2}
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--rule)', background: 'var(--paper-2)', fontSize: 15, color: 'var(--ink)', resize: 'none', boxSizing: 'border-box' }}
-            />
-          </div>
+        {/* Notes */}
+        <div>
+          <span style={label}>Notes <span style={{ opacity: 0.5, fontWeight: 400 }}>(optional)</span></span>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Any details…"
+            rows={3}
+            style={{ ...fieldStyle, resize: 'none', lineHeight: 1.5 }}
+          />
+        </div>
+      </div>
 
+      {/* ── Save + Delete footer (mirrors task detail proportions) ── */}
+      <div style={{
+        flexShrink: 0,
+        padding: '12px 20px calc(12px + env(safe-area-inset-bottom))',
+        borderTop: '1px solid var(--rule)',
+        display: 'flex', gap: 8,
+      }}>
+        {/* Save — hidden while confirming delete */}
+        {!confirmDelete && (
           <button
-            onClick={() => canSave && onSave({ title: title.trim(), category: category.trim(), quantity: quantity.trim(), notes: notes.trim() })}
-            disabled={!canSave}
+            onClick={handleSave}
+            disabled={!title.trim()}
             style={{
-              width: '100%', padding: '14px', borderRadius: 12, fontSize: 15, fontWeight: 600,
-              background: canSave ? 'var(--ink)' : 'var(--paper-3)',
-              color: canSave ? 'var(--paper)' : 'var(--ink-3)',
+              flex: 6, padding: '13px 12px', borderRadius: 10, fontSize: 14, fontWeight: 600,
+              background: savedFlash ? 'var(--accent)' : (title.trim() ? 'var(--ink)' : 'var(--paper-3)'),
+              color: title.trim() ? 'var(--paper)' : 'var(--ink-3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              transition: 'background .2s',
             }}
           >
-            {initial ? 'Save changes' : 'Add to list'}
+            {savedFlash ? <><Icons.check size={14} sw={2.5} /> Saved!</> : <><Icons.check size={13} sw={2} /> Save</>}
           </button>
-        </div>
+        )}
+
+        {/* Delete — confirm/cancel only (no Save when confirming) */}
+        {confirmDelete ? (
+          <>
+            <button
+              onClick={async () => { await onDelete(); onBack() }}
+              style={{
+                flex: 4, padding: '13px 8px', borderRadius: 10, fontSize: 13, fontWeight: 600,
+                background: 'var(--warn)', color: 'white',
+                fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
+              }}
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              style={{
+                flex: 2, padding: '13px 8px', borderRadius: 10, fontSize: 13,
+                background: 'var(--paper-2)', color: 'var(--ink-3)',
+                border: '1px solid var(--rule)', fontFamily: 'var(--font-mono)',
+              }}
+            >
+              ✕
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            style={{
+              flex: 3, padding: '13px 8px', borderRadius: 10, fontSize: 13, fontWeight: 500,
+              background: 'var(--warn-soft)', color: 'var(--warn)',
+              border: '1px solid var(--warn-soft)',
+              fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+            }}
+          >
+            Delete
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
-// ── Individual item row ───────────────────────────────────────────────────────
+// ── Individual item row — tap anywhere to edit ────────────────────────────────
 function ItemRow({
   item,
   onToggle,
   onEdit,
-  onDelete,
 }: {
   item: ShoppingItem
-  onToggle: () => void
+  onToggle: (e: React.MouseEvent) => void
   onEdit: () => void
-  onDelete: () => void
 }) {
-  const [swiped, setSwiped] = useState(false)
-  const [startX, setStartX] = useState(0)
-
-  function handleTouchStart(e: React.TouchEvent) {
-    setStartX(e.touches[0].clientX)
-  }
-  function handleTouchEnd(e: React.TouchEvent) {
-    const dx = startX - e.changedTouches[0].clientX
-    if (dx > 60) setSwiped(true)
-    else if (dx < -20) setSwiped(false)
-  }
-
   return (
-    <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 10 }}>
-      {/* Delete action revealed by swipe */}
-      <div style={{
-        position: 'absolute', inset: 0, right: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-        background: 'var(--warn)', borderRadius: 10, paddingRight: 16,
-      }}>
-        <button
-          onClick={onDelete}
-          aria-label="Delete item"
-          style={{ color: 'white', display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.06em' }}
-        >
-          <Icons.close size={14} /> DELETE
-        </button>
-      </div>
-
-      {/* Item card */}
-      <div
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
+    <button
+      onClick={onEdit}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        width: '100%', padding: '12px 14px',
+        background: 'var(--paper-2)', borderRadius: 10,
+        border: '1px solid var(--rule)', textAlign: 'left',
+      }}
+    >
+      {/* Checkbox — stop propagation so it only toggles, not opens edit */}
+      <span
+        onClick={onToggle}
+        role="checkbox"
+        aria-checked={item.checked}
         style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          padding: '11px 12px',
-          background: 'var(--paper-2)', borderRadius: 10,
-          border: '1px solid var(--rule)',
-          transform: swiped ? 'translateX(-80px)' : 'translateX(0)',
-          transition: 'transform 0.2s ease',
+          width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+          border: `2px solid ${item.checked ? 'var(--accent)' : 'var(--rule)'}`,
+          background: item.checked ? 'var(--accent)' : 'transparent',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'white',
         }}
       >
-        {/* Checkbox */}
-        <button
-          onClick={onToggle}
-          aria-label={item.checked ? 'Uncheck item' : 'Check off item'}
-          style={{
-            width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-            border: `2px solid ${item.checked ? 'var(--accent)' : 'var(--rule)'}`,
-            background: item.checked ? 'var(--accent)' : 'transparent',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'white',
-          }}
-        >
-          {item.checked && <Icons.check size={12} />}
-        </button>
+        {item.checked && <Icons.check size={12} />}
+      </span>
 
-        {/* Content */}
-        <button
-          onClick={onEdit}
-          style={{ flex: 1, textAlign: 'left', minWidth: 0 }}
-          aria-label={`Edit ${item.title}`}
-        >
-          <div style={{
-            fontSize: 14, fontWeight: 500,
-            color: item.checked ? 'var(--ink-4)' : 'var(--ink)',
-            textDecoration: item.checked ? 'line-through' : 'none',
+      {/* Text */}
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{
+          display: 'block', fontSize: 14, fontWeight: 500,
+          color: item.checked ? 'var(--ink-4)' : 'var(--ink)',
+          textDecoration: item.checked ? 'line-through' : 'none',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
+          {item.quantity && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)', marginRight: 6 }}>
+              {item.quantity}
+            </span>
+          )}
+          {item.title}
+        </span>
+        {(item.category || item.notes || item.store) && (
+          <span style={{
+            display: 'block', fontSize: 11, color: 'var(--ink-4)', marginTop: 2,
+            fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
-            {item.quantity ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)', marginRight: 6 }}>{item.quantity}</span> : null}
-            {item.title}
-          </div>
-          {item.notes && (
-            <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2, fontFamily: 'var(--font-mono)', letterSpacing: '0.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {item.notes}
-            </div>
-          )}
-        </button>
-
-        {/* Swipe hint (when not swiped) — tap to re-hide swipe */}
-        {swiped && (
-          <button
-            onClick={() => setSwiped(false)}
-            style={{ color: 'var(--ink-4)', flexShrink: 0 }}
-            aria-label="Close swipe"
-          >
-            <Icons.close size={14} />
-          </button>
+            {[item.store, item.category, item.notes].filter(Boolean).join(' · ')}
+          </span>
         )}
-      </div>
-    </div>
+      </span>
+
+      {/* Edit chevron */}
+      <Icons.arrow size={14} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
+    </button>
   )
 }
 
@@ -329,21 +420,42 @@ interface Props {
 
 export function ShoppingListScreen({ back, navigate }: Props) {
   const items = useLiveQuery(() => db.shoppingItems.orderBy('createdAt').toArray(), []) ?? []
-  const [showAdd,    setShowAdd]    = useState(false)
-  const [editTarget, setEditTarget] = useState<ShoppingItem | null>(null)
+  const [editingItem, setEditingItem] = useState<ShoppingItem | null>(null)
+  const [activeStore,  setActiveStore]  = useState<string | null>(null)
 
-  const uncheckedCount = items.filter(i => !i.checked).length
-  const checkedCount   = items.filter(i => i.checked).length
+  // ── Edit panel — renders instead of list when an item is tapped ────────────
+  if (editingItem) {
+    const existingCategories = Array.from(new Set(items.map(i => i.category.trim()).filter(Boolean)))
+    return (
+      <ItemEditPanel
+        item={editingItem}
+        existingCategories={existingCategories}
+        onSave={async (patch) => { await updateShoppingItem(editingItem.id, patch) }}
+        onDelete={async () => { await deleteShoppingItem(editingItem.id) }}
+        onBack={() => setEditingItem(null)}
+        onSettings={navigate ? () => navigate({ name: 'settings' } as Screen) : undefined}
+      />
+    )
+  }
+
+  // ── List view ──────────────────────────────────────────────────────────────
+
+  // Filter by selected store (items with no store tag show in all views)
+  const visibleItems = activeStore
+    ? items.filter(i => !i.store || i.store === activeStore)
+    : items
+
+  const uncheckedCount = visibleItems.filter(i => !i.checked).length
+  const checkedCount   = visibleItems.filter(i => i.checked).length
 
   // Group by category
   const categorised: Record<string, ShoppingItem[]> = {}
   const UNCATEGORISED = '—'
-  for (const item of items) {
+  for (const item of visibleItems) {
     const key = item.category.trim() || UNCATEGORISED
     if (!categorised[key]) categorised[key] = []
     categorised[key].push(item)
   }
-  // Sort: named categories first (alphabetical), uncategorised last
   const sortedKeys = Object.keys(categorised).sort((a, b) => {
     if (a === UNCATEGORISED) return 1
     if (b === UNCATEGORISED) return -1
@@ -352,23 +464,18 @@ export function ShoppingListScreen({ back, navigate }: Props) {
 
   const existingCategories = Array.from(new Set(items.map(i => i.category.trim()).filter(Boolean)))
 
-  async function handleAdd(data: { title: string; category: string; quantity: string; notes: string }) {
-    await addShoppingItem({ title: data.title, category: data.category, checked: false, quantity: data.quantity || undefined, notes: data.notes || undefined })
-    setShowAdd(false)
-  }
-
-  async function handleEdit(data: { title: string; category: string; quantity: string; notes: string }) {
-    if (!editTarget) return
-    await updateShoppingItem(editTarget.id, { title: data.title, category: data.category, quantity: data.quantity || undefined, notes: data.notes || undefined })
-    setEditTarget(null)
-  }
-
-  async function handleToggle(item: ShoppingItem) {
+  async function handleToggle(e: React.MouseEvent, item: ShoppingItem) {
+    e.stopPropagation()
     await updateShoppingItem(item.id, { checked: !item.checked })
   }
 
   async function handleClearChecked() {
-    await deleteCheckedShoppingItems()
+    if (activeStore) {
+      const toDelete = items.filter(i => i.checked && (!i.store || i.store === activeStore))
+      for (const item of toDelete) await deleteShoppingItem(item.id)
+    } else {
+      await deleteCheckedShoppingItems()
+    }
   }
 
   return (
@@ -384,7 +491,6 @@ export function ShoppingListScreen({ back, navigate }: Props) {
               {checkedCount > 0 && (
                 <button
                   onClick={handleClearChecked}
-                  aria-label="Clear checked items"
                   style={{
                     fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em',
                     color: 'var(--warn)', padding: '4px 8px', borderRadius: 6,
@@ -402,33 +508,69 @@ export function ShoppingListScreen({ back, navigate }: Props) {
               )}
             </div>
           </div>
+
           <div>
-            <div className="t-display" style={{ fontSize: 22 }}>Shopping List</div>
+            <div className="t-display" style={{ fontSize: 22 }}>
+              {activeStore ? `${activeStore} run` : 'Shopping List'}
+            </div>
             {items.length > 0 && (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em', marginTop: 2 }}>
                 {uncheckedCount} remaining{checkedCount > 0 ? ` · ${checkedCount} checked` : ''}
               </div>
             )}
           </div>
+
+          {/* Store chooser */}
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+            <button
+              onClick={() => setActiveStore(null)}
+              style={{
+                padding: '5px 12px', borderRadius: 20, fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0,
+                fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                background: !activeStore ? 'var(--ink)' : 'var(--paper-2)',
+                color: !activeStore ? 'var(--paper)' : 'var(--ink-3)',
+                border: '1px solid', borderColor: !activeStore ? 'var(--ink)' : 'var(--rule)',
+              }}
+            >
+              All shops
+            </button>
+            {STORES.map(store => (
+              <button
+                key={store}
+                onClick={() => setActiveStore(activeStore === store ? null : store)}
+                style={{
+                  padding: '5px 12px', borderRadius: 20, fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0,
+                  fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
+                  background: activeStore === store ? 'var(--ink)' : 'var(--paper-2)',
+                  color: activeStore === store ? 'var(--paper)' : 'var(--ink-3)',
+                  border: '1px solid', borderColor: activeStore === store ? 'var(--ink)' : 'var(--rule)',
+                }}
+              >
+                {store}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* List */}
       <div className="screen-scroll" style={{ padding: '16px 20px 24px' }}>
-        {items.length === 0 ? (
-          /* Empty state */
+        {visibleItems.length === 0 ? (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 12, color: 'var(--ink-3)' }}>
             <div style={{ fontSize: 48 }}>🛒</div>
-            <div className="t-display" style={{ fontSize: 18, color: 'var(--ink-2)' }}>Your list is empty</div>
+            <div className="t-display" style={{ fontSize: 18, color: 'var(--ink-2)' }}>
+              {activeStore ? `No items for ${activeStore}` : 'Your list is empty'}
+            </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.06em', textAlign: 'center', lineHeight: 1.6, maxWidth: 220 }}>
-              This is separate from your tasks — just a simple place to keep track of things to buy.
+              {activeStore
+                ? `Tap Add item to add something to your ${activeStore} run.`
+                : 'This is separate from your tasks — just a simple place to keep track of things to buy.'}
             </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {sortedKeys.map(catKey => (
               <div key={catKey}>
-                {/* Category header */}
                 <div style={{
                   fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em',
                   textTransform: 'uppercase', color: 'var(--ink-3)',
@@ -437,15 +579,13 @@ export function ShoppingListScreen({ back, navigate }: Props) {
                 }}>
                   {catKey === UNCATEGORISED ? 'Other' : catKey}
                 </div>
-                {/* Items in this category */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {categorised[catKey].map(item => (
                     <ItemRow
                       key={item.id}
                       item={item}
-                      onToggle={() => handleToggle(item)}
-                      onEdit={() => setEditTarget(item)}
-                      onDelete={() => deleteShoppingItem(item.id)}
+                      onToggle={(e) => handleToggle(e, item)}
+                      onEdit={() => setEditingItem(item)}
                     />
                   ))}
                 </div>
@@ -454,28 +594,11 @@ export function ShoppingListScreen({ back, navigate }: Props) {
           </div>
         )}
 
-        {/* Inline ghost input — always visible at the bottom */}
-        <div style={{ marginTop: items.length === 0 ? 24 : 20 }}>
-          <GhostInputShopping onSaved={() => {}} />
+        {/* Inline ghost input */}
+        <div style={{ marginTop: visibleItems.length === 0 ? 24 : 20 }}>
+          <GhostInputShopping defaultStore={activeStore} onSaved={() => {}} />
         </div>
       </div>
-
-      {/* Sheets */}
-      {showAdd && (
-        <ItemSheet
-          existingCategories={existingCategories}
-          onSave={handleAdd}
-          onClose={() => setShowAdd(false)}
-        />
-      )}
-      {editTarget && (
-        <ItemSheet
-          initial={editTarget}
-          existingCategories={existingCategories}
-          onSave={handleEdit}
-          onClose={() => setEditTarget(null)}
-        />
-      )}
     </div>
   )
 }

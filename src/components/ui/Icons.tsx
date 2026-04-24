@@ -14,6 +14,81 @@ const Icon = ({ d, size = 18, fill = 'none', stroke, sw = 1.5, style }: IconProp
   </svg>
 )
 
+// ── Pet icon variants ─────────────────────────────────────────────────────────
+
+/** Classic — outlined dog face with floppy ears, snout, eyes */
+function PetClassic(p: IconProps) {
+  return <Icon {...p} d={<>
+    <circle cx="12" cy="11" r="7" />
+    <path d="M5 8 Q3 4 5.5 2 Q7 6 5 8z" />
+    <path d="M19 8 Q21 4 18.5 2 Q17 6 19 8z" />
+    <ellipse cx="12" cy="14" rx="2.8" ry="1.8" />
+    <ellipse cx="12" cy="13" rx="1.1" ry="0.7" fill="currentColor" />
+    <circle cx="9.2" cy="9.5" r="0.9" fill="currentColor" />
+    <circle cx="14.8" cy="9.5" r="0.9" fill="currentColor" />
+  </>} />
+}
+
+/** Flat face — Boston Terrier style, bat ears, simple bold outline */
+function PetFlatFace(p: IconProps) {
+  return (
+    <svg width={p.size || 18} height={p.size || 18} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth={p.sw || 1.5}
+      strokeLinecap="round" strokeLinejoin="round" style={p.style}>
+      {/* Round head */}
+      <circle cx="12" cy="13" r="7.5" />
+      {/* Bat/pointed ears */}
+      <path d="M6.5 7.5 L4.5 2.5 L10 6.5" />
+      <path d="M17.5 7.5 L19.5 2.5 L14 6.5" />
+      {/* Eyes */}
+      <circle cx="9.5" cy="11.5" r="1.4" />
+      <circle cx="14.5" cy="11.5" r="1.4" />
+      {/* Nose */}
+      <path d="M11 15 Q12 16.2 13 15" strokeWidth={1.2} />
+      <ellipse cx="12" cy="14.5" rx="1.2" ry="0.8" />
+    </svg>
+  )
+}
+
+/** Paw print — 4 toe pads + 1 main pad */
+function PetPaw(p: IconProps) {
+  return (
+    <svg width={p.size || 18} height={p.size || 18} viewBox="0 0 24 24"
+      fill="currentColor" stroke="none" style={p.style}>
+      {/* Main pad */}
+      <ellipse cx="12" cy="17.5" rx="4.5" ry="3.5" />
+      {/* 4 toe pads */}
+      <ellipse cx="6.5" cy="12.5" rx="2.1" ry="2.4" />
+      <ellipse cx="11" cy="10" rx="2.1" ry="2.4" />
+      <ellipse cx="15.5" cy="10.5" rx="2.1" ry="2.4" />
+      <ellipse cx="19.5" cy="13" rx="2.1" ry="2.4" />
+    </svg>
+  )
+}
+
+// ── Dynamic pet icon style (set by App.tsx from settings) ────────────────────
+
+export type PetIconStyle = 'classic' | 'face' | 'paw'
+let _petStyle: PetIconStyle = 'classic'
+
+/** Call this from App.tsx whenever settings.petIcon changes */
+export function setPetStyle(style: PetIconStyle) {
+  _petStyle = style
+}
+
+/** The 3 selectable pet SVG renderers — for use in SettingsScreen picker */
+export const PET_ICON_OPTIONS: Array<{
+  id: PetIconStyle
+  label: string
+  render: (p: IconProps) => JSX.Element
+}> = [
+  { id: 'classic', label: 'Classic',    render: PetClassic  },
+  { id: 'face',    label: 'Flat Face',  render: PetFlatFace },
+  { id: 'paw',     label: 'Paw Print',  render: PetPaw      },
+]
+
+// ── Icon map ──────────────────────────────────────────────────────────────────
+
 export const Icons: Record<string, (p: IconProps) => JSX.Element> = {
   plus:      (p) => <Icon {...p} d="M12 5v14M5 12h14" />,
   cart:      (p) => <Icon {...p} d={<><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></>} />,
@@ -57,21 +132,11 @@ export const Icons: Record<string, (p: IconProps) => JSX.Element> = {
   layers:    (p) => <Icon {...p} d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 18l9 5 9-5" />,
   repeat:    (p) => <Icon {...p} d="M17 2l4 4-4 4M3 11V9a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 01-4 4H3" />,
   folder:    (p) => <Icon {...p} d="M4 20h16a2 2 0 002-2V8a2 2 0 00-2-2h-8L10 4H4a2 2 0 00-2 2v12a2 2 0 002 2z" />,
-  // Dog face outline — round head, floppy ears, snout, eyes, nose
-  pet: (p) => <Icon {...p} d={<>
-    {/* Head */}
-    <circle cx="12" cy="11" r="7" />
-    {/* Left floppy ear */}
-    <path d="M5 8 Q3 4 5.5 2 Q7 6 5 8z" />
-    {/* Right floppy ear */}
-    <path d="M19 8 Q21 4 18.5 2 Q17 6 19 8z" />
-    {/* Snout */}
-    <ellipse cx="12" cy="14" rx="2.8" ry="1.8" />
-    {/* Nose */}
-    <ellipse cx="12" cy="13" rx="1.1" ry="0.7" fill="currentColor" />
-    {/* Left eye */}
-    <circle cx="9.2" cy="9.5" r="0.9" fill="currentColor" />
-    {/* Right eye */}
-    <circle cx="14.8" cy="9.5" r="0.9" fill="currentColor" />
-  </>} />,
+
+  // Dynamic pet icon — reads from module-level style set by App.tsx via setPetStyle()
+  pet: (p) => {
+    if (_petStyle === 'face') return PetFlatFace(p)
+    if (_petStyle === 'paw')  return PetPaw(p)
+    return PetClassic(p)
+  },
 }
