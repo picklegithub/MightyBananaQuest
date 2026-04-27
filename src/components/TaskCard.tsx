@@ -58,9 +58,12 @@ interface Props {
   onAreaToggle?: (e: React.MouseEvent) => void
   /** Show reschedule toggle button (Calendar context) */
   onRescheduleToggle?: (e: React.MouseEvent) => void
+  /** Subtask expand/collapse toggle — when provided shows a chevron next to subtask count */
+  onToggleSubtasks?: () => void
+  subtasksExpanded?: boolean
 }
 
-export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onAreaToggle, onRescheduleToggle }: Props) {
+export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onAreaToggle, onRescheduleToggle, onToggleSubtasks, subtasksExpanded }: Props) {
   const subDone = task.sub.filter(s => s.d).length
   const subTotal = task.sub.length
   const subProg = subTotal > 0 ? subDone / subTotal : (task.done ? 1 : 0)
@@ -216,13 +219,22 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
             {subTotal > 0 && (
               <>
                 {hasRepeat && <span style={{ width: 2, height: 2, borderRadius: '50%', background: 'var(--rule)', flexShrink: 0 }} />}
-                <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.05em',
-                  color: subDone === subTotal ? ringColor : 'var(--ink-3)', flexShrink: 0,
-                  display: 'flex', alignItems: 'center', gap: 3,
-                }}>
+                <span
+                  onClick={onToggleSubtasks ? (e) => { e.stopPropagation(); onToggleSubtasks() } : undefined}
+                  style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.05em',
+                    color: subDone === subTotal ? ringColor : 'var(--ink-3)', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', gap: 3,
+                    cursor: onToggleSubtasks ? 'pointer' : 'default',
+                  }}
+                >
                   <Icons.check size={9} sw={2} />
                   {subDone}/{subTotal} subtasks
+                  {onToggleSubtasks && (
+                    <span style={{ opacity: 0.5, fontSize: 8, lineHeight: 1 }}>
+                      {subtasksExpanded ? '▲' : '▼'}
+                    </span>
+                  )}
                 </span>
               </>
             )}

@@ -15,8 +15,9 @@ export type QuadKey = 'q1' | 'q2' | 'q3' | 'q4'
 
 // ── Sub-task ─────────────────────────────────────────────────────────────────
 export interface SubTask {
-  t: string   // title
-  d: boolean  // done
+  id?: string  // stable UUID for CRDT set-merge across devices
+  t: string    // title
+  d: boolean   // done
 }
 
 // ── Task ─────────────────────────────────────────────────────────────────────
@@ -39,6 +40,8 @@ export interface Task {
   status?: 'backlog' | 'someday' | 'active'  // Slow Productivity workflow state (undefined = backlog)
   createdAt?: number
   updatedAt?: number
+  deletedAt?: number  // soft-delete timestamp; present → record is a tombstone
+  syncedAt?:  number  // server synced_at reflected back (used only for diagnostics)
 }
 
 // ── Habit (first-class — separate table from tasks) ──────────────────────────

@@ -130,8 +130,12 @@ export const JournalScreen = ({ navigate, back, phase: initPhase }: Props) => {
           </div>
         </div>
         <div>
-          <div className="eyebrow" style={{ marginBottom: 4 }}>Daily Reflection</div>
-          <h1 className="t-display" style={{ fontSize: 28 }}>Journal</h1>
+          <div className="eyebrow" style={{ marginBottom: 4 }}>Journal · five minutes</div>
+          <h1 className="t-display" style={{ fontSize: 28 }}>
+            {tab === 'morning' && <>A <em>quiet</em> beginning.</>}
+            {tab === 'evening' && <>Today, <em>reviewed</em>.</>}
+            {tab === 'history' && <>Pages <em>written</em>.</>}
+          </h1>
         </div>
 
         {/* Today's completion status */}

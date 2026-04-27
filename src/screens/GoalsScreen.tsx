@@ -6,7 +6,7 @@ import { Seg } from '../components/ui'
 import { ThemeToggle } from '../components/ThemeToggle'
 import type { Screen, Goal, Task, Habit } from '../types'
 
-interface Props { navigate: (s: Screen) => void; back?: () => void; onAddTask?: () => void }
+interface Props { navigate: (s: Screen) => void; back?: () => void; onAddTask?: () => void; onAddHabit?: () => void }
 
 const HORIZONS = ['4 weeks', '12 weeks', '6 months', '1 year', 'Ongoing']
 
@@ -45,7 +45,7 @@ function ProgressRing({ progress, hue }: { progress: number; hue: number }) {
 }
 
 // ── Goals list screen ─────────────────────────────────────────────────────────
-export const GoalsScreen = ({ navigate, back, onAddTask }: Props) => {
+export const GoalsScreen = ({ navigate, back, onAddTask, onAddHabit }: Props) => {
   const goals      = useLiveQuery(() => db.goals.toArray(), [])
   const categories = useLiveQuery(() => db.categories.toArray(), [])
   const allTasks   = useLiveQuery(() => db.tasks.toArray(), [])
@@ -72,8 +72,9 @@ export const GoalsScreen = ({ navigate, back, onAddTask }: Props) => {
             </button>
           </div>
         </div>
-        <div className="eyebrow" style={{ marginBottom: 4 }}>Long game</div>
-        <h1 className="t-display" style={{ fontSize: 26 }}>Goals</h1>
+        <div className="eyebrow" style={{ marginBottom: 4 }}>Goals · begin with the end in mind</div>
+        <h1 className="t-display" style={{ fontSize: 28, lineHeight: 1.05 }}>What you're <em>aiming</em> at.</h1>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 6, lineHeight: 1.5 }}>A goal lives above the tasks. Your daily work compounds toward something.</div>
       </div>
 
       {/* Tab bar */}
@@ -190,7 +191,7 @@ export const GoalsScreen = ({ navigate, back, onAddTask }: Props) => {
 
         {/* ── Habits tab ── */}
         {tab === 'habits' && (
-          <HabitsTab cats={cats} navigate={navigate} onAddTask={onAddTask} />
+          <HabitsTab cats={cats} navigate={navigate} onAddHabit={onAddHabit ?? onAddTask} />
         )}
       </div>
 
@@ -209,7 +210,7 @@ export const GoalsScreen = ({ navigate, back, onAddTask }: Props) => {
 }
 
 // ── Habits tab ────────────────────────────────────────────────────────────────
-function HabitsTab({ cats, navigate, onAddTask }: { cats: { id: string; name: string; hue: number }[]; navigate: (s: Screen) => void; onAddTask?: () => void }) {
+function HabitsTab({ cats, navigate, onAddHabit }: { cats: { id: string; name: string; hue: number }[]; navigate: (s: Screen) => void; onAddHabit?: () => void }) {
   const habits = useLiveQuery(() => db.habits.toArray(), [])
   const logs   = useLiveQuery(() => db.habitLog.toArray(), [])
 
@@ -223,7 +224,7 @@ function HabitsTab({ cats, navigate, onAddTask }: { cats: { id: string; name: st
         <div style={{ color: 'var(--ink-3)', fontSize: 13, marginBottom: 20 }}>
           Daily/weekly habits with streak tracking.
         </div>
-        <button onClick={() => onAddTask?.()} style={{
+        <button onClick={() => onAddHabit?.()} style={{
           padding: '12px 24px', borderRadius: 12, background: 'var(--ink)', color: 'var(--paper)',
           fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8,
         }}>

@@ -192,9 +192,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
   const settings   = useLiveQuery(() => db.settings.get(1), [])
   const categories = useLiveQuery(() => db.categories.toArray(), [])
 
-  const defaultMins = settings?.defaultPomodoroMins ?? 25
-  const pomMins     = task?.pomodoroMins ?? defaultMins
-
   // ── Local editing state ───────────────────────────────────────────────────
   const [editingField, setEditingField] = useState<EditingField>(null)
   const [editingTitle, setEditingTitle] = useState(false)
@@ -209,12 +206,9 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
   const subInputRef = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
 
-  // Bursts + timer
+  // Bursts + flash
   const [bursts,     setBursts]     = useState<Burst[]>([])
   const [savedFlash, setSavedFlash] = useState(false)
-  const [timerState, setTimerState] = useState<'idle' | 'running' | 'paused' | 'done'>('idle')
-  const [secsLeft,   setSecsLeft]   = useState(pomMins * 60)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Init local title/notes from task
   useEffect(() => {
@@ -223,27 +217,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
       setLocalNotes(task.notes ?? '')
     }
   }, [task?.id])  // only reset when task id changes, not on every update
-
-  // Timer sync to pomMins
-  useEffect(() => {
-    setSecsLeft(pomMins * 60)
-    setTimerState('idle')
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [taskId, pomMins])
-
-  useEffect(() => {
-    if (timerState === 'running') {
-      intervalRef.current = setInterval(() => {
-        setSecsLeft(s => {
-          if (s <= 1) { setTimerState('done'); clearInterval(intervalRef.current!); return 0 }
-          return s - 1
-        })
-      }, 1000)
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [timerState])
 
   useEffect(() => {
     if (addingSub) setTimeout(() => subInputRef.current?.focus(), 60)
@@ -315,8 +288,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
     setTimeout(() => subInputRef.current?.focus(), 30)
   }
 
-  function resetTimer() { setTimerState('idle'); setSecsLeft(pomMins * 60) }
-
   // ── Save Changes — commits any pending title/notes, then navigates back ──
   function handleSaveChanges() {
     // Commit title if editing
@@ -345,10 +316,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
   const areaHue  = area?.hue
   const e        = EFFORT[task.effort]
   const subDone  = task.sub.filter(s => s.d).length
-  const mins     = Math.floor(secsLeft / 60)
-  const secs     = secsLeft % 60
-  const progress = 1 - secsLeft / (pomMins * 60)
-  const r = 54, circ = 2 * Math.PI * r
 
   return (
     <div className="screen">
@@ -564,25 +531,26 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
           />
         </div>
 
-        {/* ── Notes — always visible inline textarea ── */}
-        <div style={{ marginTop: 12, marginBottom: 16 }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 5 }}>
-            Notes
+        {/* ── Win journal (reflection prompt) ── */}
+        <div style={{ marginTop: 12, marginBottom: 12, padding: '14px 14px', background: 'var(--paper-2)', borderRadius: 12, border: '1px solid var(--rule)' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+            Win journal — optional
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8 }}>
+            What will go well when this is done?
           </div>
           <textarea
             value={localNotes}
             onChange={e => handleNotesChange(e.target.value)}
-            placeholder="Add notes…"
-            rows={localNotes ? Math.min(Math.max(localNotes.split('\n').length, 2), 6) : 2}
+            placeholder="A clear kitchen makes Sunday breakfast better…"
+            rows={localNotes ? Math.min(Math.max(localNotes.split('\n').length, 2), 5) : 2}
             style={{
-              width: '100%', padding: '10px 12px',
-              background: 'var(--paper-2)', border: '1px solid var(--rule)',
-              borderRadius: 10, fontSize: 13, resize: 'none', lineHeight: 1.55,
-              color: 'var(--ink)', fontFamily: 'inherit',
-              transition: 'border-color .15s',
+              width: '100%', padding: 0,
+              background: 'transparent', border: 'none',
+              fontSize: 13, resize: 'none', lineHeight: 1.6,
+              color: 'var(--ink)', fontFamily: 'var(--font-display)', fontStyle: 'italic',
+              outline: 'none',
             }}
-            onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)' }}
-            onBlur={e => { e.currentTarget.style.borderColor = 'var(--rule)' }}
           />
         </div>
 
@@ -708,89 +676,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
             ✓ COMPLETED · +{e.xp} XP EARNED
           </div>
         )}
-
-        {/* ── Pomodoro timer (always visible at bottom) ── */}
-        <div style={{
-          background: 'var(--paper-2)', borderRadius: 14, padding: '18px 18px 22px',
-          border: '1px solid var(--rule)',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              Focus Timer
-            </div>
-          </div>
-          {/* Duration chooser — folded into Pomodoro flow */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-            {[15, 25, 35, 50, 90].map(m => (
-              <button key={m} onClick={() => save({ pomodoroMins: m })} style={{
-                flex: 1, padding: '6px 4px', borderRadius: 8,
-                fontFamily: 'var(--font-mono)', fontSize: 11, textAlign: 'center',
-                background: pomMins === m ? 'var(--ink)' : 'var(--paper-3)',
-                color: pomMins === m ? 'var(--paper)' : 'var(--ink-3)',
-                border: '1px solid', borderColor: pomMins === m ? 'var(--ink)' : 'var(--rule)',
-              }}>
-                {m}m
-              </button>
-            ))}
-          </div>
-
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-            <svg width={120} height={120}>
-              <circle cx={60} cy={60} r={r} fill="none" stroke="var(--rule)" strokeWidth={5} />
-              <circle cx={60} cy={60} r={r} fill="none"
-                stroke={timerState === 'done' ? 'var(--accent)' : areaHue !== undefined ? `hsl(${areaHue}, 55%, 42%)` : 'var(--ink)'}
-                strokeWidth={5} strokeLinecap="round"
-                strokeDasharray={circ} strokeDashoffset={circ * (1 - progress)}
-                transform="rotate(-90 60 60)"
-                style={{ transition: 'stroke-dashoffset 1s linear' }}
-              />
-            </svg>
-            <div style={{ position: 'absolute', textAlign: 'center' }}>
-              <div style={{
-                fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em',
-                color: timerState === 'done' ? 'var(--accent)' : 'var(--ink)',
-              }}>
-                {timerState === 'done' ? '🎉' : `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
-            {(timerState === 'idle' || timerState === 'done') && (
-              <button onClick={() => { resetTimer(); setTimerState('running') }} style={{
-                width: 48, height: 48, borderRadius: '50%', background: 'var(--ink)',
-                color: 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <Icons.play size={16} />
-              </button>
-            )}
-            {timerState === 'running' && (
-              <button onClick={() => setTimerState('paused')} style={{
-                width: 48, height: 48, borderRadius: '50%', background: 'var(--ink)',
-                color: 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <Icons.pause size={16} />
-              </button>
-            )}
-            {timerState === 'paused' && (
-              <button onClick={() => setTimerState('running')} style={{
-                width: 48, height: 48, borderRadius: '50%', background: 'var(--ink)',
-                color: 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <Icons.play size={16} />
-              </button>
-            )}
-            {timerState !== 'idle' && (
-              <button onClick={resetTimer} style={{
-                width: 48, height: 48, borderRadius: '50%',
-                background: 'var(--paper-3)', border: '1px solid var(--rule)',
-                color: 'var(--ink-2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <Icons.reset size={15} />
-              </button>
-            )}
-          </div>
-        </div>
 
         {/* ── Save Changes + Delete ── */}
         <div style={{ marginTop: 24, paddingBottom: 8, display: 'flex', gap: 8 }}>

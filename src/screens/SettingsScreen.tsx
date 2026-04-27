@@ -40,11 +40,6 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
 
   if (!settings) return null
 
-  // Ensure quiet hours is always on (enforce on first render if somehow off)
-  if (!settings.notifications.quiet) {
-    db.settings.update(1, { notifications: { ...settings.notifications, quiet: true } })
-  }
-
   async function update(patch: Partial<AppSettings>) {
     await db.settings.update(1, patch)
   }
@@ -70,8 +65,6 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
     // Directly transition to unauthed state — no reload needed
     onLogout()
   }
-
-  const pomMins = settings.defaultPomodoroMins
 
   return (
     <div className="screen">
@@ -101,41 +94,6 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
                 { v: 'loud',     l: 'Loud' },
               ]} />
           </Row>
-        </Section>
-
-        {/* Focus timer */}
-        <Section title="Focus Timer">
-          <Row label="Default Pomodoro" sub={`${pomMins} minutes`}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button
-                onClick={() => update({ defaultPomodoroMins: Math.max(5, pomMins - 5) })}
-                style={{ width: 34, height: 34, borderRadius: '50%', border: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-2)' }}>
-                <Icons.back size={14} />
-              </button>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, minWidth: 36, textAlign: 'center' }}>
-                {pomMins}
-              </span>
-              <button
-                onClick={() => update({ defaultPomodoroMins: Math.min(90, pomMins + 5) })}
-                style={{ width: 34, height: 34, borderRadius: '50%', border: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-2)' }}>
-                <Icons.arrow size={14} />
-              </button>
-            </div>
-          </Row>
-          <div style={{ padding: '8px 20px' }}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {[15, 20, 25, 30, 45, 60].map(m => (
-                <button key={m} onClick={() => update({ defaultPomodoroMins: m })} style={{
-                  padding: '6px 12px', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: 11,
-                  background: pomMins === m ? 'var(--ink)' : 'var(--paper-2)',
-                  color: pomMins === m ? 'var(--paper)' : 'var(--ink-2)',
-                  border: '1px solid', borderColor: pomMins === m ? 'var(--ink)' : 'var(--rule)',
-                }}>
-                  {m}m
-                </button>
-              ))}
-            </div>
-          </div>
         </Section>
 
         {/* Notifications */}
@@ -170,10 +128,12 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
           )}
 
           {([
-            ['overdue', 'Overdue & due-time alerts', 'Notify when tasks are overdue or at their set time'],
-            ['journal', 'Journal reminders',         'Morning & evening prompts'],
-            ['streak',  'Streak alerts',             'Warn before breaking a streak'],
-            ['weekly',  'Weekly review',             'Sunday wrap-up prompt'],
+            ['due',     'Tasks due today',            '7:30am daily summary'],
+            ['overdue', 'Overdue nudge',              'One alert per task, once'],
+            ['pom',     'End of Pomodoro',            'Light chime when session ends'],
+            ['journal', 'Journal reminders',          'Morning & evening prompts'],
+            ['streak',  'Streak at risk',             '8pm alert if streak not locked'],
+            ['weekly',  'Weekly review',              'Sunday 6pm wrap-up prompt'],
           ] as const).map(([key, label, sub]) => (
             <Row key={key} label={label} sub={sub}>
               <Toggle
@@ -182,17 +142,12 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
               />
             </Row>
           ))}
-          <div style={{ padding: '10px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>Quiet hours</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>No notifications 10pm–7am · always on</div>
-            </div>
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em',
-              textTransform: 'uppercase', color: 'var(--accent)',
-              background: 'var(--accent-soft)', padding: '3px 8px', borderRadius: 20,
-            }}>On</span>
-          </div>
+          <Row label="Quiet hours" sub="No notifications 10pm – 7am">
+            <Toggle
+              on={settings.notifications.quiet}
+              onChange={v => updateNotif('quiet', v)}
+            />
+          </Row>
         </Section>
 
         {/* Reflect */}

@@ -1,7 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addTask, updateTask } from '../data/db'
 import { DEFAULT_CATEGORIES } from '../constants'
+import { Icons } from '../components/ui/Icons'
 import type { Task } from '../types'
 
 interface Props {
@@ -28,99 +29,162 @@ function Dots({ step, total }: { step: number; total: number }) {
 // ── Step 0: Welcome ───────────────────────────────────────────────────────────
 function StepWelcome({ onNext }: { onNext: () => void }) {
   return (
-    <div style={{ textAlign: 'center', padding: '0 8px' }}>
-      <div style={{ fontSize: 64, marginBottom: 20 }}>🍌</div>
-      <h1 className="t-display" style={{ fontSize: 30, marginBottom: 10, lineHeight: 1.2 }}>
-        Welcome to<br />MightyBananaQuest
+    <div style={{ padding: '0 4px' }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--ink-3)', textTransform: 'uppercase', marginBottom: 24 }}>
+        Step 01 / 03
+      </div>
+      <h1 className="t-display" style={{ fontSize: 38, lineHeight: 0.95, marginBottom: 20 }}>
+        The small things,<br />
+        <em style={{ color: 'var(--accent)' }}>handled.</em>
       </h1>
-      <p style={{ color: 'var(--ink-2)', fontSize: 15, lineHeight: 1.65, marginBottom: 36, maxWidth: 300, margin: '0 auto 36px' }}>
-        Your life admin, tasks, goals, and habits — all in one calm, focused place. Let's set you up in 2 minutes.
+      <p style={{ color: 'var(--ink-2)', fontSize: 14, lineHeight: 1.65, marginBottom: 12 }}>
+        A calm place for tasks, habits, goals, and the rest of life's quiet logistics.
+      </p>
+      <p style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6, marginBottom: 40 }}>
+        Takes 2 minutes to set up.
       </p>
       <button onClick={onNext} style={{
-        width: '100%', padding: '15px', borderRadius: 14, fontWeight: 600, fontSize: 16,
+        display: 'inline-flex', alignItems: 'center', gap: 10,
+        padding: '14px 28px', borderRadius: 999, fontWeight: 500, fontSize: 14,
         background: 'var(--ink)', color: 'var(--paper)',
       }}>
-        Get started →
+        Begin <Icons.arrow size={16} />
       </button>
     </div>
   )
 }
 
-// ── Step 1: Life areas ────────────────────────────────────────────────────────
+// ── Step 1: Life areas (toggle grid) ─────────────────────────────────────────
 function StepAreas({ onNext }: { onNext: () => void }) {
   const cats = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
-  const [editing, setEditing] = useState<string | null>(null)
-  const [editVal, setEditVal] = useState('')
+  // Start with all areas selected
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(DEFAULT_CATEGORIES.map(c => c.id))
+  )
+  const [adding,  setAdding]  = useState(false)
+  const [newName, setNewName] = useState('')
 
-  function startEdit(id: string, current: string) {
-    setEditing(id); setEditVal(current)
+  // Sync selected set when cats first load from DB (useLiveQuery is async)
+  const didSyncSelected = React.useRef(false)
+  useEffect(() => {
+    if (cats.length > 0 && !didSyncSelected.current) {
+      didSyncSelected.current = true
+      setSelected(new Set(cats.map(c => c.id)))
+    }
+  }, [cats])
+
+  function toggle(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
   }
 
-  async function saveEdit(id: string) {
-    const trimmed = editVal.trim()
-    if (trimmed) await db.categories.update(id, { name: trimmed })
-    setEditing(null)
+  async function handleNext() {
+    // Remove unselected categories
+    for (const cat of cats) {
+      if (!selected.has(cat.id)) {
+        await db.categories.delete(cat.id)
+        // Move tasks in this cat to inbox
+        const catTasks = await db.tasks.where('cat').equals(cat.id).toArray()
+        for (const t of catTasks) await db.tasks.update(t.id, { cat: 'inbox' })
+      }
+    }
+    onNext()
+  }
+
+  async function addCustom() {
+    const name = newName.trim()
+    if (!name) return
+    const id = `c_${Date.now()}`
+    await db.categories.add({ id, name, icon: 'sparkle', hue: 200 })
+    setSelected(prev => new Set([...prev, id]))
+    setNewName(''); setAdding(false)
   }
 
   return (
     <div>
-      <div style={{ textAlign: 'center', marginBottom: 28 }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>🗂️</div>
-        <h2 className="t-display" style={{ fontSize: 24, marginBottom: 8 }}>Your life areas</h2>
-        <p style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6 }}>
-          These are the buckets your tasks and goals live in. Tap any name to rename it.
-        </p>
-      </div>
+      <div className="eyebrow" style={{ marginBottom: 8 }}>Step 02 / 03</div>
+      <h2 className="t-display" style={{ fontSize: 26, lineHeight: 1.1, marginBottom: 8 }}>
+        Choose the <em>parts of life</em> you want here.
+      </h2>
+      <p style={{ color: 'var(--ink-2)', fontSize: 13, lineHeight: 1.5, marginBottom: 20 }}>
+        Pick 3 to start. Remove or add any time.
+      </p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
-        {cats.map(c => (
-          <div key={c.id} style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            padding: '12px 14px', borderRadius: 12,
-            background: 'var(--paper-2)', border: '1px solid var(--rule)',
-          }}>
-            {/* Colour swatch */}
-            <div style={{
-              width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-              background: `hsl(${c.hue}, 50%, 60%)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 14,
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20, maxHeight: 340, overflowY: 'auto' }} className="no-scrollbar">
+        {cats.map(c => {
+          const I      = Icons[c.icon] ?? Icons.sparkle
+          const active = selected.has(c.id)
+          return (
+            <button key={c.id} onClick={() => toggle(c.id)} style={{
+              padding: '14px 12px', borderRadius: 14, textAlign: 'left',
+              background: active ? 'var(--ink)' : 'var(--paper-2)',
+              color: active ? 'var(--paper)' : 'var(--ink)',
+              border: '1px solid', borderColor: active ? 'var(--ink)' : 'var(--rule)',
+              transition: 'all .18s', display: 'flex', flexDirection: 'column', gap: 12, minHeight: 88,
             }}>
-              {c.icon}
-            </div>
+              <I size={18} stroke={active ? 'var(--paper)' : `hsl(${c.hue}, 55%, 42%)`} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</div>
+                <div style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', marginTop: 2, letterSpacing: '0.06em' }}>
+                  {active ? 'SELECTED' : 'TAP TO ADD'}
+                </div>
+              </div>
+            </button>
+          )
+        })}
 
-            {/* Name — tappable to edit */}
-            {editing === c.id ? (
-              <input
-                autoFocus
-                value={editVal}
-                onChange={e => setEditVal(e.target.value)}
-                onBlur={() => saveEdit(c.id)}
-                onKeyDown={e => e.key === 'Enter' && saveEdit(c.id)}
-                style={{
-                  flex: 1, background: 'transparent', border: 'none',
-                  borderBottom: '1.5px solid var(--accent)', fontSize: 14,
-                  fontFamily: 'inherit', color: 'var(--ink)', outline: 'none',
-                  padding: '2px 0',
-                }}
-              />
-            ) : (
-              <button
-                onClick={() => startEdit(c.id, c.name)}
-                style={{ flex: 1, textAlign: 'left', fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}
-              >
-                {c.name}
-              </button>
-            )}
+        {/* + Create your own */}
+        {!adding && (
+          <button onClick={() => setAdding(true)} style={{
+            padding: '14px 12px', borderRadius: 14, minHeight: 88,
+            background: 'transparent', border: '1px dashed var(--rule)',
+            color: 'var(--ink-3)', textAlign: 'left',
+            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+          }}>
+            <Icons.plus size={18} />
+            <div>
+              <div className="t-display" style={{ fontSize: 13, fontStyle: 'italic' }}>Your own</div>
+              <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', marginTop: 2, letterSpacing: '0.06em', color: 'var(--ink-4)' }}>CREATE AREA</div>
+            </div>
+          </button>
+        )}
+
+        {adding && (
+          <div style={{
+            gridColumn: '1 / -1', padding: 14, borderRadius: 14,
+            background: 'var(--paper-2)', border: '1px solid var(--ink)',
+          }}>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>New area</div>
+            <input
+              autoFocus value={newName} onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addCustom()}
+              placeholder="e.g. Mindfulness"
+              style={{
+                width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                fontFamily: 'var(--font-display)', fontSize: 20, color: 'var(--ink)',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button onClick={addCustom} style={{ flex: 1, padding: '10px', borderRadius: 10, background: 'var(--ink)', color: 'var(--paper)', fontSize: 13, fontWeight: 500 }}>Add</button>
+              <button onClick={() => { setAdding(false); setNewName('') }} style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid var(--rule)', fontSize: 13, color: 'var(--ink-2)' }}>Cancel</button>
+            </div>
           </div>
-        ))}
+        )}
       </div>
 
-      <button onClick={onNext} style={{
-        width: '100%', padding: '15px', borderRadius: 14, fontWeight: 600, fontSize: 15,
-        background: 'var(--ink)', color: 'var(--paper)',
-      }}>
-        Looks good →
+      <button
+        onClick={handleNext}
+        disabled={selected.size === 0}
+        style={{
+          width: '100%', padding: '15px', borderRadius: 14, fontWeight: 600, fontSize: 15,
+          background: selected.size > 0 ? 'var(--ink)' : 'var(--paper-3)',
+          color: selected.size > 0 ? 'var(--paper)' : 'var(--ink-3)',
+        }}
+      >
+        {selected.size === 0 ? 'Pick at least one →' : `Keep ${selected.size} area${selected.size !== 1 ? 's' : ''} →`}
       </button>
     </div>
   )

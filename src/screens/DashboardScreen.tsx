@@ -96,6 +96,15 @@ const DATE = today.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', 
 export const DashboardScreen = ({ navigate }: Props) => {
   const [bursts, setBursts]           = useState<Burst[]>([])
   const [showAddArea, setShowAddArea] = useState(false)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+  function toggleExpand(id: string) {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
   const tasks    = useLiveQuery(() => db.tasks.toArray(), [])
   const habits   = useLiveQuery(() => db.habits.toArray(), [])
   const settings = useLiveQuery(() => db.settings.get(1), [])
@@ -190,6 +199,72 @@ export const DashboardScreen = ({ navigate }: Props) => {
             }} />
           </div>
         )}
+        {/* Today's tasks — shown above area boxes */}
+        {allTodayTasks.length > 0 && (
+          <div style={{ padding: '16px 20px 0' }}>
+            <SectionHeader title="Today" action={
+              <button onClick={() => navigate({ name: 'all-tasks' })}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
+                ALL <Icons.arrow size={12} />
+              </button>
+            } />
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {allTodayTasks.map(task => {
+                const taskHue = cats.find((c: Category) => c.id === task.cat)?.hue
+                const isExpanded = expandedIds.has(task.id)
+                return (
+                  <div key={task.id}>
+                    <SwipeableRow
+                      disabled={task.done}
+                      onComplete={() => completeTask(task.id)}
+                      onDelete={() => deleteTask(task.id)}
+                    >
+                      <TaskCard task={task}
+                        hue={taskHue}
+                        onTap={() => navigate({ name: 'task', taskId: task.id })}
+                        onComplete={(e) => handleComplete(e, task)}
+                        onToggleSubtasks={(task.sub?.length ?? 0) > 0 ? () => toggleExpand(task.id) : undefined}
+                        subtasksExpanded={isExpanded}
+                      />
+                    </SwipeableRow>
+                    {isExpanded && (task.sub?.length ?? 0) > 0 && (
+                      <div style={{
+                        marginLeft: 14, paddingLeft: 22,
+                        borderLeft: `2px solid ${taskHue !== undefined ? `hsl(${taskHue}, 40%, 80%)` : 'var(--rule)'}`,
+                        marginBottom: 2,
+                      }}>
+                        {task.sub.map((s, i) => (
+                          <div key={i} style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '6px 4px',
+                            borderBottom: i < task.sub.length - 1 ? '1px solid var(--rule)' : 'none',
+                            opacity: s.d ? 0.5 : 1,
+                          }}>
+                            <div style={{
+                              width: 13, height: 13, borderRadius: 3, flexShrink: 0,
+                              border: `1.5px solid ${s.d ? (taskHue !== undefined ? `hsl(${taskHue}, 55%, 42%)` : 'var(--accent)') : 'var(--rule)'}`,
+                              background: s.d ? (taskHue !== undefined ? `hsl(${taskHue}, 55%, 42%)` : 'var(--accent)') : 'transparent',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}>
+                              {s.d && <Icons.check size={8} sw={2.5} stroke="var(--paper)" />}
+                            </div>
+                            <span style={{
+                              fontSize: 12, color: s.d ? 'var(--ink-3)' : 'var(--ink)',
+                              textDecoration: s.d ? 'line-through' : 'none',
+                            }}>
+                              {s.t}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Area grid — Inbox first, then categories */}
         <div style={{ padding: '16px 20px 0' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
@@ -381,34 +456,6 @@ export const DashboardScreen = ({ navigate }: Props) => {
             </button>
           </div>
         </div>
-
-        {/* Today's tasks */}
-        {allTodayTasks.length > 0 && (
-          <div style={{ padding: '20px 20px 0' }}>
-            <SectionHeader title="Today" action={
-              <button onClick={() => navigate({ name: 'all-tasks' })}
-                style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
-                ALL <Icons.arrow size={12} />
-              </button>
-            } />
-            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {allTodayTasks.map(task => (
-                <SwipeableRow
-                  key={task.id}
-                  disabled={task.done}
-                  onComplete={() => completeTask(task.id)}
-                  onDelete={() => deleteTask(task.id)}
-                >
-                  <TaskCard task={task}
-                    hue={cats.find((c: Category) => c.id === task.cat)?.hue}
-                    onTap={() => navigate({ name: 'task', taskId: task.id })}
-                    onComplete={(e) => handleComplete(e, task)}
-                  />
-                </SwipeableRow>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Upcoming — non-today tasks with a due date */}
         <UpcomingSection tasks={tasks} cats={cats} navigate={navigate} handleComplete={handleComplete} onDelete={deleteTask} />

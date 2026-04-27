@@ -69,7 +69,7 @@ function PetPaw(p: IconProps) {
 // ── Dynamic pet icon style (set by App.tsx from settings) ────────────────────
 
 export type PetIconStyle = 'classic' | 'face' | 'paw'
-let _petStyle: PetIconStyle = 'classic'
+let _petStyle: PetIconStyle = 'paw'
 
 /** Call this from App.tsx whenever settings.petIcon changes */
 export function setPetStyle(style: PetIconStyle) {

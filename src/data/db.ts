@@ -2,15 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type { Task, Habit, Category, Goal, JournalEntry, InboxItem, AppSettings, WeeklyReview, ShoppingItem } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS, EFFORT } from '../constants'
 import { SEED_TASKS, SEED_GOALS, SEED_JOURNAL, SEED_INBOX } from './seeds'
-import {
-  pushTask, pushTaskDelete, pushTasksDelete,
-  pushGoal, pushGoalDelete,
-  pushJournal,
-  pushInbox,
-  pushCategory,
-  pushSettings,
-  pushShoppingItem, pushShoppingItemDelete, pushShoppingItemsDelete,
-} from '../lib/sync'
+import { enqueueUpsert, enqueueDelete } from '../lib/sync'
 
 // ── Habit log entry ──────────────────────────────────────────────────────────
 export interface HabitLog {
@@ -25,7 +17,23 @@ export interface DeletedTask {
   deletedAt: number
 }
 
-export class LifeAdminDB extends Dexie {
+// ── Outbox entry (pending sync operations) ───────────────────────────────────
+// key = `${table}:${recordId}` — primary key ensures automatic dedup so rapid
+// edits to the same record only produce a single outbox entry.
+export interface OutboxEntry {
+  key:          string                // `${table}:${recordId}`
+  table:        string
+  recordId:     string
+  op:           'upsert' | 'delete'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?:        any                   // full local record for upsert
+  queuedAt:     number
+  attempts:     number
+  nextRetryAt:  number
+  lastError?:   string
+}
+
+export class MightyBananaQuestDB extends Dexie {
   tasks!:          Table<Task>
   habits!:         Table<Habit>
   categories!:     Table<Category>
@@ -37,6 +45,7 @@ export class LifeAdminDB extends Dexie {
   weeklyReviews!:  Table<WeeklyReview>
   deletedTasks!:   Table<DeletedTask>
   shoppingItems!:  Table<ShoppingItem>
+  outbox!:         Table<OutboxEntry>
 
   constructor() {
     super('LifeAdminDB')
@@ -149,10 +158,26 @@ export class LifeAdminDB extends Dexie {
         await tx.table('tasks').bulkDelete(habitTasks.map(t => t.id))
       }
     })
+    // Version 9 — outbox table for reliable, deduplicated async sync
+    this.version(9).stores({
+      tasks:         'id, cat, due, done, effort, quad, createdAt, status',
+      categories:    'id',
+      goals:         'id, area',
+      journal:       'id, date, kind',
+      inbox:         'id, kind, processed',
+      settings:      'id',
+      habitLog:      'id, taskId, date',
+      weeklyReviews: 'id, weekStart, completedAt',
+      deletedTasks:  'id, deletedAt',
+      shoppingItems: 'id, category, createdAt',
+      habits:        'id, cat, done, createdAt',
+      // key = `${table}:${recordId}` so the same record only has one pending entry
+      outbox:        'key, table, queuedAt, nextRetryAt',
+    })
   }
 }
 
-export const db = new LifeAdminDB()
+export const db = new MightyBananaQuestDB()
 
 // ── Seed on first run ─────────────────────────────────────────────────────────
 db.on('ready', async () => {
@@ -238,13 +263,13 @@ export async function completeTask(taskId: string): Promise<number> {
   const newStreak = task.recurring ? (task.streak ?? 0) + 1 : task.streak ?? 0
   await db.tasks.update(taskId, { done: true, streak: newStreak, updatedAt: Date.now() })
   const updated = await db.tasks.get(taskId)
-  if (updated) pushTask(updated)
+  if (updated) enqueueUpsert('tasks', updated.id, updated)
 
   const settings = await db.settings.get(1)
   if (settings) {
     await db.settings.update(1, { xp: (settings.xp ?? 0) + gained })
     const newSettings = await db.settings.get(1)
-    if (newSettings) pushSettings(newSettings)
+    if (newSettings) enqueueUpsert('settings', String(newSettings.id), newSettings)
   }
 
   // Log completion for recurring tasks (habits now live in their own table)
@@ -266,7 +291,7 @@ export async function completeTask(taskId: string): Promise<number> {
       updatedAt: Date.now(),
     }
     await db.tasks.add(copy)
-    pushTask(copy)
+    enqueueUpsert('tasks', copy.id, copy)
   }
 
   return gained
@@ -292,9 +317,9 @@ export async function resetRecurringTasks(): Promise<void> {
       const task = recurring.find(t => t.id === id)
       return db.tasks.update(id, { done: false, updatedAt: task?.updatedAt ?? Date.now() })
     }))
-    // Sync resets to Supabase in the background
+    // Queue resets to outbox
     const updatedTasks = await db.tasks.bulkGet(resetIds)
-    updatedTasks.forEach(t => { if (t) pushTask(t) })
+    updatedTasks.forEach(t => { if (t) enqueueUpsert('tasks', t.id, t) })
   }
 }
 
@@ -336,7 +361,7 @@ export async function completeHabit(habitId: string): Promise<number> {
   if (settings) {
     await db.settings.update(1, { xp: (settings.xp ?? 0) + gained })
     const newSettings = await db.settings.get(1)
-    if (newSettings) pushSettings(newSettings)
+    if (newSettings) enqueueUpsert('settings', String(newSettings.id), newSettings)
   }
 
   const today = new Date().toISOString().slice(0, 10)
@@ -371,7 +396,7 @@ export async function toggleSubTask(taskId: string, index: number) {
   const sub = task.sub.map((s, i) => i === index ? { ...s, d: !s.d } : s)
   await db.tasks.update(taskId, { sub, updatedAt: Date.now() })
   const updated = await db.tasks.get(taskId)
-  if (updated) pushTask(updated)
+  if (updated) enqueueUpsert('tasks', updated.id, updated)
 }
 
 // ── Helper: add a task ───────────────────────────────────────────────────────
@@ -379,14 +404,14 @@ export async function addTask(task: Task) {
   const now = Date.now()
   const toAdd = { ...task, createdAt: now, updatedAt: now }
   await db.tasks.add(toAdd)
-  pushTask(toAdd)
+  enqueueUpsert('tasks', toAdd.id, toAdd)
 }
 
 // ── Helper: update a task (always stamps updatedAt, syncs to Supabase) ───────
 export async function updateTask(taskId: string, patch: Partial<Task>) {
   await db.tasks.update(taskId, { ...patch, updatedAt: Date.now() })
   const updated = await db.tasks.get(taskId)
-  if (updated) pushTask(updated)
+  if (updated) enqueueUpsert('tasks', updated.id, updated)
 }
 
 // ── Helper: get settings (always returns something) ──────────────────────────
@@ -398,7 +423,7 @@ export async function getSettings(): Promise<AppSettings> {
 export async function deleteTask(taskId: string) {
   await db.deletedTasks.put({ id: taskId, deletedAt: Date.now() })
   await db.tasks.delete(taskId)
-  pushTaskDelete(taskId)
+  enqueueDelete('tasks', taskId)
 }
 
 // ── Helper: delete multiple tasks ────────────────────────────────────────────
@@ -406,7 +431,7 @@ export async function deleteTasks(taskIds: string[]) {
   const now = Date.now()
   await db.deletedTasks.bulkPut(taskIds.map(id => ({ id, deletedAt: now })))
   await db.tasks.bulkDelete(taskIds)
-  pushTasksDelete(taskIds)
+  taskIds.forEach(id => enqueueDelete('tasks', id))
 }
 
 // ── Helper: get all tombstoned task IDs ──────────────────────────────────────
@@ -418,52 +443,51 @@ export async function getTombstoneIds(): Promise<Set<string>> {
 // ── Helper: add a goal ────────────────────────────────────────────────────────
 export async function addGoal(goal: Goal) {
   await db.goals.add(goal)
-  pushGoal(goal)
+  enqueueUpsert('goals', goal.id, goal)
 }
 
 // ── Helper: update a goal ─────────────────────────────────────────────────────
 export async function updateGoal(goalId: string, patch: Partial<Goal>) {
   await db.goals.update(goalId, patch)
   const updated = await db.goals.get(goalId)
-  if (updated) pushGoal(updated)
+  if (updated) enqueueUpsert('goals', updated.id, updated)
 }
 
 // ── Helper: delete a goal ─────────────────────────────────────────────────────
 export async function deleteGoal(goalId: string) {
   await db.goals.delete(goalId)
-  pushGoalDelete(goalId)
+  enqueueDelete('goals', goalId)
 }
 
 // ── Helper: add a custom area/category ───────────────────────────────────────
 export async function addCategory(cat: Category) {
   await db.categories.add(cat)
-  pushCategory(cat)
+  enqueueUpsert('categories', cat.id, cat)
 }
 
 // ── Helper: update an area/category (rename, icon, hue) ──────────────────────
 export async function updateCategory(catId: string, patch: Partial<Category>) {
   await db.categories.update(catId, patch)
   const updated = await db.categories.get(catId)
-  if (updated) pushCategory(updated)
+  if (updated) enqueueUpsert('categories', updated.id, updated)
 }
 
 // ── Helper: delete a custom area/category ────────────────────────────────────
 export async function deleteCategory(catId: string) {
   await db.categories.delete(catId)
-  // Fire-and-forget sync — import lazily to avoid circular dep
-  import('../lib/sync').then(({ pushCategoryDelete }) => pushCategoryDelete?.(catId)).catch(() => {})
+  enqueueDelete('categories', catId)
 }
 
 // ── Helper: save a journal entry ─────────────────────────────────────────────
 export async function saveJournalEntry(entry: JournalEntry) {
   await db.journal.put(entry)
-  pushJournal(entry)
+  enqueueUpsert('journal', entry.id, entry)
 }
 
 // ── Helper: save an inbox item ────────────────────────────────────────────────
 export async function saveInboxItem(item: InboxItem) {
   await db.inbox.put(item)
-  pushInbox(item)
+  enqueueUpsert('inbox', item.id, item)
 }
 
 // ── Shopping list helpers ─────────────────────────────────────────────────────
@@ -471,7 +495,7 @@ export async function addShoppingItem(item: Omit<ShoppingItem, 'id' | 'createdAt
   const now = Date.now()
   const full: ShoppingItem = { ...item, id: `s${now}`, createdAt: now, updatedAt: now }
   await db.shoppingItems.add(full)
-  pushShoppingItem(full)
+  enqueueUpsert('shopping_items', full.id, full)
   return full
 }
 
@@ -479,23 +503,23 @@ export async function updateShoppingItem(id: string, patch: Partial<ShoppingItem
   const updatedAt = Date.now()
   await db.shoppingItems.update(id, { ...patch, updatedAt })
   const updated = await db.shoppingItems.get(id)
-  if (updated) pushShoppingItem(updated)
+  if (updated) enqueueUpsert('shopping_items', updated.id, updated)
 }
 
 export async function deleteShoppingItem(id: string) {
   await db.shoppingItems.delete(id)
-  pushShoppingItemDelete(id)
+  enqueueDelete('shopping_items', id)
 }
 
 export async function deleteCheckedShoppingItems() {
   const checked = await db.shoppingItems.filter(i => i.checked).primaryKeys()
   await db.shoppingItems.bulkDelete(checked)
-  if (checked.length > 0) pushShoppingItemsDelete(checked as string[])
+  ;(checked as string[]).forEach(id => enqueueDelete('shopping_items', id))
 }
 
 // ── Helper: nuclear reset — wipe everything and re-seed ──────────────────────
 export async function resetAllData() {
-  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.habits, db.goals, db.journal, db.inbox, db.habitLog, db.deletedTasks], async () => {
+  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.habits, db.goals, db.journal, db.inbox, db.habitLog, db.deletedTasks, db.outbox], async () => {
     await db.settings.clear()
     await db.categories.clear()
     await db.tasks.clear()
@@ -505,6 +529,7 @@ export async function resetAllData() {
     await db.inbox.clear()
     await db.habitLog.clear()
     await db.deletedTasks.clear()
+    await db.outbox.clear()
     await db.settings.add(DEFAULT_SETTINGS)
     await db.categories.bulkAdd(DEFAULT_CATEGORIES)
     await db.tasks.bulkAdd(SEED_TASKS)
@@ -512,7 +537,7 @@ export async function resetAllData() {
     await db.journal.bulkAdd(SEED_JOURNAL)
     await db.inbox.bulkAdd(SEED_INBOX)
   })
-  // Push reset state to Supabase
+  // Push reset state to Supabase (full push after nuclear reset)
   const { pushAllLocal } = await import('../lib/sync')
   await pushAllLocal()
 }

@@ -7,6 +7,7 @@ import { resetRecurringTasks, resetHabits } from './data/db'
 import { setSyncState } from './lib/syncState'
 import { useNotifications } from './lib/useNotifications'
 import { BottomNav }          from './components/layout/BottomNav'
+import { DesktopLayout }      from './components/layout/DesktopLayout'
 import { GlobalPomodoro }     from './components/GlobalPomodoro'
 import { QuickCaptureSheet }  from './components/QuickCaptureSheet'
 import { AddTaskSheet }       from './components/AddTaskSheet'
@@ -44,14 +45,13 @@ function applyTheme(settings: AppSettings) {
 }
 
 // ── Nav screens that show BottomNav ───────────────────────────────────────────
-const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar', 'category', 'inbox', 'shopping-list', 'all-tasks', 'all-habits'])
+const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'calendar', 'category', 'inbox', 'shopping-list', 'all-tasks', 'all-habits', 'progress', 'review'])
 function showsNav(screen: Screen): boolean { return NAV_SCREENS.has(screen.name) }
 function activeTab(screen: Screen): string {
-  if (screen.name === 'journal')    return 'journal'
-  if (screen.name === 'goals')      return 'goals'
-  if (screen.name === 'calendar')   return 'calendar'
-  if (screen.name === 'all-habits') return 'goals'  // habits lives under Goals tab
-  return 'dashboard'  // category + dashboard + inbox + shopping-list + all-tasks highlight Today tab
+  if (screen.name === 'journal')  return 'journal'
+  if (screen.name === 'goals')    return 'goals'
+  if (screen.name === 'calendar') return 'calendar'
+  return 'dashboard'
 }
 
 type AuthState = 'loading' | 'authed' | 'unauthed'
@@ -69,9 +69,17 @@ export default function App() {
   const [isOnline,   setIsOnline]   = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [fabSheet,    setFabSheet]    = useState<FabSheet>('none')
   const [taskPrefill, setTaskPrefill] = useState<{ title?: string; catId?: string; due?: string; isHabit?: boolean } | null>(null)
+  const [isDesktop,  setIsDesktop]  = useState(() => window.innerWidth >= 960)
 
   const settings   = useLiveQuery(() => db.settings.get(1), [])
   const categories = useLiveQuery(() => db.categories.toArray(), []) as Category[] | undefined
+
+  // Desktop detection
+  useEffect(() => {
+    const handler = () => setIsDesktop(window.innerWidth >= 960)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
 
   // Theme
   useEffect(() => { if (settings) applyTheme(settings) }, [settings])
@@ -184,21 +192,11 @@ export default function App() {
   // ── FAB logic ─────────────────────────────────────────────────────────────
   function handleFabTap() {
     if (screen.name === 'category') {
-      // Inside an Area — open quick capture pre-filled with that area
       openAddTask({ catId: screen.catId })
       return
     }
-    if (screen.name === 'inbox') {
-      setFabSheet('capture')
-      return
-    }
     if (screen.name === 'shopping-list') {
-      // Dispatch event that ShoppingListScreen listens to for inline entry
       window.dispatchEvent(new CustomEvent('shopping:add-item'))
-      return
-    }
-    if (screen.name === 'all-tasks') {
-      setFabSheet('capture')
       return
     }
     if (screen.name === 'all-habits') {
@@ -206,14 +204,11 @@ export default function App() {
       setFabSheet('task')
       return
     }
-    const tab = activeTab(screen)
-    if (tab === 'goals')   { setFabSheet('goal') }
-    else if (tab === 'journal') {
-      if (screen.name !== 'journal') navigate({ name: 'journal' })
-    }
-    else { setFabSheet('capture') }  // dashboard, calendar
+    // All other screens → quick capture (long-press for full menu)
+    setFabSheet('capture')
   }
 
+  // Long-press always shows the full menu: New Task / New Habit / New Goal / New Item / Pomodoro
   function handleFabLongPress() { setFabSheet('menu') }
 
   function handleFabMenuSelect(action: FabAction) {
@@ -249,6 +244,9 @@ export default function App() {
 
   if (authState === 'loading') return <SplashScreen onDone={() => {}} />
   if (authState === 'unauthed') return <AuthScreen onAuth={() => {}} />
+
+  // Desktop layout — replaces the mobile stack when viewport >= 960px
+  if (isDesktop) return <DesktopLayout onLogout={handleLogout} />
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -303,6 +301,7 @@ export default function App() {
               navigate={navigate}
               back={() => navigateTab({ name: 'dashboard' })}
               onAddTask={() => openAddTask()}
+              onAddHabit={() => openAddTask({ isHabit: true })}
             />
           )}
           {screen.name === 'journal'    && <JournalScreen navigate={navigate} back={() => navigateTab({ name: 'dashboard' })} phase={screen.phase} />}

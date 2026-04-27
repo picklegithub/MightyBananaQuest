@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, completeTask, addTask, deleteTask, updateCategory, deleteCategory, updateTask } from '../data/db'
-import { DEFAULT_CATEGORIES } from '../constants'
+import { DEFAULT_CATEGORIES, EFFORT } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst, Seg } from '../components/ui'
 import { ThemeToggle } from '../components/ThemeToggle'
-import { TaskCard } from '../components/TaskCard'
 import { SwipeableRow } from '../components/SwipeableRow'
+import { formatTime, formatDueLabel } from '../lib/parseDue'
 import type { Screen, Task, Category } from '../types'
 
 interface Props { catId: string; navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void }
@@ -218,6 +218,136 @@ function HabitRow({
   )
 }
 
+// ── Compact task row for category view ───────────────────────────────────────
+function CategoryTaskRow({
+  task, hue, onTap, onComplete,
+  isExpanded, onToggleExpand,
+}: {
+  task: Task
+  hue: number
+  onTap: () => void
+  onComplete: (e: React.MouseEvent) => void
+  isExpanded?: boolean
+  onToggleExpand?: () => void
+}) {
+  const e = EFFORT[task.effort]
+  const timeLabel = task.time ? formatTime(task.time) : null
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/
+  const dueLabel = task.due
+    ? (isoRe.test(task.due) ? formatDueLabel(task.due) : task.due)
+    : ''
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const dueColor = task.due === 'Today' ? 'var(--accent)'
+    : (task.due === 'Overdue' || (isoRe.test(task.due) && task.due < todayISO)) ? 'var(--warn)'
+    : task.due === 'Tomorrow' ? 'var(--ink-2)'
+    : 'var(--ink-3)'
+  const accentColor = `hsl(${hue}, 55%, 42%)`
+  const subDone = task.sub?.filter(s => s.d).length ?? 0
+  const subTotal = task.sub?.length ?? 0
+
+  return (
+    <div
+      onClick={onTap}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '10px 0',
+        borderBottom: '1px solid var(--rule)',
+        cursor: 'pointer',
+        opacity: task.done ? 0.45 : 1,
+      }}
+    >
+      {/* Complete button */}
+      <button
+        onClick={ev => { ev.stopPropagation(); onComplete(ev) }}
+        style={{
+          flexShrink: 0, width: 20, height: 20, borderRadius: '50%',
+          border: `1.5px solid ${task.done ? accentColor : 'var(--ink-3)'}`,
+          background: task.done ? accentColor : 'transparent',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        {task.done && <Icons.check size={10} sw={2.5} stroke="var(--paper)" />}
+      </button>
+
+      {/* Title + meta */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 13, fontWeight: 500,
+          textDecoration: task.done ? 'line-through' : 'none',
+          color: 'var(--ink)',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
+          {task.title}
+        </div>
+        <div style={{
+          display: 'flex', gap: 6, marginTop: 2, alignItems: 'center',
+          fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)',
+          flexWrap: 'wrap',
+        }}>
+          <span>{e?.label ?? 'Medium'}</span>
+
+          {timeLabel && (
+            <><span style={{ opacity: 0.4 }}>·</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <Icons.timer size={9} /> {timeLabel}
+            </span></>
+          )}
+
+          {task.recurring && (
+            <><span style={{ opacity: 0.4 }}>·</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <Icons.repeat size={9} /> {task.recurring}
+            </span></>
+          )}
+
+          {task.streak > 0 && (
+            <><span style={{ opacity: 0.4 }}>·</span>
+            <span style={{ color: 'var(--warn)', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <Icons.flame size={9} /> {task.streak}d
+            </span></>
+          )}
+
+          {subTotal > 0 && (
+            <><span style={{ opacity: 0.4 }}>·</span>
+            <span
+              onClick={onToggleExpand ? ev => { ev.stopPropagation(); onToggleExpand() } : undefined}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 2,
+                cursor: onToggleExpand ? 'pointer' : 'default',
+                color: subDone === subTotal ? accentColor : 'var(--ink-3)',
+              }}
+            >
+              <Icons.check size={9} sw={2} />
+              {subDone}/{subTotal}
+              {onToggleExpand && (
+                <span style={{ opacity: 0.5, fontSize: 8 }}>{isExpanded ? '▲' : '▼'}</span>
+              )}
+            </span></>
+          )}
+        </div>
+        {task.notes && (
+          <div style={{
+            fontSize: 10, color: 'var(--ink-4)', fontFamily: 'var(--font-mono)',
+            marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {task.notes.replace(/\n/g, ' ').slice(0, 80)}{task.notes.length > 80 ? '…' : ''}
+          </div>
+        )}
+      </div>
+
+      {/* Due label */}
+      {dueLabel && (
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
+          color: dueColor, fontWeight: task.due === 'Today' ? 600 : 400,
+        }}>
+          {dueLabel}
+        </span>
+      )}
+    </div>
+  )
+}
+
 // ── Ghost inline task input ───────────────────────────────────────────────────
 function GhostInput({
   catId, hue, onSaved,
@@ -327,6 +457,15 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
   const [savedFlash, setSavedFlash] = useState(false)
   const [showEdit,   setShowEdit]   = useState(false)
   const [showDelete, setShowDelete] = useState(false)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+  function toggleExpand(id: string) {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   const tasks = useLiveQuery(() => db.tasks.where('cat').equals(catId).toArray(), [catId])
   const cats  = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
@@ -416,7 +555,7 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
               {totalCount > 0
                 ? `${doneCount}/${totalCount} done`
                 : habitTasks.length > 0
-                  ? `${habitTasks.length} habit${habitTasks.length > 1 ? 's' : ''}`
+                  ? `${habitTasks.length} recurring`
                   : 'empty'}
             </div>
           </div>
@@ -443,16 +582,16 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
 
       <div className="screen-scroll" style={{ padding: '14px 18px 48px' }}>
 
-        {/* ── Habits section ── */}
+        {/* ── Recurring tasks section ── */}
         {habitTasks.length > 0 && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 9 }}>
-              <Icons.flame size={12} style={{ color: 'var(--warn)' }} />
+              <Icons.repeat size={12} style={{ color: 'var(--ink-3)' }} />
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.09em', textTransform: 'uppercase' }}>
-                Habits
+                Recurring Tasks
               </span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)' }}>
-                {habitTasks.filter(t => t.done).length}/{habitTasks.length} today
+                {habitTasks.filter(t => t.done).length}/{habitTasks.length} done today
               </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -493,22 +632,61 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
             {filter === 'done' ? 'No completed tasks yet' : 'No open tasks — nice work!'}
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-            {filteredRegular.map(task => (
-              <SwipeableRow
-                key={task.id}
-                disabled={task.done}
-                onComplete={() => completeTask(task.id)}
-                onDelete={() => deleteTask(task.id)}
-              >
-                <TaskCard
-                  task={task}
-                  hue={hue}
-                  onTap={() => navigate({ name: 'task', taskId: task.id })}
-                  onComplete={e => handleComplete(e, task)}
-                />
-              </SwipeableRow>
-            ))}
+          <div style={{ marginBottom: 12 }}>
+            {filteredRegular.map(task => {
+              const isExpanded = expandedIds.has(task.id)
+              const hasSubs = (task.sub?.length ?? 0) > 0
+              const accentColor = `hsl(${hue}, 55%, 42%)`
+              return (
+                <div key={task.id}>
+                  <SwipeableRow
+                    disabled={task.done}
+                    onComplete={() => completeTask(task.id)}
+                    onDelete={() => deleteTask(task.id)}
+                  >
+                    <CategoryTaskRow
+                      task={task}
+                      hue={hue}
+                      onTap={() => navigate({ name: 'task', taskId: task.id })}
+                      onComplete={e => handleComplete(e, task)}
+                      isExpanded={isExpanded}
+                      onToggleExpand={hasSubs ? () => toggleExpand(task.id) : undefined}
+                    />
+                  </SwipeableRow>
+                  {isExpanded && hasSubs && (
+                    <div style={{
+                      marginLeft: 12, paddingLeft: 18,
+                      borderLeft: `2px solid hsl(${hue}, 40%, 80%)`,
+                      marginBottom: 2,
+                    }}>
+                      {task.sub.map((s, i) => (
+                        <div key={i} style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          padding: '6px 4px',
+                          borderBottom: i < task.sub.length - 1 ? '1px solid var(--rule)' : 'none',
+                          opacity: s.d ? 0.5 : 1,
+                        }}>
+                          <div style={{
+                            width: 13, height: 13, borderRadius: 3, flexShrink: 0,
+                            border: `1.5px solid ${s.d ? accentColor : 'var(--rule)'}`,
+                            background: s.d ? accentColor : 'transparent',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            {s.d && <Icons.check size={8} sw={2.5} stroke="var(--paper)" />}
+                          </div>
+                          <span style={{
+                            fontSize: 12, color: s.d ? 'var(--ink-3)' : 'var(--ink)',
+                            textDecoration: s.d ? 'line-through' : 'none',
+                          }}>
+                            {s.t}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
 

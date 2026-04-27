@@ -22,13 +22,11 @@ export const QUAD: Record<QuadKey, { label: string; short: string }> = {
 
 // ── Default categories ───────────────────────────────────────────────────────
 export const DEFAULT_CATEGORIES: Category[] = [
-  { id: 'health',          name: 'Health',          icon: 'heart',     hue: 145 },
-  { id: 'finances',        name: 'Finances',        icon: 'dollar',    hue: 90  },
-  { id: 'hobbies',         name: 'Hobbies',         icon: 'star',      hue: 280 },
-  { id: 'personal-growth', name: 'Personal Growth', icon: 'book',      hue: 200 },
-  { id: 'career-work',     name: 'Career / Work',   icon: 'briefcase', hue: 240 },
-  { id: 'pets',            name: 'Pets',            icon: 'pet',       hue: 35  },
-  { id: 'home',            name: 'Home',            icon: 'home',      hue: 25  },
+  { id: 'health',   name: 'Health',   icon: 'heart',   hue: 145 },
+  { id: 'finances', name: 'Finances', icon: 'dollar',  hue: 90  },
+  { id: 'home',     name: 'Home',     icon: 'home',    hue: 25  },
+  { id: 'hobbies',  name: 'Hobbies',  icon: 'star',    hue: 280 },
+  { id: 'wellness', name: 'Wellness', icon: 'leaf',    hue: 160 },
 ]
 
 // ── Default settings ─────────────────────────────────────────────────────────
@@ -38,9 +36,10 @@ export const DEFAULT_SETTINGS = {
   variant: 'warm' as const,
   intensity: 'loud' as const,
   defaultPomodoroMins: 25,
+  petIcon: 'paw' as const,
   notifications: {
     due: true, overdue: true, pom: true,
-    journal: true, streak: true, weekly: true, quiet: false,
+    journal: true, streak: true, weekly: true, quiet: true,
   },
   onboarded: false,
   xp: 0,

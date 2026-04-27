@@ -38,10 +38,10 @@ export const BottomNav = ({ active, navigate, navigateTab, onFabTap, onFabLongPr
   }, [])
 
   const tabs: { id: TabId; label: string; icon: string }[] = [
-    { id: 'dashboard', label: 'Today',    icon: 'home'     },
-    { id: 'journal',   label: 'Journal',  icon: 'journal'  },
-    { id: 'goals',     label: 'Goals',    icon: 'target'   },
-    { id: 'calendar',  label: 'Calendar', icon: 'calendar' },
+    { id: 'dashboard', label: 'Today',   icon: 'home'    },
+    { id: 'journal',   label: 'Journal', icon: 'journal' },
+    { id: 'goals',     label: 'Goals',   icon: 'target'  },
+    { id: 'calendar',  label: 'Calendar',icon: 'calendar'},
   ]
 
   return (

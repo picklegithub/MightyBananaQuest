@@ -1,23 +1,33 @@
 /**
  * SyncStatusBar — Rich sync UI shown at the top of the app.
  *
- * Also exports `triggerSync()` as a named export so other components
- * can initiate a sync without mounting this component.
+ * Also exports `triggerSync()` so other components can initiate a sync
+ * without mounting this component.
+ *
+ * With the new incremental-sync architecture the flow is:
+ *   1. Drain outbox  (push pending local changes to Supabase)
+ *   2. Incremental pull  (fetch only rows changed since lastPullAt)
+ * No preview modal needed — there are no destructive "remote deleted" surprises
+ * because soft-delete propagation is handled transparently in the pull.
  */
 
 import React, { useEffect, useRef } from 'react'
 import { useSyncState, setSyncState, getSyncState } from '../lib/syncState'
-import { previewPull, applyPull, pushOnly, pullNonTaskTables } from '../lib/sync'
+import { drainOutbox, incrementalPull, outboxSize } from '../lib/sync'
 
 // ── triggerSync (named export) ────────────────────────────────────────────────
 
 let _syncInFlight = false
 
-// Wraps a promise with a hard timeout so sync never hangs forever
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms)
-    promise.then(v => { clearTimeout(timer); resolve(v) }, e => { clearTimeout(timer); reject(e) })
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms
+    )
+    promise.then(
+      v => { clearTimeout(timer); resolve(v) },
+      e => { clearTimeout(timer); reject(e) }
+    )
   })
 }
 
@@ -26,39 +36,33 @@ export async function triggerSync(): Promise<void> {
   _syncInFlight = true
 
   try {
-    // Push phase
+    // ── Phase 1: Drain outbox ─────────────────────────────────────────────
     setSyncState({ phase: 'pushing', pushProgress: 0, errorMsg: null })
-    await withTimeout(
-      pushOnly((done, total) => {
-        setSyncState({ pushProgress: Math.round((done / total) * 100) })
-      }),
-      30000,
-      'Push'
-    )
+    const failures = await withTimeout(drainOutbox(), 30_000, 'Drain outbox')
+    setSyncState({ pushProgress: 100 })
 
-    // Preview phase
-    setSyncState({ phase: 'previewing', pullProgress: 0 })
-    const preview = await withTimeout(previewPull(), 30000, 'Preview')
-
-    // If there are deletions to confirm, surface the preview modal
-    if (preview.toDelete.length > 0) {
-      setSyncState({ phase: 'pulling', pendingPreview: preview })
-      // Caller (SyncStatusBar) will handle user confirmation
-      return
+    if (failures > 0) {
+      // Some entries failed but we continue to pull — they'll retry next sync
+      console.warn(`[sync] ${failures} outbox entries failed — will retry`)
     }
 
-    // No destructive changes — auto-apply tasks, then pull all other tables
-    setSyncState({ phase: 'pulling', pullProgress: 30 })
-    await withTimeout(applyPull(preview), 30000, 'Apply')
-    setSyncState({ pullProgress: 70 })
-    await withTimeout(pullNonTaskTables(), 30000, 'Pull')
-    setSyncState({ phase: 'done', pullProgress: 100, lastSyncAt: Date.now(), pendingPreview: null })
+    // ── Phase 2: Incremental pull ─────────────────────────────────────────
+    setSyncState({ phase: 'pulling', pullProgress: 10 })
+    const { pulled, deleted } = await withTimeout(incrementalPull(), 45_000, 'Incremental pull')
+    setSyncState({ pullProgress: 100 })
 
-    // Fade back to idle after 3s
+    console.debug(`[sync] pulled ${pulled} rows, soft-deleted ${deleted} rows`)
+
+    setSyncState({
+      phase:          'done',
+      pullProgress:   100,
+      lastSyncAt:     Date.now(),
+      pendingPreview: null,
+    })
+
+    // Fade back to idle after 3 s
     setTimeout(() => {
-      if (getSyncState().phase === 'done') {
-        setSyncState({ phase: 'idle' })
-      }
+      if (getSyncState().phase === 'done') setSyncState({ phase: 'idle' })
     }, 3000)
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Sync failed'
@@ -73,7 +77,7 @@ export async function triggerSync(): Promise<void> {
 function relativeTime(ts: number): string {
   if (ts === 0) return 'never'
   const diffMs  = Date.now() - ts
-  const diffMin = Math.floor(diffMs / 60000)
+  const diffMin = Math.floor(diffMs / 60_000)
   if (diffMin < 1)  return 'just now'
   if (diffMin < 60) return `${diffMin}m ago`
   const diffHr = Math.floor(diffMin / 60)
@@ -103,214 +107,73 @@ function ProgressBar({ value }: { value: number }) {
   )
 }
 
-// ── Pull Confirmation Modal ────────────────────────────────────────────────────
-
-function PullConfirmModal() {
-  const { pendingPreview } = useSyncState()
-  if (!pendingPreview) return null
-
-  const { toAdd, toUpdate, toDelete } = pendingPreview
-
-  async function handleApply() {
-    setSyncState({ pendingPreview: null, phase: 'pulling', pullProgress: 30 })
-    try {
-      await applyPull(pendingPreview!)  // pendingPreview is non-null here (checked by parent)
-      setSyncState({ pullProgress: 70 })
-      await pullNonTaskTables()
-      setSyncState({ phase: 'done', pullProgress: 100, lastSyncAt: Date.now() })
-      setTimeout(() => {
-        if (getSyncState().phase === 'done') setSyncState({ phase: 'idle' })
-      }, 3000)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Apply failed'
-      setSyncState({ phase: 'error', errorMsg: msg })
-    }
-  }
-
-  function handleKeepLocal() {
-    setSyncState({ pendingPreview: null, phase: 'idle' })
-  }
-
-  async function handlePushOnly() {
-    setSyncState({ pendingPreview: null, phase: 'pushing', pushProgress: 0 })
-    try {
-      await pushOnly((done, total) => {
-        setSyncState({ pushProgress: Math.round((done / total) * 100) })
-      })
-      setSyncState({ phase: 'done', lastSyncAt: Date.now() })
-      setTimeout(() => {
-        if (getSyncState().phase === 'done') setSyncState({ phase: 'idle' })
-      }, 3000)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Push failed'
-      setSyncState({ phase: 'error', errorMsg: msg })
-    }
-  }
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0,
-      background: 'rgba(0,0,0,0.55)',
-      zIndex: 10000,
-      display: 'flex', alignItems: 'flex-end',
-    }}
-      onClick={e => { if (e.target === e.currentTarget) handleKeepLocal() }}
-    >
-      <div style={{
-        background: 'var(--paper)',
-        borderRadius: '20px 20px 0 0',
-        padding: '24px 20px 40px',
-        width: '100%',
-        maxWidth: 480,
-        margin: '0 auto',
-      }}>
-        <div style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: 20,
-          marginBottom: 12,
-          color: 'var(--ink)',
-        }}>
-          Pull from cloud?
-        </div>
-
-        <div style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 11,
-          color: 'var(--ink-3)',
-          letterSpacing: '0.05em',
-          display: 'flex', flexDirection: 'column', gap: 4,
-          marginBottom: 16,
-        }}>
-          {toAdd.length > 0 && (
-            <div>+{toAdd.length} new task{toAdd.length !== 1 ? 's' : ''}</div>
-          )}
-          {toUpdate.length > 0 && (
-            <div>~{toUpdate.length} updated task{toUpdate.length !== 1 ? 's' : ''}</div>
-          )}
-          {toDelete.length > 0 && (
-            <div style={{ color: 'var(--warn)' }}>
-              {toDelete.length} will be removed locally
-            </div>
-          )}
-          {toAdd.length === 0 && toUpdate.length === 0 && toDelete.length === 0 && (
-            <div>No changes to apply</div>
-          )}
-        </div>
-
-        {toDelete.length > 0 && (
-          <div style={{
-            background: 'var(--warn-soft)',
-            border: '1px solid var(--warn)',
-            borderRadius: 10,
-            padding: '10px 14px',
-            marginBottom: 16,
-            fontSize: 13,
-            color: 'var(--warn)',
-            lineHeight: 1.5,
-          }}>
-            Removing {toDelete.length} task{toDelete.length !== 1 ? 's' : ''} that{' '}
-            {toDelete.length !== 1 ? 'were' : 'was'} deleted on another device.
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            onClick={handleKeepLocal}
-            style={{
-              flex: 1, padding: '13px', borderRadius: 12,
-              background: 'var(--paper-2)',
-              border: '1px solid var(--rule)',
-              color: 'var(--ink)', fontSize: 14, fontWeight: 500,
-            }}
-          >
-            Keep local only
-          </button>
-          <button
-            onClick={handleApply}
-            style={{
-              flex: 1, padding: '13px', borderRadius: 12,
-              background: 'var(--ink)',
-              color: 'var(--paper)', fontSize: 14, fontWeight: 600,
-            }}
-          >
-            Pull changes
-          </button>
-        </div>
-
-        <button
-          onClick={handlePushOnly}
-          style={{
-            marginTop: 14,
-            width: '100%',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            color: 'var(--ink-3)',
-            letterSpacing: '0.05em',
-            textAlign: 'center',
-          }}
-        >
-          Push only (don&apos;t pull)
-        </button>
-      </div>
-    </div>
-  )
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function SyncStatusBar() {
   const syncState = useSyncState()
-  const { phase, pushProgress, pullProgress, lastSyncAt, errorMsg, pendingPreview } = syncState
+  const { phase, pushProgress, pullProgress, lastSyncAt, errorMsg } = syncState
+
+  // Pending outbox count — poll every 5 s so the badge stays current
+  const [pending, setPending] = React.useState(0)
+  useEffect(() => {
+    let alive = true
+    const refresh = () => outboxSize().then(n => { if (alive) setPending(n) }).catch(() => {})
+    refresh()
+    const id = setInterval(refresh, 5_000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
 
   // Tick "last synced" display every minute
   const [, setTick] = React.useState(0)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
-    tickRef.current = setInterval(() => setTick(t => t + 1), 60000)
+    tickRef.current = setInterval(() => setTick(t => t + 1), 60_000)
     return () => { if (tickRef.current) clearInterval(tickRef.current) }
   }, [])
 
   const barStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '4px 16px',
-    minHeight: 28,
-    background: 'var(--paper-2)',
+    display:      'flex',
+    alignItems:   'center',
+    gap:          8,
+    padding:      '4px 16px',
+    minHeight:    28,
+    background:   'var(--paper-2)',
     borderBottom: '1px solid var(--rule)',
-    flexShrink: 0,
-    fontFamily: 'var(--font-mono)',
-    fontSize: 10,
+    flexShrink:   0,
+    fontFamily:   'var(--font-mono)',
+    fontSize:     10,
     letterSpacing: '0.05em',
-    color: 'var(--ink-3)',
-    position: 'relative',
-    zIndex: 100,
+    color:        'var(--ink-3)',
+    position:     'relative',
+    zIndex:       100,
   }
 
   if (phase === 'idle') {
     return (
-      <>
-        <div style={barStyle}>
-          <span style={{ flex: 1 }}>
-            Last synced: {relativeTime(lastSyncAt)}
-          </span>
-          <button
-            onClick={triggerSync}
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 10,
-              letterSpacing: '0.05em',
-              color: 'var(--accent)',
-              padding: '2px 8px',
-              borderRadius: 4,
-              border: '1px solid var(--accent)',
-            }}
-          >
-            Sync
-          </button>
-        </div>
-        {pendingPreview && <PullConfirmModal />}
-      </>
+      <div style={barStyle}>
+        <span style={{ flex: 1 }}>
+          Last synced: {relativeTime(lastSyncAt)}
+          {pending > 0 && (
+            <span style={{ marginLeft: 6, color: 'var(--warn)' }}>
+              · {pending} pending
+            </span>
+          )}
+        </span>
+        <button
+          onClick={triggerSync}
+          style={{
+            fontFamily:    'var(--font-mono)',
+            fontSize:      10,
+            letterSpacing: '0.05em',
+            color:         pending > 0 ? 'var(--warn)' : 'var(--accent)',
+            padding:       '2px 8px',
+            borderRadius:  4,
+            border:        `1px solid ${pending > 0 ? 'var(--warn)' : 'var(--accent)'}`,
+          }}
+        >
+          Sync{pending > 0 ? ` (${pending})` : ''}
+        </button>
+      </div>
     )
   }
 
@@ -334,13 +197,10 @@ export default function SyncStatusBar() {
 
   if (phase === 'pulling') {
     return (
-      <>
-        <div style={barStyle}>
-          <span>Pulling&hellip;</span>
-          <ProgressBar value={pullProgress} />
-        </div>
-        {pendingPreview && <PullConfirmModal />}
-      </>
+      <div style={barStyle}>
+        <span>Pulling&hellip;</span>
+        <ProgressBar value={pullProgress} />
+      </div>
     )
   }
 
@@ -359,10 +219,13 @@ export default function SyncStatusBar() {
         <button
           onClick={triggerSync}
           style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10,
-            color: 'var(--warn)', letterSpacing: '0.05em',
-            padding: '2px 8px', borderRadius: 4,
-            border: '1px solid var(--warn)',
+            fontFamily:    'var(--font-mono)',
+            fontSize:      10,
+            color:         'var(--warn)',
+            letterSpacing: '0.05em',
+            padding:       '2px 8px',
+            borderRadius:  4,
+            border:        '1px solid var(--warn)',
           }}
         >
           Retry
