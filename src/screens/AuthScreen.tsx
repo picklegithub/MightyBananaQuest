@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Icons } from '../components/ui/Icons'
+import mascotUrl from '/mascot.png'
 
 type AuthStep = 'email' | 'sent'
 type AuthMode = 'magic' | 'password'
@@ -97,7 +98,7 @@ export const AuthScreen = () => {
     <div className="screen" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 28px' }}>
       {/* Logo / wordmark */}
       <div style={{ marginBottom: 40, textAlign: 'center' }}>
-        <img src="/mascot.png" alt="MBQ Mascot" style={{ width: 90, height: 90, objectFit: 'contain', marginBottom: 12 }} />
+        <img src={mascotUrl} alt="MBQ Mascot" style={{ width: 90, height: 90, objectFit: 'contain', marginBottom: 12 }} />
         <div className="t-display" style={{ fontSize: 28, letterSpacing: '-0.02em', marginBottom: 6 }}>
           MightyBananaQuest
         </div>

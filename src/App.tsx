@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
+import mascotUrl from '/mascot.png'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from './data/db'
 import { supabase } from './lib/supabase'
@@ -427,7 +428,7 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
       alignItems: 'center', justifyContent: 'center', background: 'var(--ink)', color: 'var(--paper)',
       gap: 12,
     }}>
-      <img src="/mascot.png" alt="MBQ Mascot" style={{ width: 120, height: 120, objectFit: 'contain' }} />
+      <img src={mascotUrl} alt="MBQ Mascot" style={{ width: 120, height: 120, objectFit: 'contain' }} />
       <div className="t-display" style={{ fontSize: 22, letterSpacing: '-0.01em' }}>MightyBananaQuest</div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, opacity: 0.4, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
         The small things, handled.
