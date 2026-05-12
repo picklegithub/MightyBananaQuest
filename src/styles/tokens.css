@@ -1,0 +1,133 @@
+/* Mighty Banana Quest — Design Tokens
+ * Paper-and-ink aesthetic. Clean linen light, true dark.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+:root {
+  /* Type */
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-ui: 'Inter Tight', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* ── Light — Linen (default)
+   *  Near-zero chroma so it reads as clean paper, not sepia.
+   *  Ink is near-black, not warm brown.
+   * ─────────────────────────────────────────────────────── */
+  --paper:   oklch(0.977 0.004 75);    /* #F9F8F6 — linen white     */
+  --paper-2: oklch(0.958 0.005 75);    /* #F3F1EE — off-white       */
+  --paper-3: oklch(0.932 0.006 75);    /* #ECE9E5 — light rule fill */
+  --ink:     oklch(0.130 0.010 55);    /* #1A1917 — near black      */
+  --ink-2:   oklch(0.360 0.008 55);    /* #4A4744 — secondary text  */
+  --ink-3:   oklch(0.580 0.006 60);    /* #7D7A77 — tertiary text   */
+  --ink-4:   oklch(0.740 0.004 60);    /* #B0ADAA — placeholder     */
+  --rule:    oklch(0.878 0.004 75);    /* #E1DED9 — dividers        */
+  --accent:  oklch(0.400 0.090 145);   /* #3D6B47 — olive green     */
+  --accent-soft: oklch(0.910 0.030 145); /* #E2EDDB — accent tint   */
+  --warn:    oklch(0.520 0.140 50);    /* #8B4A1C — terracotta      */
+  --warn-soft: oklch(0.938 0.038 50);  /* #F5E8DC — warn tint       */
+
+  /* Spacing scale */
+  --s-1: 4px;   --s-2: 8px;   --s-3: 12px;  --s-4: 16px;
+  --s-5: 20px;  --s-6: 24px;  --s-7: 32px;  --s-8: 40px;
+  --s-9: 48px;  --s-10: 64px;
+
+  /* Radii */
+  --r-1: 6px;  --r-2: 10px;  --r-3: 14px;  --r-4: 20px;  --r-pill: 999px;
+
+  /* Shadows — neutral, not warm-brown */
+  --shadow-1:   0 1px 0 rgba(0,0,0,0.04),  0 1px 3px rgba(0,0,0,0.06);
+  --shadow-2:   0 2px 6px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.08);
+  --shadow-pop: 0 4px 16px rgba(0,0,0,0.10), 0 16px 40px rgba(0,0,0,0.12);
+}
+
+/* ── Palette: Mono — stark black & white, sans-serif display ────────────── */
+[data-palette="mono"] {
+  --paper:   oklch(0.990 0 0);
+  --paper-2: oklch(0.968 0 0);
+  --paper-3: oklch(0.942 0 0);
+  --ink:     oklch(0.10 0 0);
+  --ink-2:   oklch(0.32 0 0);
+  --ink-3:   oklch(0.56 0 0);
+  --ink-4:   oklch(0.74 0 0);
+  --rule:    oklch(0.88 0 0);
+  --accent:  oklch(0.10 0 0);
+  --accent-soft: oklch(0.90 0 0);
+  --warn:    oklch(0.28 0 0);
+  --warn-soft: oklch(0.93 0 0);
+  --font-display: 'Inter Tight', system-ui, -apple-system, sans-serif;
+}
+
+/* ── Palette: Custom — user-chosen hue via --custom-hue CSS variable ─────── */
+/* --custom-hue is set inline on <html> by applyTheme() in App.tsx            */
+[data-palette="custom"] {
+  --custom-hue: 215;  /* fallback — overridden at runtime */
+  --paper:      oklch(0.966 0.007 var(--custom-hue));
+  --paper-2:    oklch(0.946 0.009 var(--custom-hue));
+  --paper-3:    oklch(0.922 0.011 var(--custom-hue));
+  --ink:        oklch(0.18 0.022 var(--custom-hue));
+  --ink-2:      oklch(0.40 0.016 var(--custom-hue));
+  --ink-3:      oklch(0.62 0.010 var(--custom-hue));
+  --ink-4:      oklch(0.76 0.006 var(--custom-hue));
+  --rule:       oklch(0.87 0.008 var(--custom-hue));
+  --accent:     oklch(0.44 0.12  var(--custom-hue));
+  --accent-soft: oklch(0.88 0.05 var(--custom-hue));
+  --warn:       oklch(0.52 0.14 40);
+  --warn-soft:  oklch(0.93 0.04 40);
+}
+
+/* ── Dark — near-black ink-on-dark ──────────────────────────────────────── */
+[data-theme="dark"] {
+  --paper:   oklch(0.130 0.010 75);    /* warm charcoal — matches light palette family */
+  --paper-2: oklch(0.178 0.012 78);    /* warm card surface          */
+  --paper-3: oklch(0.228 0.014 80);    /* warm elevated surface      */
+  --ink:     oklch(0.958 0.006 80);    /* #F5F4F0 — warm off-white   */
+  --ink-2:   oklch(0.780 0.006 80);    /* #C3BFBA — secondary        */
+  --ink-3:   oklch(0.580 0.005 80);    /* #888480 — tertiary         */
+  --ink-4:   oklch(0.420 0.004 80);    /* #585450 — placeholder      */
+  --rule:    oklch(0.272 0.010 78);    /* warm divider               */
+  --accent:  oklch(0.760 0.100 145);   /* #6DBF7A — green on dark    */
+  --accent-soft: oklch(0.270 0.055 145); /* #1E3A23 — tint on dark   */
+  --warn:    oklch(0.720 0.130 50);    /* #D4703E — terracotta       */
+  --warn-soft: oklch(0.270 0.070 50);  /* #3A2018 — warn tint dark   */
+  --shadow-1:   0 1px 0 rgba(0,0,0,0.30), 0 1px 3px rgba(0,0,0,0.40);
+  --shadow-2:   0 2px 6px rgba(0,0,0,0.30), 0 8px 24px rgba(0,0,0,0.40);
+  --shadow-pop: 0 4px 16px rgba(0,0,0,0.40), 0 16px 40px rgba(0,0,0,0.50);
+}
+
+/* ── Dark × Mono ─────────────────────────────────────────────────────────── */
+[data-theme="dark"][data-palette="mono"] {
+  --paper:   oklch(0.10 0 0);
+  --paper-2: oklch(0.15 0 0);
+  --paper-3: oklch(0.20 0 0);
+  --ink:     oklch(0.97 0 0);
+  --ink-2:   oklch(0.78 0 0);
+  --ink-3:   oklch(0.58 0 0);
+  --ink-4:   oklch(0.40 0 0);
+  --rule:    oklch(0.26 0 0);
+  --accent:  oklch(0.97 0 0);
+  --accent-soft: oklch(0.24 0 0);
+  --warn:    oklch(0.80 0 0);
+  --warn-soft: oklch(0.22 0 0);
+  --font-display: 'Inter Tight', system-ui, -apple-system, sans-serif;
+}
+
+/* ── Dark × Custom ───────────────────────────────────────────────────────── */
+[data-theme="dark"][data-palette="custom"] {
+  --paper:      oklch(0.16 0.018 var(--custom-hue));
+  --paper-2:    oklch(0.20 0.020 var(--custom-hue));
+  --paper-3:    oklch(0.24 0.022 var(--custom-hue));
+  --ink:        oklch(0.95 0.010 var(--custom-hue));
+  --ink-2:      oklch(0.76 0.008 var(--custom-hue));
+  --ink-3:      oklch(0.56 0.008 var(--custom-hue));
+  --ink-4:      oklch(0.40 0.005 var(--custom-hue));
+  --rule:       oklch(0.30 0.016 var(--custom-hue));
+  --accent:     oklch(0.72 0.12  var(--custom-hue));
+  --accent-soft: oklch(0.28 0.07 var(--custom-hue));
+  --warn:       oklch(0.72 0.13 40);
+  --warn-soft:  oklch(0.30 0.08 40);
+}
+
+/* ── Scrollbar suppression (sheet-level) ─────────────────────────────────── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
