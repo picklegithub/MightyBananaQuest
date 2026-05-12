@@ -89,7 +89,7 @@ export function SearchSheet({ onClose, navigate }: Props) {
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
-  function catHue(catId: string): number {
+  function catHue(catId: string | undefined): number {
     return cats.find(c => c.id === catId)?.hue ?? 220
   }
 

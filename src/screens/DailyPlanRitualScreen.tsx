@@ -251,7 +251,7 @@ function DPRStep1Reckoning({
   }, [today]) ?? []
 
   const categories = useLiveQuery(() => db.categories.toArray(), [])
-  const catHue = (catId: string) => categories?.find(c => c.id === catId)?.hue ?? 200
+  const catHue = (catId: string | undefined) => categories?.find(c => c.id === catId)?.hue ?? 200
 
   const actionFor = (taskId: string): Reckoning['action'] | undefined =>
     reckonings.find(r => r.taskId === taskId)?.action
@@ -424,7 +424,7 @@ function DPRStep2Calendar({ onBudgetChange }: { onBudgetChange: (min: number) =>
   }, [today]) ?? []
 
   const categories = useLiveQuery(() => db.categories.toArray(), [])
-  const catHue = (catId: string) => categories?.find(c => c.id === catId)?.hue ?? 200
+  const catHue = (catId: string | undefined) => categories?.find(c => c.id === catId)?.hue ?? 200
 
   // Build sorted blocks from timed tasks
   const blocks: CalBlock[] = useMemo(() => {
@@ -634,7 +634,7 @@ function DPRStep3Pick({
   const [showAll, setShowAll] = useState(false)
 
   const categories = useLiveQuery(() => db.categories.toArray(), [])
-  const catHue = (catId: string) => categories?.find(c => c.id === catId)?.hue ?? 200
+  const catHue = (catId: string | undefined) => categories?.find(c => c.id === catId)?.hue ?? 200
 
   // Fetch candidates from tasks + habits
   const rawTasks  = useLiveQuery(() => db.tasks.filter(t => !t.done).toArray(), []) ?? []
@@ -916,7 +916,7 @@ function DPRStep4Top3({
   onTop3Change: (ids: string[]) => void
 }) {
   const categories = useLiveQuery(() => db.categories.toArray(), [])
-  const catHue = (catId: string) => categories?.find(c => c.id === catId)?.hue ?? 200
+  const catHue = (catId: string | undefined) => categories?.find(c => c.id === catId)?.hue ?? 200
 
   // Resolve the picked tasks in a stable order (by title, then id)
   const pickedTasks = useLiveQuery(async () => {

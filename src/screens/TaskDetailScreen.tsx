@@ -9,7 +9,7 @@ import { UnifiedDuePicker } from '../components/ui/UnifiedDuePicker'
 import { formatTime, formatDueLabel } from '../lib/parseDue'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
 import { TaskPomodoro } from '../components/TaskPomodoro'
-import type { Screen, Task, EffortKey } from '../types'
+import type { Screen, Task, EffortKey, Goal } from '../types'
 import { useIsDark } from '../lib/colorMode'
 import { areaColor } from '../lib/areaColor'
 
@@ -162,7 +162,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
   const task       = useLiveQuery(() => db.tasks.get(taskId), [taskId])
   const settings   = useLiveQuery(() => db.settings.get(1), [])
   const categories = useLiveQuery(() => db.categories.toArray(), [])
-  const linkedGoal = useLiveQuery(
+  const linkedGoal = useLiveQuery<Goal | undefined>(
     () => task?.goalId ? db.goals.get(task.goalId) : Promise.resolve(undefined),
     [task?.goalId],
   )
