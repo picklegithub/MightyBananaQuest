@@ -165,8 +165,9 @@ export default function App() {
   useEffect(() => {
     if (authState !== 'authed') return
     let listener: { remove: () => void } | null = null
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    import('@capacitor/app' as any).then((mod: any) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    import(/* @vite-ignore */ '@capacitor/app').then((mod: any) => {
       mod.App.addListener('appStateChange', (state: { isActive: boolean }) => {
         if (state.isActive) triggerSync().catch((e: unknown) => console.warn('[sync] foreground sync', e))
       }).then((handle: { remove: () => void }) => { listener = handle })
