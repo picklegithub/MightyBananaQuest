@@ -13,7 +13,7 @@
 
 import React, { useEffect, useRef } from 'react'
 import { useSyncState, setSyncState, getSyncState } from '../lib/syncState'
-import { drainOutbox, incrementalPull, outboxSize } from '../lib/sync'
+import { drainOutbox, incrementalPull, outboxSize, outboxDeadCount, retryDeadLettered } from '../lib/sync'
 
 // ── triggerSync (named export) ────────────────────────────────────────────────
 
@@ -124,11 +124,15 @@ export default function SyncStatusBar() {
   const syncState = useSyncState()
   const { phase, pushProgress, pullProgress, lastSyncAt, errorMsg } = syncState
 
-  // Pending outbox count — poll every 5 s so the badge stays current
+  // Pending + dead-lettered outbox counts — poll every 5 s
   const [pending, setPending] = React.useState(0)
+  const [dead,    setDead]    = React.useState(0)
   useEffect(() => {
     let alive = true
-    const refresh = () => outboxSize().then(n => { if (alive) setPending(n) }).catch(() => {})
+    const refresh = () => {
+      outboxSize().then(n => { if (alive) setPending(n) }).catch(() => {})
+      outboxDeadCount().then(n => { if (alive) setDead(n) }).catch(() => {})
+    }
     refresh()
     const id = setInterval(refresh, 5_000)
     return () => { alive = false; clearInterval(id) }
@@ -165,11 +169,24 @@ export default function SyncStatusBar() {
         <span style={{ flex: 1 }}>
           Last synced: {relativeTime(lastSyncAt)}
           {pending > 0 && (
-            <span style={{ marginLeft: 6, color: 'var(--warn)' }}>
-              · {pending} pending
-            </span>
+            <span style={{ marginLeft: 6, color: 'var(--warn)' }}>· {pending} pending</span>
+          )}
+          {dead > 0 && (
+            <span style={{ marginLeft: 6, color: 'var(--warn)' }}>· {dead} failed</span>
           )}
         </span>
+        {dead > 0 && (
+          <button
+            onClick={() => retryDeadLettered().then(triggerSync)}
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
+              color: 'var(--warn)', padding: '2px 8px', borderRadius: 4,
+              border: '1px solid var(--warn)', marginRight: 4,
+            }}
+          >
+            Retry failed
+          </button>
+        )}
         <button
           onClick={triggerSync}
           style={{

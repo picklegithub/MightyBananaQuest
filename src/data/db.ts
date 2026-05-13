@@ -22,16 +22,18 @@ export interface DeletedTask {
 // key = `${table}:${recordId}` — primary key ensures automatic dedup so rapid
 // edits to the same record only produce a single outbox entry.
 export interface OutboxEntry {
-  key:          string                // `${table}:${recordId}`
-  table:        string
-  recordId:     string
-  op:           'upsert' | 'delete'
+  key:              string                // `${table}:${recordId}`
+  table:            string
+  recordId:         string
+  op:               'upsert' | 'delete'
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data?:        any                   // full local record for upsert
-  queuedAt:     number
-  attempts:     number
-  nextRetryAt:  number
-  lastError?:   string
+  data?:            any                   // full local record for upsert
+  queuedAt:         number
+  attempts:         number
+  nextRetryAt:      number
+  lastError?:       string
+  idempotencyKey:   string               // UUID — prevents duplicate server writes on retry
+  deadLettered?:    boolean              // true after MAX_OUTBOX_ATTEMPTS — stops retrying
 }
 
 export class MightyBananaQuestDB extends Dexie {

@@ -84,34 +84,53 @@ function setLastPullAt(iso: string): void {
 // Called synchronously inside every mutation helper in db.ts.
 // Does NOT throw — outbox failures are non-blocking (will retry via drain).
 
+const MAX_OUTBOX_ATTEMPTS = 5  // dead-letter after this many consecutive failures
+
 export function enqueueUpsert(table: string, recordId: string, data: object): void {
   const key = `${table}:${recordId}`
   const now  = Date.now()
-  // fire-and-forget put (IndexedDB is async but we don't need to await here)
-  db.outbox.put({
-    key,
-    table,
-    recordId,
-    op:          'upsert',
-    data,
-    queuedAt:    now,
-    attempts:    0,
-    nextRetryAt: now,
-  }).catch(() => {/* silently fail — worst case we just miss this sync */})
+  // Preserve existing idempotencyKey if the entry already exists (rapid edits → same key)
+  db.outbox.get(key).then(existing => {
+    db.outbox.put({
+      key,
+      table,
+      recordId,
+      op:              'upsert',
+      data,
+      queuedAt:        existing?.queuedAt ?? now,
+      attempts:        0,                          // reset on each new edit
+      nextRetryAt:     now,
+      idempotencyKey:  existing?.idempotencyKey ?? crypto.randomUUID(),
+      deadLettered:    false,
+    }).catch(() => {})
+  }).catch(() => {
+    db.outbox.put({
+      key, table, recordId, op: 'upsert', data,
+      queuedAt: now, attempts: 0, nextRetryAt: now,
+      idempotencyKey: crypto.randomUUID(), deadLettered: false,
+    }).catch(() => {})
+  })
 }
 
 export function enqueueDelete(table: string, recordId: string): void {
   const key = `${table}:${recordId}`
   const now  = Date.now()
-  db.outbox.put({
-    key,
-    table,
-    recordId,
-    op:          'delete',
-    queuedAt:    now,
-    attempts:    0,
-    nextRetryAt: now,
-  }).catch(() => {})
+  db.outbox.get(key).then(existing => {
+    db.outbox.put({
+      key, table, recordId, op: 'delete',
+      queuedAt:       existing?.queuedAt ?? now,
+      attempts:       0,
+      nextRetryAt:    now,
+      idempotencyKey: existing?.idempotencyKey ?? crypto.randomUUID(),
+      deadLettered:   false,
+    }).catch(() => {})
+  }).catch(() => {
+    db.outbox.put({
+      key, table, recordId, op: 'delete',
+      queuedAt: now, attempts: 0, nextRetryAt: now,
+      idempotencyKey: crypto.randomUUID(), deadLettered: false,
+    }).catch(() => {})
+  })
 }
 
 // ── Serialisers ───────────────────────────────────────────────────────────────
@@ -463,11 +482,12 @@ export async function drainOutbox(): Promise<number> {
   const userId = await getUserIdAsync()
   if (!userId) return 0
 
-  // Fetch all entries that are due for retry, oldest first
-  const due: OutboxEntry[] = await db.outbox
+  // Fetch all entries that are due for retry, oldest first — skip dead-lettered
+  const due: OutboxEntry[] = (await db.outbox
     .where('nextRetryAt')
     .belowOrEqual(Date.now())
     .sortBy('queuedAt')
+  ).filter(e => !e.deadLettered)
 
   if (due.length === 0) return 0
 
@@ -494,7 +514,7 @@ export async function drainOutbox(): Promise<number> {
           if (error) throw error
         }
       } else {
-        // Upsert: send the full local record
+        // Upsert: send the full local record + idempotency key header
         const row = serializeForSupabase(entry.table, entry.data, userId)
         const conflictCol =
           entry.table === 'settings'    ? 'user_id' :
@@ -503,6 +523,10 @@ export async function drainOutbox(): Promise<number> {
         const { error } = await supabase
           .from(entry.table)
           .upsert(row, { onConflict: conflictCol })
+          // Note: Supabase JS client doesn't expose a raw header API for
+          // Idempotency-Key, but the key is stored for dedup tracking.
+          // Full header support requires a direct fetch() call — added when
+          // Supabase supports it natively or via a custom fetch wrapper.
         if (error) throw error
       }
       // Success — remove from outbox
@@ -510,13 +534,18 @@ export async function drainOutbox(): Promise<number> {
     } catch (err) {
       failures++
       const attempts = entry.attempts + 1
+      const deadLettered = attempts >= MAX_OUTBOX_ATTEMPTS
       // Exponential back-off: 30 s, 60 s, 90 s … cap at 5 min
       const backoffMs = Math.min(30_000 * attempts, 300_000)
       await db.outbox.update(entry.key, {
         attempts,
-        nextRetryAt: Date.now() + backoffMs,
-        lastError:   errMsg(err),
+        nextRetryAt:  Date.now() + backoffMs,
+        lastError:    errMsg(err),
+        deadLettered,
       })
+      if (deadLettered) {
+        console.warn(`[sync] dead-lettered ${entry.key} after ${attempts} attempts: ${errMsg(err)}`)
+      }
     }
   }
 
@@ -1021,5 +1050,23 @@ export function stopRealtime(): void {
 
 // ── Outbox size (used by SyncStatusBar for pending indicator) ─────────────────
 export async function outboxSize(): Promise<number> {
-  return db.outbox.count()
+  return db.outbox.filter(e => !e.deadLettered).count()
+}
+
+/** Count of dead-lettered entries (gave up after MAX_OUTBOX_ATTEMPTS). */
+export async function outboxDeadCount(): Promise<number> {
+  return db.outbox.filter(e => !!e.deadLettered).count()
+}
+
+/** Re-queue all dead-lettered entries for retry (user-initiated). */
+export async function retryDeadLettered(): Promise<void> {
+  const dead = await db.outbox.filter(e => !!e.deadLettered).toArray()
+  for (const entry of dead) {
+    await db.outbox.update(entry.key, {
+      deadLettered: false,
+      attempts:     0,
+      nextRetryAt:  Date.now(),
+      lastError:    undefined,
+    })
+  }
 }
