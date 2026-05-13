@@ -1,16 +1,9 @@
 /**
- * UnifiedDuePicker — one panel for due date, time, and repeat.
- *
- * Natural-language input at the top understands:
- *   "tomorrow at 3pm"          → due=Tomorrow, time=15:00
- *   "every Monday at 10am"     → due=next Mon, recurring=Weekly on Mon, time=10:00
- *   "next Friday"              → due=2025-04-25
- *
- * Three chip rows below let you tap-select without typing.
+ * UnifiedDuePicker — chip-based panel for due date, time, and repeat.
  */
 
 import React, { useState, useRef, useEffect } from 'react'
-import { parseDue, dueSummary, formatDueLabel, formatTime } from '../../lib/parseDue'
+import { formatDueLabel, formatTime, dueSummary } from '../../lib/parseDue'
 
 export interface ScheduleValue {
   due: string
@@ -262,10 +255,6 @@ function parseCustomRepeat(val: string): { n: number; period: string } {
 }
 
 export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
-  const [text, setText] = useState('')
-  const [focused, setFocused] = useState(false)
-  const [preview, setPreview] = useState<{ due: string; recurring: string | null; time?: string } | null>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dateInputRef = useRef<HTMLInputElement>(null)
 
   const isCustomRepeat = !!recurring && !REPEAT_CHIPS.slice(0, -1).some(c => c.value === recurring)
@@ -276,21 +265,6 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
 
   const isPresetTime = TIME_PRESETS.some(p => p.value === time)
   const [showCustomTime, setShowCustomTime] = useState(!isPresetTime && !!time)
-
-  // ── Natural language input ─────────────────────────────────────────────────
-
-  function handleTextChange(v: string) {
-    setText(v)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!v.trim()) { setPreview(null); return }
-    debounceRef.current = setTimeout(() => setPreview(parseDue(v)), 320)
-  }
-
-  function commitText(e: React.FormEvent) {
-    e.preventDefault()
-    const result = preview ?? (text.trim() ? parseDue(text.trim()) : null)
-    if (result) { onChange(result.due, result.recurring, result.time); setText(''); setPreview(null) }
-  }
 
   // ── Chip helpers ───────────────────────────────────────────────────────────
 
@@ -337,43 +311,6 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-      {/* Natural language input */}
-      <form onSubmit={commitText} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <input
-          value={text}
-          onChange={e => handleTextChange(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setTimeout(() => setFocused(false), 180)}
-          placeholder={hasValue ? displayLabel : 'e.g. "next Friday at 2pm" or "every Mon"…'}
-          style={{
-            width: '100%', padding: '10px 13px',
-            background: 'var(--paper-2)', border: '1px solid var(--rule)',
-            borderRadius: 10, fontSize: 13, color: 'var(--ink)',
-          }}
-        />
-        {focused && text.trim() && preview && (
-          <div style={{
-            padding: '8px 12px',
-            background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 8,
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
-          }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-2)' }}>
-              ✦ {dueSummary(preview.due, preview.recurring, preview.time)}
-            </span>
-            <button
-              type="submit"
-              style={{
-                padding: '4px 10px', borderRadius: 6, fontSize: 11, flexShrink: 0,
-                fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
-                background: 'var(--ink)', color: 'var(--paper)',
-              }}
-            >
-              Set
-            </button>
-          </div>
-        )}
-      </form>
 
       {/* DUE DATE */}
       <div>

@@ -8,7 +8,7 @@ type AuthMode = 'magic' | 'password'
 
 export const AuthScreen = () => {
   const [step, setStep] = useState<AuthStep>('email')
-  const [mode, setMode] = useState<AuthMode>('magic')
+  const [mode, setMode] = useState<AuthMode>('password')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)

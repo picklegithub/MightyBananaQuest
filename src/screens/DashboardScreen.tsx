@@ -420,7 +420,7 @@ export const DashboardScreen = ({ navigate }: Props) => {
     ...(isComplete && hasTop3 ? todayPlan!.top3Ids : []),
     ...journalPinnedIds,
   ])
-  const upNextTasks  = allTodayTasks.filter(t => !top3Set.has(t.id))
+  const upNextTasks  = allTodayTasks.filter(t => !top3Set.has(t.id) && !t.done)
 
   async function handleComplete(e: React.MouseEvent, task: Task) {
     e.stopPropagation()

@@ -221,7 +221,7 @@ function GhostInput({ catId, onSaved }: { catId: string; onSaved: () => void }) 
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
-  const [filter,       setFilter]       = useState<'open' | 'all' | 'done'>('all')
+  const [filter,       setFilter]       = useState<'open' | 'all' | 'done'>('open')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'someday' | 'backlog'>('all')
   const [groupBy,      setGroupBy]      = useState<'area' | 'due' | 'effort'>('due')
   const [search,    setSearch]    = useState('')
