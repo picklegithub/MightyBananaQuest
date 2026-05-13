@@ -13,7 +13,7 @@
 
 import React, { useEffect, useRef } from 'react'
 import { useSyncState, setSyncState, getSyncState } from '../lib/syncState'
-import { drainOutbox, incrementalPull, outboxSize, outboxDeadCount, retryDeadLettered } from '../lib/sync'
+import { drainOutbox, incrementalPull, incrementalPullBySeq, outboxSize, outboxDeadCount, retryDeadLettered } from '../lib/sync'
 
 // ── triggerSync (named export) ────────────────────────────────────────────────
 
@@ -56,8 +56,10 @@ export async function triggerSync(): Promise<void> {
     }
 
     // ── Phase 2: Incremental pull ─────────────────────────────────────────
+    // Prefer server_seq pull (migration 007) — falls back to synced_at if not deployed.
     setSyncState({ phase: 'pulling', pullProgress: 10 })
-    const { pulled, deleted } = await withTimeout(incrementalPull(), 45_000, 'Incremental pull')
+    const seqResult = await withTimeout(incrementalPullBySeq(), 45_000, 'Seq pull')
+    const { pulled, deleted } = seqResult ?? await withTimeout(incrementalPull(), 45_000, 'Incremental pull')
     setSyncState({ pullProgress: 100 })
 
     console.debug(`[sync] pulled ${pulled} rows, soft-deleted ${deleted} rows`)

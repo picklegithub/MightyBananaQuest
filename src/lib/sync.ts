@@ -66,11 +66,21 @@ export async function getUserIdAsync(): Promise<string | null> {
 }
 
 // ── Pull watermark ────────────────────────────────────────────────────────────
-// Stored as an ISO string — the max synced_at from the last pull.
-// Using the server's synced_at (set by trigger) instead of client time
-// means clock skew between devices can never create missed records.
+// Dual watermark strategy during migration 007 transition:
+//
+//   LAST_SEQ_KEY  — server_seq integer (preferred, post-007)
+//     Immune to clock skew. Used when migration 007 has been applied and
+//     server_seq columns are populated.
+//
+//   LAST_PULL_KEY — synced_at ISO timestamp (legacy, pre-007)
+//     Still used as fallback when server_seq is unavailable (null on all rows,
+//     meaning 007 hasn't been deployed yet). Clients that have never pulled
+//     start with null → full pull on first sync.
+//
+// Once 007 is stable in production the synced_at fallback path can be removed.
 
 const LAST_PULL_KEY = 'mbq_last_pull_at'
+const LAST_SEQ_KEY  = 'mbq_last_server_seq'
 
 export function getLastPullAt(): string | null {
   try { return localStorage.getItem(LAST_PULL_KEY) } catch { return null }
@@ -78,6 +88,14 @@ export function getLastPullAt(): string | null {
 
 function setLastPullAt(iso: string): void {
   try { localStorage.setItem(LAST_PULL_KEY, iso) } catch {}
+}
+
+export function getLastServerSeq(): number {
+  try { return parseInt(localStorage.getItem(LAST_SEQ_KEY) ?? '0', 10) || 0 } catch { return 0 }
+}
+
+function setLastServerSeq(seq: number): void {
+  try { localStorage.setItem(LAST_SEQ_KEY, String(seq)) } catch {}
 }
 
 // ── Outbox helpers ────────────────────────────────────────────────────────────
@@ -703,6 +721,126 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
   if (maxOccurredAt) setLastPullAt(maxOccurredAt)
 
   return { pulled, deleted }
+}
+
+// ── Server-seq incremental pull (post migration 007) ─────────────────────────
+// Replaces the synced_at watermark pull once migration 007 is deployed.
+// Uses a monotonic server_seq assigned by Postgres trigger — immune to
+// client clock skew. Pages through 100 rows at a time until empty.
+//
+// Returns null if server_seq columns are not yet populated (007 not deployed),
+// allowing callers to fall back to incrementalPull().
+
+const PULL_PAGE_SIZE = 100
+
+const TABLE_PULLERS: Array<{
+  name: string
+  pull: (since: number, userId: string) => Promise<{ pulled: number; deleted: number; maxSeq: number }>
+}> = [
+  {
+    name: 'tasks',
+    pull: async (since, userId) => {
+      let pulled = 0; let deleted = 0; let maxSeq = since; let hasMore = true
+      const tombstoneIds = new Set((await db.deletedTasks.toArray()).map(t => t.id))
+      while (hasMore) {
+        const { data, error } = await supabase.from('tasks').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0
+          if (seq > maxSeq) maxSeq = seq
+          if (row.deleted_at) {
+            await db.deletedTasks.put({ id: row.id as string, deletedAt: Date.now() })
+            await db.tasks.delete(row.id as string); deleted++
+          } else if (!tombstoneIds.has(row.id as string)) {
+            const incoming = rowToTask(row); const local = await db.tasks.get(incoming.id)
+            const inTs = incoming.updatedAt ?? 0; const loTs = local?.updatedAt ?? 0
+            if (!local || inTs >= loTs) { await db.tasks.put(incoming); pulled++ }
+          }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted, maxSeq }
+    },
+  },
+  {
+    name: 'habits',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('habits').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          const incoming = rowToHabit(row); const local = await db.habits.get(incoming.id)
+          const inTs = incoming.updatedAt ?? 0; const loTs = local?.updatedAt ?? 0
+          if (!local || inTs >= loTs) { await db.habits.put(incoming); pulled++ }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
+  {
+    name: 'goals',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('goals').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          const incoming = rowToGoal(row); const local = await db.goals.get(incoming.id) as (Goal & { updatedAt?: number }) | undefined
+          const inTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
+          const loTs = local?.updatedAt ?? 0
+          if (!local || inTs >= loTs) { await db.goals.put(incoming); pulled++ }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
+  {
+    name: 'settings',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since
+      const { data } = await supabase.from('settings').select('*')
+        .eq('user_id', userId).gt('server_seq', maxSeq).order('server_seq', { ascending: true }).limit(1)
+      if (data && data.length > 0) {
+        const seq = (data[0].server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+        await db.settings.update(1, rowToSettings(data[0])); pulled++
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
+]
+
+export async function incrementalPullBySeq(): Promise<{ pulled: number; deleted: number } | null> {
+  const userId = await getUserIdAsync()
+  if (!userId) return null
+
+  // Check if migration 007 is deployed by probing server_seq on tasks
+  const { data: probe } = await supabase.from('tasks')
+    .select('server_seq').eq('user_id', userId).not('server_seq', 'is', null).limit(1)
+  if (!probe || probe.length === 0) return null  // 007 not yet deployed — signal caller to fall back
+
+  const lastSeq = getLastServerSeq()
+  let totalPulled = 0; let totalDeleted = 0; let maxSeq = lastSeq
+
+  for (const puller of TABLE_PULLERS) {
+    const { pulled, deleted, maxSeq: tableMax } = await puller.pull(lastSeq, userId)
+    totalPulled += pulled; totalDeleted += deleted
+    if (tableMax > maxSeq) maxSeq = tableMax
+  }
+
+  if (maxSeq > lastSeq) setLastServerSeq(maxSeq)
+
+  return { pulled: totalPulled, deleted: totalDeleted }
 }
 
 // ── Fallback full pull (used before migration 004 is applied) ─────────────────
