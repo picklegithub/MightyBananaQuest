@@ -174,6 +174,27 @@ export default function App() {
     return () => { listener?.remove() }
   }, [authState])
 
+  // ── PWA foreground resume — visibilitychange (S-4) ───────────────────────
+  // Fires when the user switches back to the tab or unlocks their phone (PWA).
+  // Debounced to 1 s so rapid focus/blur cycles don't spam the server.
+  // Complements S-3 (Capacitor appStateChange) which covers native builds.
+  useEffect(() => {
+    if (authState !== 'authed') return
+    let debounce: ReturnType<typeof setTimeout> | null = null
+    const handler = () => {
+      if (document.visibilityState !== 'visible') return
+      if (debounce) clearTimeout(debounce)
+      debounce = setTimeout(() => {
+        triggerSync().catch(e => console.warn('[sync] visibility sync', e))
+      }, 1000)
+    }
+    document.addEventListener('visibilitychange', handler)
+    return () => {
+      document.removeEventListener('visibilitychange', handler)
+      if (debounce) clearTimeout(debounce)
+    }
+  }, [authState])
+
   // ── Offline / online banner ────────────────────────────────────────────────
   useEffect(() => {
     const onOnline  = () => setIsOnline(true)
