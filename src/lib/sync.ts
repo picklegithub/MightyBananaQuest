@@ -1196,6 +1196,23 @@ export async function outboxDeadCount(): Promise<number> {
   return db.outbox.filter(e => !!e.deadLettered).count()
 }
 
+/** Returns pending (non-dead) outbox task IDs as a Set<string>. */
+export async function getPendingTaskIds(): Promise<Set<string>> {
+  const entries = await db.outbox.filter(e => e.table === 'tasks' && !e.deadLettered).toArray()
+  return new Set(entries.map(e => e.recordId))
+}
+
+/** Returns dead-lettered outbox task IDs as a Set<string>. */
+export async function getFailedTaskIds(): Promise<Set<string>> {
+  const entries = await db.outbox.filter(e => e.table === 'tasks' && !!e.deadLettered).toArray()
+  return new Set(entries.map(e => e.recordId))
+}
+
+/** Returns all dead-lettered outbox entries with their last error (for dashboard). */
+export async function getDeadEntries(): Promise<Array<{ key: string; table: string; recordId: string; attempts: number; lastError?: string }>> {
+  return db.outbox.filter(e => !!e.deadLettered).toArray()
+}
+
 /** Re-queue all dead-lettered entries for retry (user-initiated). */
 export async function retryDeadLettered(): Promise<void> {
   const dead = await db.outbox.filter(e => !!e.deadLettered).toArray()

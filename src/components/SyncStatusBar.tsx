@@ -1,19 +1,22 @@
 /**
- * SyncStatusBar — Rich sync UI shown at the top of the app.
+ * SyncStatusBar — E-2 Global Sync Bar
  *
- * Also exports `triggerSync()` so other components can initiate a sync
- * without mounting this component.
+ * States (from spec):
+ *   idle     → ✓ "All synced" (gray) | N pending (amber) | N failed (red)
+ *   pushing  → ◌ spinner + "Pushing…" + progress bar
+ *   pulling  → ◌ spinner + "Pulling…" + progress bar
+ *   done     → ✓ "Synced" (accent, fades to idle after 3s)
+ *   error    → ⚠ "{msg} — tap to retry"
  *
- * With the new incremental-sync architecture the flow is:
- *   1. Drain outbox  (push pending local changes to Supabase)
- *   2. Incremental pull  (fetch only rows changed since lastPullAt)
- * No preview modal needed — there are no destructive "remote deleted" surprises
- * because soft-delete propagation is handled transparently in the pull.
+ * Tapping the bar in idle/done/error opens SyncDashboardSheet (E-4).
+ * Also exports `triggerSync()` so other components can initiate a sync.
  */
 
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState, lazy, Suspense } from 'react'
 import { useSyncState, setSyncState, getSyncState } from '../lib/syncState'
 import { drainOutbox, incrementalPull, incrementalPullBySeq, outboxSize, outboxDeadCount, retryDeadLettered } from '../lib/sync'
+
+const SyncDashboardSheet = lazy(() => import('./SyncDashboardSheet'))
 
 // ── triggerSync (named export) ────────────────────────────────────────────────
 
@@ -42,7 +45,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 export async function triggerSync(): Promise<void> {
   if (_syncInFlight) return
   _syncInFlight    = true
-  _cancelRequested = false   // clear any previous cancel
+  _cancelRequested = false
 
   try {
     // ── Phase 1: Drain outbox ─────────────────────────────────────────────
@@ -51,12 +54,10 @@ export async function triggerSync(): Promise<void> {
     setSyncState({ pushProgress: 100 })
 
     if (failures > 0) {
-      // Some entries failed but we continue to pull — they'll retry next sync
       console.warn(`[sync] ${failures} outbox entries failed — will retry`)
     }
 
     // ── Phase 2: Incremental pull ─────────────────────────────────────────
-    // Prefer server_seq pull (migration 007) — falls back to synced_at if not deployed.
     setSyncState({ phase: 'pulling', pullProgress: 10 })
     const seqResult = await withTimeout(incrementalPullBySeq(), 45_000, 'Seq pull')
     const { pulled, deleted } = seqResult ?? await withTimeout(incrementalPull(), 45_000, 'Incremental pull')
@@ -64,7 +65,6 @@ export async function triggerSync(): Promise<void> {
 
     console.debug(`[sync] pulled ${pulled} rows, soft-deleted ${deleted} rows`)
 
-    // If the user hit Cancel while we were in-flight, don't overwrite idle state
     if (_cancelRequested) return
 
     setSyncState({
@@ -98,21 +98,34 @@ function relativeTime(ts: number): string {
   return `${Math.floor(diffHr / 24)}d ago`
 }
 
+// ── Spinner ───────────────────────────────────────────────────────────────────
+
+function Spinner({ color = 'var(--accent)' }: { color?: string }) {
+  return (
+    <div style={{
+      width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+      border: `1.5px solid ${color}`,
+      borderTopColor: 'transparent',
+      animation: 'spin 0.7s linear infinite',
+    }} />
+  )
+}
+
 // ── Progress bar ──────────────────────────────────────────────────────────────
 
-function ProgressBar({ value }: { value: number }) {
+function ProgressBar({ value, color = 'var(--accent)' }: { value: number; color?: string }) {
   return (
     <div style={{
       height: 3, borderRadius: 2,
       background: 'var(--rule)',
       overflow: 'hidden',
       flex: 1,
-      maxWidth: 120,
+      maxWidth: 100,
     }}>
       <div style={{
         height: '100%',
         width: `${value}%`,
-        background: 'var(--accent)',
+        background: color,
         borderRadius: 2,
         transition: 'width 0.3s ease',
       }} />
@@ -126,9 +139,11 @@ export default function SyncStatusBar() {
   const syncState = useSyncState()
   const { phase, pushProgress, pullProgress, lastSyncAt, errorMsg } = syncState
 
-  // Pending + dead-lettered outbox counts — poll every 5 s
-  const [pending, setPending] = React.useState(0)
-  const [dead,    setDead]    = React.useState(0)
+  const [pending,       setPending]       = useState(0)
+  const [dead,          setDead]          = useState(0)
+  const [dashboardOpen, setDashboardOpen] = useState(false)
+
+  // Poll outbox counts every 5 s
   useEffect(() => {
     let alive = true
     const refresh = () => {
@@ -140,77 +155,42 @@ export default function SyncStatusBar() {
     return () => { alive = false; clearInterval(id) }
   }, [])
 
-  // Tick "last synced" display every minute
-  const [, setTick] = React.useState(0)
+  // Tick "last synced" every minute
+  const [, setTick] = useState(0)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
     tickRef.current = setInterval(() => setTick(t => t + 1), 60_000)
     return () => { if (tickRef.current) clearInterval(tickRef.current) }
   }, [])
 
-  const barStyle: React.CSSProperties = {
-    display:      'flex',
-    alignItems:   'center',
-    gap:          8,
-    padding:      '4px 16px',
-    minHeight:    28,
-    background:   'var(--paper-2)',
-    borderBottom: '1px solid var(--rule)',
-    flexShrink:   0,
-    fontFamily:   'var(--font-mono)',
-    fontSize:     10,
+  const barBase: React.CSSProperties = {
+    display:       'flex',
+    alignItems:    'center',
+    gap:           8,
+    padding:       '4px 16px',
+    minHeight:     28,
+    background:    'var(--paper-2)',
+    borderBottom:  '1px solid var(--rule)',
+    flexShrink:    0,
+    fontFamily:    'var(--font-mono)',
+    fontSize:      10,
     letterSpacing: '0.05em',
-    color:        'var(--ink-3)',
-    position:     'relative',
-    zIndex:       100,
+    color:         'var(--ink-3)',
+    position:      'relative',
+    zIndex:        100,
+    cursor:        'default',
+    userSelect:    'none',
   }
 
-  if (phase === 'idle') {
-    return (
-      <div style={barStyle}>
-        <span style={{ flex: 1 }}>
-          Last synced: {relativeTime(lastSyncAt)}
-          {pending > 0 && (
-            <span style={{ marginLeft: 6, color: 'var(--warn)' }}>· {pending} pending</span>
-          )}
-          {dead > 0 && (
-            <span style={{ marginLeft: 6, color: 'var(--warn)' }}>· {dead} failed</span>
-          )}
-        </span>
-        {dead > 0 && (
-          <button
-            onClick={() => retryDeadLettered().then(triggerSync)}
-            style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
-              color: 'var(--warn)', padding: '2px 8px', borderRadius: 4,
-              border: '1px solid var(--warn)', marginRight: 4,
-            }}
-          >
-            Retry failed
-          </button>
-        )}
-        <button
-          onClick={triggerSync}
-          style={{
-            fontFamily:    'var(--font-mono)',
-            fontSize:      10,
-            letterSpacing: '0.05em',
-            color:         pending > 0 ? 'var(--warn)' : 'var(--accent)',
-            padding:       '2px 8px',
-            borderRadius:  4,
-            border:        `1px solid ${pending > 0 ? 'var(--warn)' : 'var(--accent)'}`,
-          }}
-        >
-          Sync{pending > 0 ? ` (${pending})` : ''}
-        </button>
-      </div>
-    )
-  }
+  const tappable: React.CSSProperties = { ...barBase, cursor: 'pointer' }
+
+  // ── Active sync phases ──────────────────────────────────────────────────────
 
   if (phase === 'pushing') {
     return (
-      <div style={barStyle}>
-        <span>Pushing&hellip;</span>
+      <div style={barBase}>
+        <Spinner />
+        <span style={{ flex: 1 }}>Pushing…</span>
         <ProgressBar value={pushProgress} />
       </div>
     )
@@ -218,8 +198,9 @@ export default function SyncStatusBar() {
 
   if (phase === 'previewing') {
     return (
-      <div style={barStyle}>
-        <span>Checking for changes&hellip;</span>
+      <div style={barBase}>
+        <Spinner />
+        <span style={{ flex: 1 }}>Checking for changes…</span>
         <ProgressBar value={pullProgress} />
       </div>
     )
@@ -227,42 +208,135 @@ export default function SyncStatusBar() {
 
   if (phase === 'pulling') {
     return (
-      <div style={barStyle}>
-        <span>Pulling&hellip;</span>
+      <div style={barBase}>
+        <Spinner />
+        <span style={{ flex: 1 }}>Pulling…</span>
         <ProgressBar value={pullProgress} />
       </div>
     )
   }
 
+  // ── Done (brief flash) ──────────────────────────────────────────────────────
+
   if (phase === 'done') {
     return (
-      <div style={{ ...barStyle, color: 'var(--accent)' }}>
-        <span>Synced</span>
+      <div
+        onClick={() => setDashboardOpen(true)}
+        style={{ ...tappable, color: 'var(--accent)' }}
+      >
+        <span style={{ fontSize: 11 }}>✓</span>
+        <span style={{ flex: 1 }}>Synced</span>
       </div>
     )
   }
+
+  // ── Error ───────────────────────────────────────────────────────────────────
 
   if (phase === 'error') {
     return (
-      <div style={{ ...barStyle, color: 'var(--warn)', background: 'var(--warn-soft)' }}>
-        <span style={{ flex: 1 }}>{errorMsg ?? 'Sync error'}</span>
-        <button
-          onClick={triggerSync}
-          style={{
-            fontFamily:    'var(--font-mono)',
-            fontSize:      10,
-            color:         'var(--warn)',
-            letterSpacing: '0.05em',
-            padding:       '2px 8px',
-            borderRadius:  4,
-            border:        '1px solid var(--warn)',
-          }}
+      <>
+        <div
+          onClick={() => setDashboardOpen(true)}
+          style={{ ...tappable, color: 'var(--warn)', background: 'var(--warn-soft, rgba(239,68,68,0.08))' }}
         >
-          Retry
-        </button>
-      </div>
+          <span style={{ fontSize: 11, flexShrink: 0 }}>⚠</span>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {errorMsg ?? 'Sync error'} — tap to retry
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); triggerSync() }}
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
+              color: 'var(--warn)', padding: '2px 8px', borderRadius: 4,
+              border: '1px solid var(--warn)', flexShrink: 0,
+            }}
+          >
+            Retry
+          </button>
+        </div>
+        {dashboardOpen && (
+          <Suspense fallback={null}>
+            <SyncDashboardSheet onClose={() => setDashboardOpen(false)} />
+          </Suspense>
+        )}
+      </>
     )
   }
 
-  return null
+  // ── Idle ────────────────────────────────────────────────────────────────────
+
+  return (
+    <>
+      <div
+        onClick={() => setDashboardOpen(true)}
+        style={tappable}
+      >
+        {/* Left: status text */}
+        <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          {/* Sync state indicator */}
+          {dead > 0 ? (
+            <span style={{ color: 'var(--warn)', fontSize: 11 }}>⚠</span>
+          ) : pending > 0 ? (
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%', background: '#F59E0B',
+              flexShrink: 0, display: 'inline-block',
+              animation: 'syncPulse 1.8s ease-in-out infinite',
+            }} />
+          ) : (
+            <span style={{ color: 'var(--accent)', fontSize: 11 }}>✓</span>
+          )}
+
+          {/* Primary label */}
+          {dead > 0 ? (
+            <span style={{ color: 'var(--warn)' }}>
+              {dead} failed — tap to retry
+            </span>
+          ) : pending > 0 ? (
+            <span style={{ color: '#F59E0B' }}>
+              {pending} change{pending !== 1 ? 's' : ''} pending
+            </span>
+          ) : (
+            <span>
+              {lastSyncAt > 0 ? `Synced ${relativeTime(lastSyncAt)}` : 'All synced'}
+            </span>
+          )}
+        </span>
+
+        {/* Right: action buttons */}
+        {dead > 0 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); retryDeadLettered().then(triggerSync) }}
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
+              color: 'var(--warn)', padding: '2px 8px', borderRadius: 4,
+              border: '1px solid var(--warn)', marginRight: 4, flexShrink: 0,
+            }}
+          >
+            Retry
+          </button>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); triggerSync() }}
+          style={{
+            fontFamily:    'var(--font-mono)',
+            fontSize:      10,
+            letterSpacing: '0.05em',
+            color:         dead > 0 ? 'var(--warn)' : pending > 0 ? '#F59E0B' : 'var(--accent)',
+            padding:       '2px 8px',
+            borderRadius:  4,
+            border:        `1px solid ${dead > 0 ? 'var(--warn)' : pending > 0 ? '#F59E0B' : 'var(--accent)'}`,
+            flexShrink:    0,
+          }}
+        >
+          Sync{pending > 0 ? ` (${pending})` : ''}
+        </button>
+      </div>
+
+      {dashboardOpen && (
+        <Suspense fallback={null}>
+          <SyncDashboardSheet onClose={() => setDashboardOpen(false)} />
+        </Suspense>
+      )}
+    </>
+  )
 }

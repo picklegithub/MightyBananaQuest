@@ -2,6 +2,7 @@ import React from 'react'
 import { Icons } from './ui/Icons'
 import { EffortPip } from './ui'
 import { formatTime, formatDueLabel, isDueToday, isDueTomorrow } from '../lib/parseDue'
+import { useTaskSyncState } from '../hooks/useTaskSyncState'
 import type { Task } from '../types'
 
 // ── Priority dot colour map ───────────────────────────────────────────────────
@@ -63,6 +64,7 @@ interface Props {
 }
 
 export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onAreaToggle, onRescheduleToggle, onToggleSubtasks, subtasksExpanded }: Props) {
+  const syncStatus = useTaskSyncState(task.id)
   const subDone = task.sub.filter(s => s.d).length
   const subTotal = task.sub.length
   const subProg = subTotal > 0 ? subDone / subTotal : (task.done ? 1 : 0)
@@ -269,6 +271,30 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
 
       {/* ── Right side ── */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+        {/* E-3 sync state indicator */}
+        {syncStatus === 'pending' && (
+          <span
+            title="Waiting to sync"
+            style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: '#F59E0B', flexShrink: 0,
+              animation: 'syncPulse 1.8s ease-in-out infinite',
+            }}
+          />
+        )}
+        {syncStatus === 'failed' && (
+          <span
+            title="Sync failed — open sync panel to retry"
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.04em',
+              color: 'var(--warn)',
+              border: '1px solid var(--warn)',
+              borderRadius: 3, padding: '1px 4px', flexShrink: 0,
+            }}
+          >
+            ↺
+          </span>
+        )}
         {subTotal > 0 && <MiniRing progress={subProg} hue={hue} />}
 
         {/* Reschedule toggle (Calendar context) */}
