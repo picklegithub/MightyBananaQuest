@@ -158,23 +158,6 @@ export default function App() {
     return () => window.removeEventListener('online', handler)
   }, [authState])
 
-  // ── Capacitor foreground resume — sync on app return (S-3) ───────────────
-  // On native iOS/Android, `window.online` doesn't fire when returning from
-  // background. The Capacitor App plugin fires appStateChange instead.
-  // Gracefully no-ops in PWA/browser where @capacitor/app isn't available.
-  useEffect(() => {
-    if (authState !== 'authed') return
-    let listener: { remove: () => void } | null = null
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    import(/* @vite-ignore */ '@capacitor/app').then((mod: any) => {
-      mod.App.addListener('appStateChange', (state: { isActive: boolean }) => {
-        if (state.isActive) triggerSync().catch((e: unknown) => console.warn('[sync] foreground sync', e))
-      }).then((handle: { remove: () => void }) => { listener = handle })
-    }).catch(() => { /* PWA — @capacitor/app not available */ })
-    return () => { listener?.remove() }
-  }, [authState])
-
   // ── PWA foreground resume — visibilitychange (S-4) ───────────────────────
   // Fires when the user switches back to the tab or unlocks their phone (PWA).
   // Debounced to 1 s so rapid focus/blur cycles don't spam the server.
