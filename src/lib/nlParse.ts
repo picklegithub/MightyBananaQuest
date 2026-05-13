@@ -61,8 +61,8 @@ export function parseNL(raw: string, categories: Category[]): NLResult {
   let due: string | undefined
   type DuePat = [RegExp, (m: RegExpMatchArray) => string]
   const duePats: DuePat[] = [
-    [/\btoday\b/i,               () => 'Today'],
-    [/\btomorrow\b/i,            () => 'Tomorrow'],
+    [/\btoday\b/i,               () => isoToday()],
+    [/\btomorrow\b/i,            () => isoTomorrow()],
     [/\bnext week\b/i,           () => isoNextWeek()],
     [/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/i,
                                  (m) => isoFromDOW(m[1]) || ''],

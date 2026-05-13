@@ -42,7 +42,7 @@ function OptionPill({
 export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, defaultDue, defaultIsHabit = false, linkToGoalId, editHabit }: Props) {
   const [title,     setTitle]     = useState(editHabit?.title ?? defaultTitle)
   const [effort,    setEffort]    = useState<EffortKey>('m')
-  const [due,       setDue]       = useState(defaultDue ?? 'Today')
+  const [due,       setDue]       = useState(defaultDue ?? '')
   const [time,      setTime]      = useState<string | undefined>(undefined)
   const [recurring,  setRecurring]  = useState<string | null>(null)
   const [notes,      setNotes]      = useState(editHabit?.notes ?? '')
