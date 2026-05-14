@@ -349,8 +349,8 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
         <div style={sectionLabel}>Due time</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-          {/* Preset row */}
-          <div style={scrollRow}>
+          {/* Preset row — wraps like Repeat */}
+          <div style={row}>
             <button
               onClick={() => { clearTime(); setShowCustomTime(false) }}
               style={chip(!time && !showCustomTime)}

@@ -368,7 +368,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
               background: 'var(--paper-2)', border: '1px solid var(--rule)',
               color: 'var(--ink-3)',
             }}>
-              <Icons.repeat size={10} /> {task.recurring}
+              <Icons.repeat size={10} /> {task.recurring === 'Biweekly' ? 'Fortnightly' : task.recurring}
             </span>
           )}
 
@@ -468,16 +468,12 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
 
         {/* ── Schedule ── */}
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
-            Schedule
-          </div>
           <UnifiedDuePicker
             due={task.due}
             recurring={task.recurring}
             time={task.time}
             onChange={(d, r, t) => save({ due: d, recurring: r, time: t })}
           />
-
         </div>
 
         {/* ── Notes ── */}
