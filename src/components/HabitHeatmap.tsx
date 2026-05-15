@@ -7,6 +7,8 @@
 import React, { useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../data/db'
+import { useIsDark } from '../lib/colorMode'
+import { areaColor } from '../lib/areaColor'
 
 interface Props {
   habitId: string
@@ -26,6 +28,7 @@ function isoDate(d: Date): string {
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
 export function HabitHeatmap({ habitId, hue }: Props) {
+  const isDark = useIsDark()
   // Build the 84-day date grid (Mon-anchored, most-recent week at right)
   const cells = useMemo(() => {
     const today   = new Date(); today.setHours(0, 0, 0, 0)
@@ -61,9 +64,9 @@ export function HabitHeatmap({ habitId, hue }: Props) {
 
   const todayISO = isoDate(new Date())
 
-  const completedColor  = `hsl(${hue}, 55%, 42%)`
-  const completedBg     = `hsl(${hue}, 45%, 88%)`
-  const todayBorder     = `hsl(${hue}, 55%, 55%)`
+  const completedColor  = areaColor(hue, 'fg', isDark)
+  const completedBg     = areaColor(hue, 'bg', isDark)
+  const todayBorder     = areaColor(hue, 'fg', isDark)
 
   // Month labels: show month name at the first cell of each month
   const monthLabels = useMemo(() => {

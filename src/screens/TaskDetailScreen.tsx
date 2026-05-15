@@ -45,19 +45,20 @@ function Pill({
   onClick: () => void
   children?: React.ReactNode
 }) {
+  const isDark = useIsDark()
   const bg = active
     ? hue !== undefined
-      ? `hsl(${hue}, 40%, 88%)`
+      ? areaColor(hue, 'bg', isDark)
       : accent ? 'var(--accent-soft)' : warn ? 'var(--warn-soft)' : 'var(--paper-3)'
     : 'var(--paper-2)'
   const color = active
     ? hue !== undefined
-      ? `hsl(${hue}, 55%, 32%)`
+      ? areaColor(hue, 'fg', isDark)
       : accent ? 'var(--accent)' : warn ? 'var(--warn)' : 'var(--ink)'
     : 'var(--ink-2)'
   const border = active
     ? hue !== undefined
-      ? `hsl(${hue}, 35%, 76%)`
+      ? areaColor(hue, 'bg', isDark)
       : 'var(--rule)'
     : 'var(--rule)'
 

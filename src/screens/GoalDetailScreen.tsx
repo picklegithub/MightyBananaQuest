@@ -5,7 +5,8 @@ import { Icons } from '../components/ui/Icons'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
 import { AddTaskSheet } from '../components/AddTaskSheet'
 import type { Screen, Task } from '../types'
-import { useIsColorful } from '../lib/colorMode'
+import { useIsColorful, useIsDark } from '../lib/colorMode'
+import { areaColor } from '../lib/areaColor'
 
 interface Props {
   goalId: string
@@ -25,6 +26,7 @@ export const GoalDetailScreen = ({ goalId, navigate, back }: Props) => {
   const categories = useLiveQuery(() => db.categories.toArray(), [])
   const allTasks   = useLiveQuery(() => db.tasks.toArray(), [])
   const isColorful = useIsColorful()
+  const isDark     = useIsDark()
 
   const [editing,     setEditing]     = useState(false)
   const [editTitle,   setEditTitle]   = useState('')
@@ -69,7 +71,7 @@ export const GoalDetailScreen = ({ goalId, navigate, back }: Props) => {
   const cat         = cats.find(c => c.id === goal.area)
   const CatIcon     = cat?.icon ? (Icons as Record<string, any>)[cat.icon] : null
   const hue         = getHue(goal.area, cats)
-  const goalColor   = isColorful ? `hsl(${hue},55%,42%)` : 'var(--accent)'
+  const goalColor   = isColorful ? areaColor(hue, 'fg', isDark) : 'var(--accent)'
   const linkedTasks = allTasks.filter(t => goal.linked.includes(t.id))
   const unlinked    = allTasks.filter(t => !goal.linked.includes(t.id) && !t.done)
 

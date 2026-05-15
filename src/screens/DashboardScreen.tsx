@@ -31,7 +31,8 @@ const AREA_ICONS = ['home','heart','briefcase','book','dollar','family','leaf','
 function AddAreaModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('')
   const [icon, setIcon] = useState('home')
-  const [hue, setHue] = useState(200)
+  const [hue, setHue]   = useState(200)
+  const isDark           = useIsDark()
 
   async function handleSave() {
     if (!name.trim()) return
@@ -63,8 +64,8 @@ function AddAreaModal({ onClose }: { onClose: () => void }) {
                 return (
                   <button key={ic} onClick={() => setIcon(ic)} style={{
                     width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: icon === ic ? `hsl(${hue},55%,42%)` : 'var(--paper-2)',
-                    color: icon === ic ? 'white' : 'var(--ink-2)',
+                    background: icon === ic ? areaColor(hue, 'fg', isDark) : 'var(--paper-2)',
+                    color: icon === ic ? 'var(--paper)' : 'var(--ink-2)',
                     border: '1px solid', borderColor: icon === ic ? 'transparent' : 'var(--rule)',
                   }}>
                     <I size={18} />
@@ -98,7 +99,8 @@ function DashboardTaskRow({
 }: {
   task: Task; hue?: number; onTap: () => void; onComplete: (e: React.MouseEvent) => void
 }) {
-  const accent = hue !== undefined ? `hsl(${hue}, 45%, 50%)` : 'var(--accent)'
+  const isDark = useIsDark()
+  const accent = hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)'
   return (
     <div onClick={onTap} style={{
       display: 'flex', alignItems: 'center', gap: 10,
@@ -794,7 +796,7 @@ export const DashboardScreen = ({ navigate }: Props) => {
                         <svg width={26} height={26} style={{ flexShrink: 0 }}>
                           <circle cx={13} cy={13} r={R} fill="none" stroke="var(--rule)" strokeWidth={2.5} />
                           <circle cx={13} cy={13} r={R} fill="none"
-                            stroke={`${isColorful ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)'}`} strokeWidth={2.5}
+                            stroke={isColorful ? areaColor(hue, 'fg', isDark) : 'var(--accent)'} strokeWidth={2.5}
                             strokeDasharray={C} strokeDashoffset={C * (1 - progress)}
                             strokeLinecap="round" transform="rotate(-90 13 13)" />
                         </svg>
@@ -811,7 +813,7 @@ export const DashboardScreen = ({ navigate }: Props) => {
                           {catOpen} open
                         </span>
                       ) : catTotal > 0 ? (
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: `${isColorful ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)'}`, letterSpacing: '0.04em' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: isColorful ? areaColor(hue, 'fg', isDark) : 'var(--accent)', letterSpacing: '0.04em' }}>
                           ✓ all done
                         </span>
                       ) : (
@@ -952,6 +954,7 @@ function Top3PinnedSection({ top3Ids, cats, navigate }: {
   cats: Category[]
   navigate: (s: Screen) => void
 }) {
+  const isDark     = useIsDark()
   const items = useLiveQuery(async () => {
     const [tasks, habits] = await Promise.all([
       db.tasks.bulkGet(top3Ids),
@@ -998,14 +1001,14 @@ function Top3PinnedSection({ top3Ids, cats, navigate }: {
                 padding: '9px 12px', borderRadius: 10, textAlign: 'left', width: '100%',
                 background: 'var(--paper-2)',
                 border: '1px solid var(--rule)',
-                borderLeft: `3px solid ${isDone ? 'var(--rule)' : (isColorful ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)')}`,
+                borderLeft: `3px solid ${isDone ? 'var(--rule)' : (isColorful ? areaColor(hue, 'fg', isDark) : 'var(--accent)')}`,
                 opacity: isDone ? 0.6 : 1,
               }}
             >
               {/* Rank circle */}
               <div style={{
                 width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-                background: isDone ? 'var(--paper-3)' : `${isColorful ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)'}`,
+                background: isDone ? 'var(--paper-3)' : (isColorful ? areaColor(hue, 'fg', isDark) : 'var(--accent)'),
                 color: isDone ? 'var(--ink-3)' : 'white',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
@@ -1027,7 +1030,7 @@ function Top3PinnedSection({ top3Ids, cats, navigate }: {
               {!isTask && (
                 <span style={{
                   fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
-                  color: `${isColorful ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)'}`, background: 'var(--paper-3)',
+                  color: isColorful ? areaColor(hue, 'fg', isDark) : 'var(--accent)', background: 'var(--paper-3)',
                   borderRadius: 6, padding: '2px 6px', flexShrink: 0,
                 }}>
                   HABIT
@@ -1056,6 +1059,7 @@ function JournalPrioritiesSection({ pinnedIds, cats, navigate }: {
     [pinnedIds.join(',')]
   )
   const isColorful = useIsColorful()
+  const isDark     = useIsDark()
 
   const items = (tasks ?? []).filter((t): t is Task => !!t)
   if (items.length === 0) return null
@@ -1082,14 +1086,14 @@ function JournalPrioritiesSection({ pinnedIds, cats, navigate }: {
                 padding: '9px 12px', borderRadius: 10, textAlign: 'left', width: '100%',
                 background: 'var(--paper-2)',
                 border: '1px solid var(--rule)',
-                borderLeft: `3px solid ${task.done ? 'var(--rule)' : (isColorful ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)')}`,
+                borderLeft: `3px solid ${task.done ? 'var(--rule)' : (isColorful ? areaColor(hue, 'fg', isDark) : 'var(--accent)')}`,
                 opacity: task.done ? 0.6 : 1,
               }}
             >
               {/* Rank circle */}
               <div style={{
                 width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-                background: task.done ? 'var(--paper-3)' : (isColorful ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)'),
+                background: task.done ? 'var(--paper-3)' : (isColorful ? areaColor(hue, 'fg', isDark) : 'var(--accent)'),
                 color: task.done ? 'var(--ink-3)' : 'white',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,

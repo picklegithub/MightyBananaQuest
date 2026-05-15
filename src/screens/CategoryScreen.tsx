@@ -25,6 +25,7 @@ function EditAreaModal({ cat, onClose, onDelete }: { cat: Category; onClose: () 
   const [name, setName] = useState(cat.name)
   const [icon, setIcon] = useState(cat.icon)
   const [hue,  setHue]  = useState(cat.hue)
+  const isDark           = useIsDark()
 
   async function handleSave() {
     if (!name.trim()) return
@@ -56,8 +57,8 @@ function EditAreaModal({ cat, onClose, onDelete }: { cat: Category; onClose: () 
                 return (
                   <button key={ic} onClick={() => setIcon(ic)} style={{
                     width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: icon === ic ? `hsl(${hue},55%,42%)` : 'var(--paper-2)',
-                    color: icon === ic ? 'white' : 'var(--ink-2)',
+                    background: icon === ic ? areaColor(hue, 'fg', isDark) : 'var(--paper-2)',
+                    color: icon === ic ? 'var(--paper)' : 'var(--ink-2)',
                     border: '1px solid', borderColor: icon === ic ? 'transparent' : 'var(--rule)',
                   }}>
                     <I size={18} />
@@ -145,7 +146,8 @@ function RecurringTaskRow({
   onComplete: (e: React.MouseEvent) => void
   onTap: () => void
 }) {
-  const color = `hsl(${hue}, 55%, 42%)`
+  const isDark = useIsDark()
+  const color  = areaColor(hue, 'fg', isDark)
 
   return (
     <div
@@ -212,6 +214,7 @@ function CategoryTaskRow({
   isExpanded?: boolean
   onToggleExpand?: () => void
 }) {
+  const isDark = useIsDark()
   const e = EFFORT[task.effort]
   const timeLabel = task.time ? formatTime(task.time) : null
   const isoRe = /^\d{4}-\d{2}-\d{2}$/
@@ -221,7 +224,7 @@ function CategoryTaskRow({
     : (task.due === 'Overdue' || (isoRe.test(task.due) && task.due < todayISO)) ? 'var(--warn)'
     : isDueTomorrow(task.due) ? 'var(--ink-2)'
     : 'var(--ink-3)'
-  const accentColor = `hsl(${hue}, 55%, 42%)`
+  const accentColor = areaColor(hue, 'fg', isDark)
   const subDone = task.sub?.filter(s => s.d).length ?? 0
   const subTotal = task.sub?.length ?? 0
 
@@ -336,6 +339,7 @@ function GhostInput({
   hue: number
   onSaved: () => void
 }) {
+  const isDark   = useIsDark()
   const [active, setActive] = useState(false)
   const [value,  setValue]  = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -375,7 +379,7 @@ function GhostInput({
           color: 'var(--ink-4)', fontSize: 14,
         }}
       >
-        <Icons.plus size={13} style={{ flexShrink: 0, color: `hsl(${hue}, 45%, 62%)` }} />
+        <Icons.plus size={13} style={{ flexShrink: 0, color: areaColor(hue, 'fg', isDark) }} />
         <span style={{ fontStyle: 'italic', fontFamily: 'var(--font-display)' }}>New task…</span>
       </button>
     )
@@ -383,7 +387,7 @@ function GhostInput({
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '2px 0' }}>
-      <Icons.plus size={13} style={{ flexShrink: 0, color: `hsl(${hue}, 45%, 62%)` }} />
+      <Icons.plus size={13} style={{ flexShrink: 0, color: areaColor(hue, 'fg', isDark) }} />
       <input
         ref={inputRef}
         value={value}
@@ -514,7 +518,7 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
         }
         footer={totalCount > 0 ? (
           <div style={{ marginTop: 10, height: 3, borderRadius: 2, background: 'var(--paper-2)', overflow: 'hidden' }}>
-            <div style={{ height: '100%', borderRadius: 2, background: `hsl(${hue}, 55%, 42%)`, width: `${(doneCount / totalCount) * 100}%`, transition: 'width .4s' }} />
+            <div style={{ height: '100%', borderRadius: 2, background: areaColor(hue, 'fg', isDark), width: `${(doneCount / totalCount) * 100}%`, transition: 'width .4s' }} />
           </div>
         ) : undefined}
       />
@@ -616,7 +620,7 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
                 {openRegular.map(task => {
                   const isExpanded = expandedIds.has(task.id)
                   const hasSubs = (task.sub?.length ?? 0) > 0
-                  const accentColor = `hsl(${hue}, 55%, 42%)`
+                  const accentColor = areaColor(hue, 'fg', isDark)
                   return (
                     <div key={task.id}>
                       <SwipeableRow
@@ -634,7 +638,7 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
                         />
                       </SwipeableRow>
                       {isExpanded && hasSubs && (
-                        <div style={{ marginLeft: 12, paddingLeft: 18, borderLeft: `2px solid hsl(${hue}, 40%, 80%)`, marginBottom: 2 }}>
+                        <div style={{ marginLeft: 12, paddingLeft: 18, borderLeft: `2px solid ${areaColor(hue, 'fg', isDark)}`, marginBottom: 2 }}>
                           {task.sub.map((s, i) => (
                             <div key={i} style={{
                               display: 'flex', alignItems: 'center', gap: 8,
@@ -678,7 +682,7 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
         {doneRegular.length > 0 && (
           <div style={{ marginTop: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingTop: 6, borderTop: '1px solid var(--rule)' }}>
-              <Icons.check size={11} style={{ color: `hsl(${hue}, 55%, 42%)` }} />
+              <Icons.check size={11} style={{ color: areaColor(hue, 'fg', isDark) }} />
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.09em', textTransform: 'uppercase' }}>
                 Done · {doneRegular.length}
               </span>

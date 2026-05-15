@@ -11,7 +11,8 @@ import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { triggerSync } from '../components/SyncStatusBar'
 import { nextDueLabel } from '../lib/parseDue'
 import type { Screen, Task } from '../types'
-import { useIsColorful } from '../lib/colorMode'
+import { useIsColorful, useIsDark } from '../lib/colorMode'
+import { areaColor } from '../lib/areaColor'
 
 interface Props { navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void }
 interface Burst { id: number; x: number; y: number; xp: number }
@@ -35,7 +36,8 @@ function CompactTaskRow({
   isExpanded?: boolean
   onToggleExpand?: () => void
 }) {
-  const e = EFFORT[task.effort]
+  const e      = EFFORT[task.effort]
+  const isDark = useIsDark()
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -62,7 +64,7 @@ function CompactTaskRow({
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '10px 0',
               borderBottom: '1px solid var(--rule)',
-              borderLeft: hue !== undefined ? `3px solid hsl(${hue},45%,55%)` : '3px solid transparent',
+              borderLeft: hue !== undefined ? `3px solid ${areaColor(hue, 'fg', isDark)}` : '3px solid transparent',
               paddingLeft: 8,
               cursor: 'pointer',
               opacity: task.done ? 0.45 : 1,
@@ -73,8 +75,8 @@ function CompactTaskRow({
               onClick={e => { e.stopPropagation(); if (!selectMode) onComplete(e) }}
               style={{
                 flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
-                border: `1.5px solid ${task.done ? (hue !== undefined ? `hsl(${hue},45%,55%)` : 'var(--accent)') : 'var(--ink-3)'}`,
-                background: task.done ? (hue !== undefined ? `hsl(${hue},45%,55%)` : 'var(--accent)') : 'transparent',
+                border: `1.5px solid ${task.done ? (hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)') : 'var(--ink-3)'}`,
+                background: task.done ? (hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)') : 'transparent',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}
             >
@@ -113,7 +115,7 @@ function CompactTaskRow({
                       display: 'inline-flex', alignItems: 'center', gap: 2,
                       cursor: onToggleExpand ? 'pointer' : 'default',
                       color: task.sub.filter(s => s.d).length === task.sub.length
-                        ? (hue !== undefined ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)')
+                        ? (hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)')
                         : 'var(--ink-3)',
                     }}
                   >
@@ -242,6 +244,7 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
   const tasks = useLiveQuery(() => db.tasks.toArray(), [])
   const cats  = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
   const isColorful = useIsColorful()
+  const isDark     = useIsDark()
 
   const { pullRatio, isPulling, containerProps } = usePullToRefresh(triggerSync, 72)
 
@@ -442,13 +445,13 @@ export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 8,
                   paddingBottom: 6,
-                  borderBottom: `2px solid ${group.hue !== undefined ? `hsl(${group.hue},45%,75%)` : 'var(--rule)'}`,
+                  borderBottom: `2px solid ${group.hue !== undefined ? areaColor(group.hue, 'fg', isDark) : 'var(--rule)'}`,
                   marginBottom: 2,
                 }}>
-                  {I && <I size={13} stroke={group.hue !== undefined ? `hsl(${group.hue},50%,42%)` : 'var(--ink-2)'} />}
+                  {I && <I size={13} stroke={group.hue !== undefined ? areaColor(group.hue, 'fg', isDark) : 'var(--ink-2)'} />}
                   <span className="t-display" style={{
                     fontSize: 18,
-                    color: group.hue !== undefined ? `hsl(${group.hue},50%,35%)` : 'var(--ink)',
+                    color: group.hue !== undefined ? areaColor(group.hue, 'fg', isDark) : 'var(--ink)',
                   }}>
                     {group.label}
                   </span>

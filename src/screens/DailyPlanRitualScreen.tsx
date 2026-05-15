@@ -1,5 +1,7 @@
 import { localDateISO } from '../lib/useCurrentDate'
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import { useIsDark } from '../lib/colorMode'
+import { areaColor } from '../lib/areaColor'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, todayISO, saveDailyPlan, updateTask, deleteTask } from '../data/db'
 import { EFFORT } from '../constants'
@@ -228,6 +230,7 @@ function DPRStep1Reckoning({
   reckonings: Reckoning[]
   onReckoningsChange: (r: Reckoning[]) => void
 }) {
+  const isDark   = useIsDark()
   const today    = todayISO()
   const tomorrow = useMemo(tomorrowISO, [])
 
@@ -306,7 +309,7 @@ function DPRStep1Reckoning({
           return (
             <div key={task.id} style={{
               padding: '12px 12px 10px',
-              border: `1px solid ${action ? `hsl(${hue}, 40%, 72%)` : 'var(--rule)'}`,
+              border: `1px solid ${action ? areaColor(hue, 'fg', isDark) : 'var(--rule)'}`,
               borderRadius: 12, background: 'var(--paper-2)',
               transition: 'border-color .15s',
             }}>
@@ -314,7 +317,7 @@ function DPRStep1Reckoning({
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 10 }}>
                 <span style={{
                   width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 4,
-                  background: `hsl(${hue}, 55%, 42%)`,
+                  background: areaColor(hue, 'fg', isDark),
                 }} />
                 <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', flex: 1, lineHeight: 1.35 }}>
                   {task.title}
@@ -412,7 +415,8 @@ function fmtH(h: number): string {
 }
 
 function DPRStep2Calendar({ onBudgetChange }: { onBudgetChange: (min: number) => void }) {
-  const today = todayISO()
+  const isDark = useIsDark()
+  const today  = todayISO()
 
   // Tasks with a `time` field due today are treated as calendar blocks.
   const timedTasks = useLiveQuery(async () => {
@@ -551,16 +555,16 @@ function DPRStep2Calendar({ onBudgetChange }: { onBudgetChange: (min: number) =>
             position: 'absolute', left: 6, right: 8,
             top:    `${pct(b.startH)}%`,
             height: `${Math.max(pct(b.endH) - pct(b.startH), 2)}%`,
-            background: `hsl(${b.hue}, 35%, 96%)`,
-            borderLeft: `3px solid hsl(${b.hue}, 55%, 42%)`,
+            background: areaColor(b.hue, 'bg', isDark),
+            borderLeft: `3px solid ${areaColor(b.hue, 'fg', isDark)}`,
             borderRadius: '3px 8px 8px 3px',
             padding: '3px 7px',
             display: 'flex', flexDirection: 'column', justifyContent: 'center',
           }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: `hsl(${b.hue}, 30%, 25%)`, lineHeight: 1.2 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: areaColor(b.hue, 'fg', isDark), lineHeight: 1.2 }}>
               {b.title.length > 28 ? b.title.slice(0, 28) + '…' : b.title}
             </div>
-            <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: `hsl(${b.hue}, 30%, 40%)`, marginTop: 1 }}>
+            <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: areaColor(b.hue, 'fg', isDark), marginTop: 1 }}>
               {fmtH(b.startH)} – {fmtH(b.endH)}
             </div>
           </div>
@@ -630,7 +634,8 @@ function DPRStep3Pick({
   onPickedChange: (ids: Set<string>) => void
   mood:           'steady' | 'tired' | 'charged' | null
 }) {
-  const today = todayISO()
+  const isDark = useIsDark()
+  const today  = todayISO()
   const [showAll, setShowAll] = useState(false)
 
   const categories = useLiveQuery(() => db.categories.toArray(), [])
@@ -845,15 +850,15 @@ function DPRStep3Pick({
                 display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left',
                 padding: '10px 12px', borderRadius: 10, width: '100%',
                 background: on ? 'var(--paper-2)' : 'transparent',
-                border: `1px solid ${on ? `hsl(${c.hue}, 55%, 42%)` : 'var(--rule)'}`,
+                border: `1px solid ${on ? areaColor(c.hue, 'fg', isDark) : 'var(--rule)'}`,
                 transition: 'all .15s',
               }}
             >
               {/* Checkbox */}
               <div style={{
                 width: 18, height: 18, borderRadius: 5, flexShrink: 0,
-                border: `1.5px solid ${on ? `hsl(${c.hue}, 55%, 42%)` : 'var(--rule)'}`,
-                background: on ? `hsl(${c.hue}, 55%, 42%)` : 'transparent',
+                border: `1.5px solid ${on ? areaColor(c.hue, 'fg', isDark) : 'var(--rule)'}`,
+                background: on ? areaColor(c.hue, 'fg', isDark) : 'transparent',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'all .15s',
               }}>
@@ -915,6 +920,7 @@ function DPRStep4Top3({
   top3Ids:      string[]
   onTop3Change: (ids: string[]) => void
 }) {
+  const isDark     = useIsDark()
   const categories = useLiveQuery(() => db.categories.toArray(), [])
   const catHue = (catId: string | undefined) => categories?.find(c => c.id === catId)?.hue ?? 200
 
@@ -999,8 +1005,8 @@ function DPRStep4Top3({
                 display: 'flex', alignItems: 'center', gap: 12,
                 textAlign: 'left', width: '100%',
                 padding: '14px 12px', borderRadius: 12,
-                background:  on     ? `hsl(${hue}, 35%, 96%)` : 'var(--paper-2)',
-                border:      on     ? `2px solid hsl(${hue}, 55%, 42%)` : '1px solid var(--rule)',
+                background:  on     ? areaColor(hue, 'bg', isDark) : 'var(--paper-2)',
+                border:      on     ? `2px solid ${areaColor(hue, 'fg', isDark)}` : '1px solid var(--rule)',
                 opacity:     atMax  ? 0.4 : 1,
                 transform:   on     ? 'scale(1.0)' : 'scale(0.98)',
                 transition: 'all .15s',
@@ -1009,7 +1015,7 @@ function DPRStep4Top3({
               {/* Rank circle */}
               <div style={{
                 width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                background: on    ? `hsl(${hue}, 55%, 42%)` : 'var(--paper)',
+                background: on    ? areaColor(hue, 'fg', isDark) : 'var(--paper)',
                 color:      on    ? 'var(--paper)'           : 'var(--ink-3)',
                 border:     on    ? 'none'                   : '1px solid var(--rule)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1032,7 +1038,7 @@ function DPRStep4Top3({
 
               {/* Sparkle for selected */}
               {on && (
-                <Icons.sparkle size={16} style={{ color: `hsl(${hue}, 55%, 42%)`, flexShrink: 0 }} />
+                <Icons.sparkle size={16} style={{ color: areaColor(hue, 'fg', isDark), flexShrink: 0 }} />
               )}
             </button>
           )

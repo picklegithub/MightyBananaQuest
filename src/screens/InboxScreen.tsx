@@ -8,7 +8,8 @@ import { ConfettiBurst } from '../components/ui'
 import { SwipeableRow } from '../components/SwipeableRow'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
 import type { Screen, Task, Category, EffortKey } from '../types'
-import { useIsColorful } from '../lib/colorMode'
+import { useIsColorful, useIsDark } from '../lib/colorMode'
+import { areaColor } from '../lib/areaColor'
 
 // ── Short syntax parser ───────────────────────────────────────────────────────
 // Tokens:
@@ -358,9 +359,10 @@ function InboxTaskCard({
 }) {
   const eDef = EFFORT[task.effort]
   const isColorful = useIsColorful()
+  const isDark     = useIsDark()
   const cat = cats.find(c => c.id === task.cat)
   const borderColor = (isColorful && cat?.hue !== undefined)
-    ? `hsl(${cat.hue}, 45%, 55%)`
+    ? areaColor(cat.hue, 'fg', isDark)
     : 'var(--rule)'
 
   return (
