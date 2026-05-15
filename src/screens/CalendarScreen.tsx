@@ -10,7 +10,8 @@ import { SwipeableRow } from '../components/SwipeableRow'
 import { UnifiedDuePicker } from '../components/ui/UnifiedDuePicker'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
 import type { Screen, Task } from '../types'
-import { useIsColorful } from '../lib/colorMode'
+import { useIsColorful, useIsDark } from '../lib/colorMode'
+import { areaColor } from '../lib/areaColor'
 
 interface Props { navigate: (s: Screen) => void; back?: () => void; onAddTask?: (due?: string) => void }
 interface Burst { id: number; x: number; y: number; xp: number }
@@ -120,6 +121,7 @@ function CalendarTaskRow({
   onRescheduleToggle?: (e: React.MouseEvent) => void
   onAreaToggle?: (e: React.MouseEvent) => void
 }) {
+  const isDark = useIsDark()
   return (
     <div
       onClick={onTap}
@@ -127,7 +129,7 @@ function CalendarTaskRow({
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '10px 0',
         borderBottom: '1px solid var(--rule)',
-        borderLeft: hue !== undefined ? `3px solid hsl(${hue},45%,55%)` : '3px solid transparent',
+        borderLeft: hue !== undefined ? `3px solid ${areaColor(hue, 'fg', isDark)}` : '3px solid transparent',
         paddingLeft: 8,
         cursor: 'pointer',
         opacity: task.done ? 0.45 : 1,
@@ -139,10 +141,10 @@ function CalendarTaskRow({
         style={{
           flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
           border: `1.5px solid ${task.done
-            ? (hue !== undefined ? `hsl(${hue},45%,55%)` : 'var(--accent)')
+            ? (hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)')
             : 'var(--ink-3)'}`,
           background: task.done
-            ? (hue !== undefined ? `hsl(${hue},45%,55%)` : 'var(--accent)')
+            ? (hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)')
             : 'transparent',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
@@ -307,6 +309,7 @@ export const CalendarScreen = ({ navigate, back, onAddTask }: Props) => {
   const cats     = useLiveQuery(() => db.categories.toArray(), []) ?? []
   const settings = useLiveQuery(() => db.settings.get('main'), [])
   const isColorful = useIsColorful()
+  const isDark     = useIsDark()
 
   if (!tasks) return null
 
@@ -547,8 +550,8 @@ export const CalendarScreen = ({ navigate, back, onAddTask }: Props) => {
                         style={{
                           flexShrink: 0, padding: '5px 10px', borderRadius: 20,
                           fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
-                          background: task.cat === c.id ? `hsl(${c.hue},45%,55%)` : 'var(--paper-3)',
-                          color: task.cat === c.id ? 'white' : 'var(--ink-2)',
+                          background: task.cat === c.id ? areaColor(c.hue, 'fg', isDark) : 'var(--paper-3)',
+                          color: task.cat === c.id ? 'var(--paper)' : 'var(--ink-2)',
                           border: '1px solid var(--rule)', whiteSpace: 'nowrap',
                         }}
                       >

@@ -219,15 +219,7 @@ export default function SyncStatusBar() {
   // ── Done (brief flash) ──────────────────────────────────────────────────────
 
   if (phase === 'done') {
-    return (
-      <div
-        onClick={() => setDashboardOpen(true)}
-        style={{ ...tappable, color: 'var(--accent)' }}
-      >
-        <span style={{ fontSize: 11 }}>✓</span>
-        <span style={{ flex: 1 }}>Synced</span>
-      </div>
-    )
+    return null
   }
 
   // ── Error ───────────────────────────────────────────────────────────────────
@@ -264,6 +256,8 @@ export default function SyncStatusBar() {
   }
 
   // ── Idle ────────────────────────────────────────────────────────────────────
+
+  if (dead === 0 && pending === 0) return null
 
   return (
     <>

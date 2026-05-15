@@ -10,6 +10,8 @@ import { SwipeableRow } from '../components/SwipeableRow'
 import { HabitHeatmap } from '../components/HabitHeatmap'
 import { AddTaskSheet } from '../components/AddTaskSheet'
 import type { Screen, Habit } from '../types'
+import { useIsDark } from '../lib/colorMode'
+import { areaColor } from '../lib/areaColor'
 
 interface Props { navigate: (s: Screen) => void; back: () => void; onAddHabit?: () => void }
 interface Burst { id: number; x: number; y: number; xp: number }
@@ -40,8 +42,9 @@ function getCurrentSegment(): TimeOfDay {
 
 // ── Strength bar ──────────────────────────────────────────────────────────────
 function StrengthBar({ strength, hue }: { strength?: number; hue: number }) {
-  const pct = Math.round((strength ?? 0.5) * 100)
-  const color = `hsl(${hue}, 55%, 42%)`
+  const pct   = Math.round((strength ?? 0.5) * 100)
+  const isDark = useIsDark()
+  const color  = areaColor(hue, 'fg', isDark)
   const label = pct >= 80 ? 'Strong' : pct >= 50 ? 'Building' : 'Weak'
   return (
     <div style={{ marginTop: 5 }}>
@@ -212,7 +215,8 @@ function HabitRow({
 function ArchivedHabitRow({ habit, hue, onUnarchive, onDelete }: {
   habit: Habit; hue: number; onUnarchive: () => void; onDelete: () => void
 }) {
-  const color = `hsl(${hue}, 45%, 50%)`
+  const isDark = useIsDark()
+  const color  = areaColor(hue, 'fg', isDark)
   return (
     <SwipeableRow onDelete={onDelete}>
       <div style={{

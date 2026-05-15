@@ -44,7 +44,6 @@ function applyTheme(settings: AppSettings) {
   root.setAttribute('data-theme', isDark ? 'dark' : 'light')
 
   // palette: 'warm' is the :root default — omit the attribute to keep it clean
-  // 'ocean'/'dusk'/'sage' are kept for data compat but no CSS rules → fall through to warm
   const p = settings.palette ?? 'warm'
   if (p === 'custom') {
     root.setAttribute('data-palette', 'custom')
@@ -263,8 +262,8 @@ export default function App() {
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9998,
           padding: '6px 16px',
-          background: 'hsl(38, 90%, 52%)',
-          color: 'white',
+          background: 'var(--warn)',
+          color: 'var(--paper)',
           fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.06em',
           textAlign: 'center',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,

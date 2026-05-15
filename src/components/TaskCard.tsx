@@ -4,6 +4,8 @@ import { EffortPip } from './ui'
 import { formatTime, formatDueLabel, isDueToday, isDueTomorrow } from '../lib/parseDue'
 import { useTaskSyncState } from '../hooks/useTaskSyncState'
 import type { Task } from '../types'
+import { useIsDark } from '../lib/colorMode'
+import { areaColor } from '../lib/areaColor'
 
 // ── Priority dot colour map ───────────────────────────────────────────────────
 const QUAD_COLOR: Record<string, string> = {
@@ -18,8 +20,9 @@ const QUAD_LABEL: Record<string, string> = {
 
 // ── Mini sub-task progress ring ───────────────────────────────────────────────
 function MiniRing({ progress, hue }: { progress: number; hue?: number }) {
+  const isDark = useIsDark()
   const r = 8, c = 2 * Math.PI * r
-  const stroke = hue !== undefined ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)'
+  const stroke = hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)'
   return (
     <svg width={20} height={20} style={{ flexShrink: 0 }}>
       <circle cx={10} cy={10} r={r} fill="none" stroke="var(--rule)" strokeWidth={2} />
@@ -65,12 +68,13 @@ interface Props {
 
 export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onAreaToggle, onRescheduleToggle, onToggleSubtasks, subtasksExpanded }: Props) {
   const syncStatus = useTaskSyncState(task.id)
+  const isDark   = useIsDark()
   const subDone = task.sub.filter(s => s.d).length
   const subTotal = task.sub.length
   const subProg = subTotal > 0 ? subDone / subTotal : (task.done ? 1 : 0)
 
-  const ringColor   = hue !== undefined ? `hsl(${hue}, 55%, 42%)` : 'var(--accent)'
-  const borderColor = hue !== undefined ? `hsl(${hue}, 45%, 55%)` : 'var(--rule)'
+  const ringColor   = hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)'
+  const borderColor = hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--rule)'
   const showDue     = task.due && task.due !== ''
   const dueLabel    = showDue ? friendlyDue(task.due) : ''
   const timeLabel   = task.time ? formatTime(task.time) : null

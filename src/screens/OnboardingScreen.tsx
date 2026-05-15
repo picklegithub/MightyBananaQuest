@@ -4,6 +4,8 @@ import { db, addTask, updateTask } from '../data/db'
 import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import type { Task } from '../types'
+import { useIsDark } from '../lib/colorMode'
+import { areaColor } from '../lib/areaColor'
 
 interface Props {
   onDone: () => void
@@ -56,7 +58,8 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
 
 // ── Step 1: Life areas (toggle grid) ─────────────────────────────────────────
 function StepAreas({ onNext }: { onNext: () => void }) {
-  const cats = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
+  const cats   = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
+  const isDark = useIsDark()
   // Start with all areas selected
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(DEFAULT_CATEGORIES.map(c => c.id))
@@ -125,7 +128,7 @@ function StepAreas({ onNext }: { onNext: () => void }) {
               border: '1px solid', borderColor: active ? 'var(--ink)' : 'var(--rule)',
               transition: 'all .18s', display: 'flex', flexDirection: 'column', gap: 12, minHeight: 88,
             }}>
-              <I size={18} stroke={active ? 'var(--paper)' : `hsl(${c.hue}, 55%, 42%)`} />
+              <I size={18} stroke={active ? 'var(--paper)' : areaColor(c.hue, 'fg', isDark)} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</div>
                 <div style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', marginTop: 2, letterSpacing: '0.06em' }}>

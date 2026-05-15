@@ -7,6 +7,8 @@ import { EFFORT } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
 import type { Screen, Goal, WeeklyReview, GoalPulse, GoalPulseStatus } from '../types'
+import { useIsDark } from '../lib/colorMode'
+import { areaColor } from '../lib/areaColor'
 
 // ── Week helpers ──────────────────────────────────────────────────────────────
 
@@ -572,6 +574,7 @@ function GoalsPulseStep({ goals, pulse, onChange, cats }: {
   onChange: (goalId: string, status: GoalPulseStatus) => void
   cats:     { id: string; hue: number }[]
 }) {
+  const isDark = useIsDark()
   function getStatus(goalId: string): GoalPulseStatus | undefined {
     return pulse.find(p => p.goalId === goalId)?.status
   }
@@ -619,12 +622,12 @@ function GoalsPulseStep({ goals, pulse, onChange, cats }: {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
                 <div style={{
                   width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                  background: `hsl(${hue},55%,42%)`,
+                  background: areaColor(hue, 'fg', isDark),
                 }} />
                 <div style={{ fontSize: 14, fontWeight: 500, flex: 1, lineHeight: 1.3 }}>{goal.title}</div>
                 <div style={{
                   fontFamily: 'var(--font-mono)', fontSize: 9,
-                  color: `hsl(${hue},55%,42%)`, letterSpacing: '0.06em',
+                  color: areaColor(hue, 'fg', isDark), letterSpacing: '0.06em',
                 }}>
                   {Math.round(goal.progress * 100)}%
                 </div>
