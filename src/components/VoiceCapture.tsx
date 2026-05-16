@@ -276,9 +276,10 @@ export function VoiceCapture({ onClose, onExpand, captureToInbox = false, onCapt
         },
       })
       onCaptured?.()
+      return  // onCaptured handles close + navigation
     } else {
       const task: Task = {
-        id:        `t${Date.now()}`,
+        id:        crypto.randomUUID(),
         title:     p.title,
         cat:       p.catId ?? '',
         effort:    p.effort,

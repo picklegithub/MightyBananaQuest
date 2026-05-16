@@ -719,13 +719,14 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
           source:          (payload.source as InboxItem['source']) ?? 'capture',
           sourceMeta:      (payload.source_meta as InboxItem['sourceMeta']) ?? undefined,
           createdAt:       payload.created_at ? new Date(payload.created_at as string).getTime() : Date.now(),
+          updatedAt:       payload.updated_at ? new Date(payload.updated_at as string).getTime() : undefined,
           processedAt:     payload.processed_at ? new Date(payload.processed_at as string).getTime() : undefined,
           status:          (payload.status as InboxItem['status']) ?? 'inbox',
           convertedTaskId: (payload.converted_task_id as string | undefined) ?? undefined,
         }
         const local      = await db.inboxItems.get(incoming.id)
-        const incomingTs = payload.updated_at ? new Date(payload.updated_at as string).getTime() : 0
-        const localTs    = local?.processedAt ?? local?.createdAt ?? 0
+        const incomingTs = incoming.updatedAt ?? incoming.createdAt ?? 0
+        const localTs    = local?.updatedAt ?? local?.createdAt ?? 0
         if (!local || incomingTs > localTs) { await db.inboxItems.put(incoming); pulled++ }
         break
       }
@@ -1010,6 +1011,42 @@ const TABLE_PULLERS: Array<{
       return { pulled, deleted: 0, maxSeq }
     },
   },
+  {
+    name: 'inbox_items',
+    pull: async (since, userId) => {
+      let pulled = 0; let deleted = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('inbox_items').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          if (row.deleted_at) {
+            await db.inboxItems.delete(row.id as string); deleted++
+          } else {
+            const incoming: InboxItem = {
+              id:              row.id as string,
+              text:            (row.text as string) ?? '',
+              source:          (row.source as InboxItem['source']) ?? 'capture',
+              sourceMeta:      (row.source_meta as InboxItem['sourceMeta']) ?? undefined,
+              createdAt:       row.created_at ? new Date(row.created_at as string).getTime() : Date.now(),
+              updatedAt:       row.updated_at ? new Date(row.updated_at as string).getTime() : undefined,
+              processedAt:     row.processed_at ? new Date(row.processed_at as string).getTime() : undefined,
+              status:          (row.status as InboxItem['status']) ?? 'inbox',
+              convertedTaskId: (row.converted_task_id as string | undefined) ?? undefined,
+            }
+            const local = await db.inboxItems.get(incoming.id)
+            const inTs  = incoming.updatedAt ?? incoming.createdAt ?? 0
+            const loTs  = local?.updatedAt ?? local?.createdAt ?? 0
+            if (!local || inTs > loTs) { await db.inboxItems.put(incoming); pulled++ }
+          }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted, maxSeq }
+    },
+  },
 ]
 
 export async function incrementalPullBySeq(
@@ -1137,7 +1174,7 @@ export async function pushAllLocal(): Promise<void> {
 
   const tombstoneIds = new Set((await db.deletedTasks.toArray()).map(t => t.id))
 
-  const [tasks, goals, journal, inbox, categories, settings, shoppingItems, habits, weeklyReviews, dailyPlans] = await Promise.all([
+  const [tasks, goals, journal, inbox, categories, settings, shoppingItems, habits, weeklyReviews, dailyPlans, inboxItems] = await Promise.all([
     db.tasks.toArray(),
     db.goals.toArray(),
     db.journal.toArray(),
@@ -1148,6 +1185,7 @@ export async function pushAllLocal(): Promise<void> {
     db.habits.toArray(),
     db.weeklyReviews.toArray(),
     db.dailyPlans.toArray(),
+    db.inboxItems.toArray(),
   ])
 
   const filteredTasks = tasks.filter(t => !tombstoneIds.has(t.id))
@@ -1182,6 +1220,9 @@ export async function pushAllLocal(): Promise<void> {
       : null,
     dailyPlans.length
       ? supabase.from('daily_plans').upsert(dailyPlans.map(p => dailyPlanToRow(p, userId)), { onConflict: 'user_id,date' })
+      : null,
+    inboxItems.length
+      ? supabase.from('inbox_items').upsert(inboxItems.map(i => inboxItemsToRow(i, userId)), { onConflict: 'id' })
       : null,
   ])
 }
@@ -1374,6 +1415,34 @@ export function startRealtime(userId: string): void {
         if (!local || (incoming.completedAt ?? 0) > (local.completedAt ?? 0)) {
           await db.dailyPlans.put(incoming)
         }
+      }
+    )
+
+    // ── inbox_items ────────────────────────────────────────────────────────────
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'inbox_items', filter: `user_id=eq.${userId}` },
+      async (payload) => {
+        if (payload.eventType === 'DELETE') {
+          await db.inboxItems.delete((payload.old as { id: string }).id)
+          return
+        }
+        const row = payload.new as Record<string, unknown>
+        if (row.deleted_at) { await db.inboxItems.delete(row.id as string); return }
+        const incoming: InboxItem = {
+          id:              row.id as string,
+          text:            (row.text as string) ?? '',
+          source:          (row.source as InboxItem['source']) ?? 'capture',
+          sourceMeta:      (row.source_meta as InboxItem['sourceMeta']) ?? undefined,
+          createdAt:       row.created_at ? new Date(row.created_at as string).getTime() : Date.now(),
+          updatedAt:       row.updated_at ? new Date(row.updated_at as string).getTime() : undefined,
+          processedAt:     row.processed_at ? new Date(row.processed_at as string).getTime() : undefined,
+          status:          (row.status as InboxItem['status']) ?? 'inbox',
+          convertedTaskId: (row.converted_task_id as string | undefined) ?? undefined,
+        }
+        const local      = await db.inboxItems.get(incoming.id)
+        const incomingTs = incoming.updatedAt ?? incoming.createdAt ?? 0
+        const localTs    = local?.updatedAt ?? local?.createdAt ?? 0
+        if (!local || incomingTs > localTs) await db.inboxItems.put(incoming)
       }
     )
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, processInboxItem, revertInboxItem, addTask } from '../data/db'
+import { db, processInboxItem, revertInboxItem, addTask, deleteTask } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { SectionHeader } from '../components/ui'
 import type { Screen, InboxItem, Task } from '../types'
@@ -48,7 +48,8 @@ function UndoToast({ undo, onDismiss }: { undo: UndoState; onDismiss: () => void
   useEffect(() => {
     timerRef.current = setTimeout(onDismiss, 4000)
     return () => { if (timerRef.current) clearTimeout(timerRef.current) }
-  }, [undo, onDismiss])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [undo])
 
   return (
     <div style={{
@@ -79,98 +80,89 @@ function TriagePills({
   item: InboxItem
   onAction: (undo: UndoState) => void
 }) {
-  const hasUrl = !!item.sourceMeta?.url
+  const hasUrl     = !!item.sourceMeta?.url
+  const processing = useRef(false)
+
+  async function triage(action: () => Promise<void>) {
+    if (processing.current) return
+    processing.current = true
+    try { await action() } finally { processing.current = false }
+  }
 
   async function handleToTask() {
-    const taskId = `t${Date.now()}`
-    const task: Task = {
-      id: taskId,
-      title: item.text,
-      cat: '',
-      effort: 'm',
-      due: '',
-      quad: 'q2',
-      recurring: null,
-      done: false,
-      streak: 0,
-      sub: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }
-    await addTask(task)
-    await processInboxItem(item.id, 'converted', taskId)
-    onAction({
-      label: 'Added to tasks.',
-      onUndo: async () => {
-        await db.tasks.delete(taskId)
-        await revertInboxItem(item.id, 'inbox')
-      },
+    await triage(async () => {
+      const now    = Date.now()
+      const taskId = crypto.randomUUID()
+      const task: Task = {
+        id: taskId, title: item.text,
+        cat: '', effort: 'm', due: '', quad: 'q2',
+        recurring: null, done: false, streak: 0, sub: [],
+        createdAt: now, updatedAt: now,
+      }
+      await addTask(task)
+      await processInboxItem(item.id, 'converted', taskId)
+      onAction({
+        label: 'Added to tasks.',
+        onUndo: async () => {
+          await deleteTask(taskId)
+          await revertInboxItem(item.id, 'inbox')
+        },
+      })
     })
   }
 
   async function handleSomeday() {
-    const taskId = `t${Date.now()}`
-    const task: Task = {
-      id: taskId,
-      title: item.text,
-      cat: '',
-      effort: 'm',
-      due: '',
-      status: 'someday',
-      quad: 'q2',
-      recurring: null,
-      done: false,
-      streak: 0,
-      sub: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }
-    await addTask(task)
-    await processInboxItem(item.id, 'someday', taskId)
-    onAction({
-      label: 'Moved to someday.',
-      onUndo: async () => {
-        await db.tasks.delete(taskId)
-        await revertInboxItem(item.id, 'inbox')
-      },
+    await triage(async () => {
+      const now    = Date.now()
+      const taskId = crypto.randomUUID()
+      const task: Task = {
+        id: taskId, title: item.text,
+        cat: '', effort: 'm', due: '', status: 'someday', quad: 'q2',
+        recurring: null, done: false, streak: 0, sub: [],
+        createdAt: now, updatedAt: now,
+      }
+      await addTask(task)
+      await processInboxItem(item.id, 'someday', taskId)
+      onAction({
+        label: 'Moved to someday.',
+        onUndo: async () => {
+          await deleteTask(taskId)
+          await revertInboxItem(item.id, 'inbox')
+        },
+      })
     })
   }
 
   async function handleReadLater() {
-    // TODO: route to read-later list view when built
-    const taskId = `t${Date.now()}`
-    const task: Task = {
-      id: taskId,
-      title: item.text,
-      cat: '',
-      effort: 's',
-      due: '',
-      status: 'someday',
-      notes: `readLater · ${item.sourceMeta?.url ?? ''}`,
-      quad: 'q2',
-      recurring: null,
-      done: false,
-      streak: 0,
-      sub: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }
-    await addTask(task)
-    await processInboxItem(item.id, 'someday', taskId)
-    onAction({
-      label: 'Saved to read later.',
-      onUndo: async () => {
-        await db.tasks.delete(taskId)
-        await revertInboxItem(item.id, 'inbox')
-      },
+    await triage(async () => {
+      const now    = Date.now()
+      const taskId = crypto.randomUUID()
+      const task: Task = {
+        id: taskId, title: item.text,
+        cat: '', effort: 's', due: '', status: 'someday',
+        notes: `readLater · ${item.sourceMeta?.url ?? ''}`,
+        quad: 'q2', recurring: null, done: false, streak: 0, sub: [],
+        createdAt: now, updatedAt: now,
+      }
+      await addTask(task)
+      await processInboxItem(item.id, 'someday', taskId)
+      onAction({
+        label: 'Saved to read later.',
+        onUndo: async () => {
+          await deleteTask(taskId)
+          await revertInboxItem(item.id, 'inbox')
+        },
+      })
     })
   }
 
   async function handleArchive() {
-    await processInboxItem(item.id, 'archived')
-    onAction({
-      label: 'Archived.',
-      onUndo: async () => { await revertInboxItem(item.id, 'inbox') },
+    await triage(async () => {
+      await processInboxItem(item.id, 'archived')
+      onAction({
+        label: 'Archived.',
+        onUndo: async () => { await revertInboxItem(item.id, 'inbox') },
+      })
     })
   }
 

@@ -123,6 +123,7 @@ export interface InboxItem {
     url?: string
   }
   createdAt: number
+  updatedAt?: number
   processedAt?: number
   status: 'inbox' | 'converted' | 'someday' | 'archived'
   convertedTaskId?: string

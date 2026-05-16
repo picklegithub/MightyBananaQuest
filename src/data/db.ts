@@ -708,12 +708,14 @@ export async function saveInboxItem(item: any) {
 export async function createInboxItem(
   partial: Pick<InboxItem, 'text' | 'source'> & { sourceMeta?: InboxItem['sourceMeta'] }
 ): Promise<InboxItem> {
+  const now = Date.now()
   const item: InboxItem = {
-    id: `ib${Date.now()}`,
+    id: crypto.randomUUID(),
     text: partial.text,
     source: partial.source,
     sourceMeta: partial.sourceMeta,
-    createdAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
     status: 'inbox',
   }
   await db.inboxItems.add(item)
@@ -730,7 +732,8 @@ export async function processInboxItem(
   status: 'converted' | 'someday' | 'archived',
   convertedTaskId?: string
 ): Promise<void> {
-  const patch: Partial<InboxItem> = { status, processedAt: Date.now() }
+  const now = Date.now()
+  const patch: Partial<InboxItem> = { status, processedAt: now, updatedAt: now }
   if (convertedTaskId) patch.convertedTaskId = convertedTaskId
   await db.inboxItems.update(id, patch)
   const updated = await db.inboxItems.get(id)
@@ -738,7 +741,13 @@ export async function processInboxItem(
 }
 
 export async function revertInboxItem(id: string, status: 'inbox'): Promise<void> {
-  await db.inboxItems.update(id, { status, processedAt: undefined, convertedTaskId: undefined })
+  const now = Date.now()
+  await db.inboxItems.update(id, { status, updatedAt: now })
+  // Dexie update() ignores undefined — use modify() to actually remove the fields
+  await db.inboxItems.where('id').equals(id).modify(item => {
+    delete item.processedAt
+    delete item.convertedTaskId
+  })
   const updated = await db.inboxItems.get(id)
   if (updated) enqueueUpsert('inbox_items', id, updated)
 }
