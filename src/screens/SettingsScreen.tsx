@@ -7,7 +7,7 @@ import { ScreenHeader } from '../components/layout/ScreenHeader'
 import { Toggle, Seg } from '../components/ui'
 import { supabase } from '../lib/supabase'
 import { notificationsSupported, requestPermission } from '../lib/notifications'
-import { drainOutbox, incrementalPull } from '../lib/sync'
+import { drainOutbox, incrementalPull, retryDeadLettered } from '../lib/sync'
 import { useSyncState, setSyncState } from '../lib/syncState'
 import { triggerSync, cancelSync } from '../components/SyncStatusBar'
 import type { Screen, AppSettings } from '../types'
@@ -154,6 +154,7 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
   const settings     = useLiveQuery(() => db.settings.get(1), [])
   const syncState    = useSyncState()
   const outboxCount  = useLiveQuery(() => db.outbox.count(), []) ?? 0
+  const deadCount    = useLiveQuery(() => db.outbox.filter(e => !!e.deadLettered).count(), []) ?? 0
   const outboxError  = useLiveQuery(
     () => db.outbox.orderBy('queuedAt').reverse().first().then(e => e?.lastError ?? null),
     []
@@ -527,6 +528,23 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
               {outboxError && (
                 <div style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'oklch(0.50 0.15 25)', wordBreak: 'break-word', lineHeight: 1.5 }}>
                   {outboxError === '[object Object]' ? 'Network or server error — will retry' : outboxError}
+                </div>
+              )}
+              {deadCount > 0 && (
+                <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'oklch(0.50 0.15 25)' }}>
+                    ✗ {deadCount} write{deadCount !== 1 ? 's' : ''} failed permanently
+                  </span>
+                  <button
+                    onClick={() => retryDeadLettered()}
+                    style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.05em',
+                      color: 'oklch(0.50 0.15 25)', padding: '2px 8px', borderRadius: 6,
+                      border: '1px solid oklch(0.88 0.08 25)', background: 'transparent',
+                    }}
+                  >
+                    RETRY
+                  </button>
                 </div>
               )}
             </div>

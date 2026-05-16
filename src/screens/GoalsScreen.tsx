@@ -61,7 +61,7 @@ export const GoalsScreen = ({ navigate, back }: Props) => {
               <span>{goals.length} {goals.length === 1 ? 'goal' : 'goals'}</span>
             </div>
             <div style={{ height: 4, borderRadius: 2, background: 'var(--paper-2)', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 2, background: 'var(--accent)', width: `${goals.length > 0 ? Math.round(goals.reduce((sum, g) => { const linked = allTasks.filter(t => g.linked.includes(t.id)); const p = linked.length > 0 ? linked.filter(t => t.done).length / linked.length : g.progress; return sum + p }, 0) / goals.length * 100) : 0}%`, transition: 'width .4s ease' }} />
+              <div style={{ height: '100%', borderRadius: 2, background: 'var(--accent)', width: `${goals.length > 0 ? Math.round(goals.reduce((sum, g) => { const linked = allTasks.filter(t => g.linked.includes(t.id) || t.goalId === g.id); const p = linked.length > 0 ? linked.filter(t => t.done).length / linked.length : g.progress; return sum + p }, 0) / goals.length * 100) : 0}%`, transition: 'width .4s ease' }} />
             </div>
           </div>
         }
@@ -99,7 +99,7 @@ export const GoalsScreen = ({ navigate, back }: Props) => {
           {goals.map(g => {
             const cat      = cats.find(c => c.id === g.area)
             const CatIcon  = cat?.icon ? (Icons as Record<string, any>)[cat.icon] : null
-            const linked   = allTasks.filter(t => g.linked.includes(t.id))
+            const linked   = allTasks.filter(t => g.linked.includes(t.id) || t.goalId === g.id)
             const progress = linked.length > 0
               ? linked.filter(t => t.done).length / linked.length
               : g.progress

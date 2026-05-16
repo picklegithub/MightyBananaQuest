@@ -76,9 +76,11 @@ function UndoToast({ undo, onDismiss }: { undo: UndoState; onDismiss: () => void
 function TriagePills({
   item,
   onAction,
+  navigate,
 }: {
   item: InboxItem
   onAction: (undo: UndoState) => void
+  navigate: (s: Screen) => void
 }) {
   const hasUrl     = !!item.sourceMeta?.url
   const processing = useRef(false)
@@ -146,6 +148,7 @@ function TriagePills({
       }
       await addTask(task)
       await processInboxItem(item.id, 'someday', taskId)
+      navigate({ name: 'all-tasks' })
       onAction({
         label: 'Saved to read later.',
         onUndo: async () => {
@@ -197,9 +200,11 @@ function TriagePills({
 function InboxRow({
   item,
   onAction,
+  navigate,
 }: {
   item: InboxItem
   onAction: (undo: UndoState) => void
+  navigate: (s: Screen) => void
 }) {
   const fresh     = isFresh(item.createdAt)
   const color     = SOURCE_COLOR[item.source]
@@ -267,7 +272,7 @@ function InboxRow({
       </div>
 
       {/* Triage pills */}
-      <TriagePills item={item} onAction={onAction} />
+      <TriagePills item={item} onAction={onAction} navigate={navigate} />
     </div>
   )
 }
@@ -278,7 +283,7 @@ interface Props {
   back: () => void
 }
 
-export const InboxScreen = ({ back }: Props) => {
+export const InboxScreen = ({ back, navigate }: Props) => {
   const [undoState, setUndoState] = useState<UndoState | null>(null)
 
   const items = useLiveQuery(
@@ -295,6 +300,15 @@ export const InboxScreen = ({ back }: Props) => {
 
   function handleAction(undo: UndoState) {
     setUndoState(undo)
+  }
+
+  async function archiveAll() {
+    const snapshot = [...items]
+    await Promise.all(snapshot.map(i => processInboxItem(i.id, 'archived')))
+    handleAction({
+      label: `${snapshot.length} item${snapshot.length !== 1 ? 's' : ''} archived.`,
+      onUndo: async () => { await Promise.all(snapshot.map(i => revertInboxItem(i.id, 'inbox'))) },
+    })
   }
 
   const n = items.length
@@ -329,8 +343,12 @@ export const InboxScreen = ({ back }: Props) => {
             Inbox · {n} to process
           </div>
         </div>
-        {/* Overflow placeholder */}
-        <button style={{ color: 'var(--ink-4)', flexShrink: 0 }}>
+        {/* Archive all */}
+        <button
+          onClick={n > 0 ? archiveAll : undefined}
+          style={{ color: n > 0 ? 'var(--ink-3)' : 'var(--ink-5)', flexShrink: 0 }}
+          title="Archive all"
+        >
           <Icons.more size={20} />
         </button>
       </div>
@@ -375,7 +393,7 @@ export const InboxScreen = ({ back }: Props) => {
                 <SectionHeader title="Fresh" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
                   {fresh.map(item => (
-                    <InboxRow key={item.id} item={item} onAction={handleAction} />
+                    <InboxRow key={item.id} item={item} onAction={handleAction} navigate={navigate} />
                   ))}
                 </div>
               </div>
@@ -387,7 +405,7 @@ export const InboxScreen = ({ back }: Props) => {
                 <SectionHeader title="Older" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
                   {older.map(item => (
-                    <InboxRow key={item.id} item={item} onAction={handleAction} />
+                    <InboxRow key={item.id} item={item} onAction={handleAction} navigate={navigate} />
                   ))}
                 </div>
               </div>
