@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import type { Task, Habit, Category, Goal, JournalEntry, InboxItem, AppSettings, WeeklyReview, ShoppingItem, DailyPlan, CopingCard, CopingCategory } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS, EFFORT } from '../constants'
-import { SEED_TASKS, SEED_GOALS, SEED_JOURNAL, SEED_INBOX, SEED_COPING_CARDS } from './seeds'
+import { SEED_TASKS, SEED_GOALS, SEED_JOURNAL, SEED_COPING_CARDS } from './seeds'
 import { enqueueUpsert, enqueueDelete } from '../lib/sync'
 import { localDateISO } from '../lib/useCurrentDate'
 
@@ -285,13 +285,12 @@ db.on('ready', async () => {
   const count = await db.settings.count()
   if (count > 0) return  // already seeded
 
-  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.goals, db.journal, db.inbox, db.copingCards], async () => {
+  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.goals, db.journal, db.copingCards], async () => {
     await db.settings.add(DEFAULT_SETTINGS)
     await db.categories.bulkAdd(DEFAULT_CATEGORIES)
     await db.tasks.bulkAdd(SEED_TASKS)
     await db.goals.bulkAdd(SEED_GOALS)
     await db.journal.bulkAdd(SEED_JOURNAL)
-    await db.inbox.bulkAdd(SEED_INBOX)
     await db.copingCards.bulkAdd(SEED_COPING_CARDS)
   })
 })
@@ -421,7 +420,7 @@ export async function completeTask(taskId: string): Promise<{ xp: number; nextDu
     nextDue = nextOccurrenceISO(task.due, task.recurring)
     const copy: Task = {
       ...task,
-      id: `t${Date.now()}`,
+      id: crypto.randomUUID(),
       done: false,
       streak: newStreak,
       due: nextDue,
@@ -698,12 +697,6 @@ export async function deleteJournalEntry(entryId: string) {
   enqueueDelete('journal', entryId)
 }
 
-// ── Helper: save an inbox item ────────────────────────────────────────────────
-export async function saveInboxItem(item: any) {
-  await db.inbox.put(item)
-  enqueueUpsert('inbox', item.id, item)
-}
-
 // ── Active inbox helpers ──────────────────────────────────────────────────────
 export async function createInboxItem(
   partial: Pick<InboxItem, 'text' | 'source'> & { sourceMeta?: InboxItem['sourceMeta'] }
@@ -862,7 +855,7 @@ export async function wipeGoals(): Promise<void> {
 export async function wipeAllData(): Promise<void> {
   await db.transaction('rw', [
     db.settings, db.categories, db.tasks, db.habits, db.goals,
-    db.journal, db.inbox, db.habitLog, db.deletedTasks, db.completedTasks, db.outbox,
+    db.journal, db.habitLog, db.deletedTasks, db.completedTasks, db.outbox,
     db.dailyPlans, db.weeklyReviews, db.shoppingItems, db.copingCards, db.inboxItems,
   ], async () => {
     await db.settings.clear()
@@ -871,7 +864,6 @@ export async function wipeAllData(): Promise<void> {
     await db.habits.clear()
     await db.goals.clear()
     await db.journal.clear()
-    await db.inbox.clear()
     await db.inboxItems.clear()
     await db.habitLog.clear()
     await db.deletedTasks.clear()
@@ -899,22 +891,36 @@ export async function getPinnedCard(): Promise<CopingCard | null> {
 
 export async function addCopingCard(card: Omit<CopingCard, 'createdAt' | 'updatedAt'>): Promise<void> {
   const now = Date.now()
-  await db.copingCards.add({ ...card, createdAt: now, updatedAt: now })
+  const full = { ...card, createdAt: now, updatedAt: now }
+  await db.copingCards.add(full)
+  if (!card.isDefault) enqueueUpsert('coping_cards', card.id, full)
 }
 
 export async function updateCopingCard(id: string, patch: Partial<CopingCard>): Promise<void> {
-  await db.copingCards.update(id, { ...patch, updatedAt: Date.now() })
+  const now = Date.now()
+  await db.copingCards.update(id, { ...patch, updatedAt: now })
+  const updated = await db.copingCards.get(id)
+  if (updated && !updated.isDefault) enqueueUpsert('coping_cards', id, updated)
 }
 
 export async function deleteCopingCard(id: string): Promise<void> {
+  const card = await db.copingCards.get(id)
   await db.copingCards.delete(id)
+  if (card && !card.isDefault) enqueueDelete('coping_cards', id)
 }
 
 export async function pinCopingCard(id: string): Promise<void> {
-  // Clear existing pin first, then set new one
+  const now = Date.now()
   const allPinned = await db.copingCards.where('isPinned').equals(1).toArray()
-  await Promise.all(allPinned.map(c => db.copingCards.update(c.id, { isPinned: false })))
-  await db.copingCards.update(id, { isPinned: true, updatedAt: Date.now() })
+  await Promise.all(allPinned.map(c => db.copingCards.update(c.id, { isPinned: false, updatedAt: now })))
+  await db.copingCards.update(id, { isPinned: true, updatedAt: now })
+  // Sync the pin change for user-created cards
+  for (const c of allPinned) {
+    const updated = await db.copingCards.get(c.id)
+    if (updated && !updated.isDefault) enqueueUpsert('coping_cards', c.id, updated)
+  }
+  const pinned = await db.copingCards.get(id)
+  if (pinned && !pinned.isDefault) enqueueUpsert('coping_cards', id, pinned)
 }
 
 // ── Helper: clear local state and prepare for a full server re-pull ──────────

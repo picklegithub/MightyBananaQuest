@@ -40,18 +40,23 @@ function OptionPill({
 }
 
 export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, defaultDue, defaultIsHabit = false, linkToGoalId, editHabit }: Props) {
-  const [title,     setTitle]     = useState(editHabit?.title ?? defaultTitle)
-  const [effort,    setEffort]    = useState<EffortKey>('m')
-  const [due,       setDue]       = useState(defaultDue ?? '')
-  const [time,      setTime]      = useState<string | undefined>(undefined)
-  const [recurring,  setRecurring]  = useState<string | null>(null)
-  const [notes,      setNotes]      = useState(editHabit?.notes ?? '')
-  const [isHabit,    setIsHabit]    = useState(editHabit ? true : defaultIsHabit)
-  const [frequency,  setFrequency]  = useState(editHabit?.frequency ?? 'daily')
-  const [status,     setStatus]     = useState<'backlog' | 'active' | 'someday'>('backlog')
+  const [title,       setTitle]       = useState(editHabit?.title ?? defaultTitle)
+  const [effort,      setEffort]      = useState<EffortKey>('m')
+  const [due,         setDue]         = useState(defaultDue ?? '')
+  const [time,        setTime]        = useState<string | undefined>(undefined)
+  const [recurring,   setRecurring]   = useState<string | null>(null)
+  const [reminderMin, setReminderMin] = useState<number | undefined>(undefined)
+  const [customReminder, setCustomReminder] = useState('')
+  const [notes,       setNotes]       = useState(editHabit?.notes ?? '')
+  const [why,         setWhy]         = useState(editHabit?.why ?? '')
+  const [goalId,      setGoalId]      = useState<string | null>(editHabit?.goalId ?? null)
+  const [isHabit,     setIsHabit]     = useState(editHabit ? true : defaultIsHabit)
+  const [frequency,   setFrequency]   = useState(editHabit?.frequency ?? 'daily')
+  const [status,      setStatus]      = useState<'backlog' | 'active' | 'someday'>('backlog')
 
   const liveCategories = useLiveQuery(() => db.categories.toArray(), [])
-  const cats = liveCategories ?? DEFAULT_CATEGORIES
+  const cats  = liveCategories ?? DEFAULT_CATEGORIES
+  const goals = useLiveQuery(() => db.goals.toArray(), []) ?? []
   const [cat, setCat] = useState(editHabit?.cat ?? defaultCatId ?? cats[0]?.id ?? 'home')
 
   async function handleAdd() {
@@ -62,13 +67,15 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
         cat: cat || undefined,
         frequency,
         notes: notes.trim() || undefined,
+        why: why.trim() || undefined,
+        goalId: goalId || undefined,
       })
       onClose()
       return
     }
     if (isHabit) {
       const habit: Habit = {
-        id: `h${Date.now()}`,
+        id: crypto.randomUUID(),
         title: title.trim(),
         cat: cat || undefined,
         frequency,
@@ -76,15 +83,21 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
         bestStreak: 0,
         done: false,
         notes: notes.trim() || undefined,
+        why: why.trim() || undefined,
+        goalId: goalId || undefined,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }
       await addHabit(habit)
     } else {
+      const effectiveReminder = reminderMin === -1
+        ? (customReminder.trim() ? parseInt(customReminder, 10) || undefined : undefined)
+        : reminderMin
       const task: Task = {
-        id: `t${Date.now()}`,
+        id: crypto.randomUUID(),
         title: title.trim(),
         cat, effort, due, time, quad: 'q2', recurring,
+        reminderMin: effectiveReminder,
         notes: notes.trim() || undefined,
         done: false, streak: 0, sub: [],
         status,
@@ -230,6 +243,41 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
             </div>
           )}
 
+          {/* Why — habit mode only */}
+          {isHabit && (
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Why this habit?</div>
+              <input
+                value={why}
+                onChange={e => setWhy(e.target.value)}
+                placeholder="What does this habit build toward?"
+                style={{
+                  width: '100%', padding: '11px 14px',
+                  background: 'var(--paper-2)', border: '1px solid var(--rule)',
+                  borderRadius: 12, fontSize: 14, color: 'var(--ink)',
+                  fontFamily: 'var(--font-display)', fontStyle: why ? 'italic' : 'normal',
+                }}
+              />
+            </div>
+          )}
+
+          {/* Goal link — habit mode only, only shown when goals exist */}
+          {isHabit && goals.length > 0 && (
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Building toward</div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                <OptionPill active={goalId === null} onClick={() => setGoalId(null)}>
+                  None
+                </OptionPill>
+                {goals.map(g => (
+                  <OptionPill key={g.id} active={goalId === g.id} onClick={() => setGoalId(g.id)}>
+                    {g.title}
+                  </OptionPill>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Status — task mode only */}
           {!isHabit && (
             <div>
@@ -260,6 +308,61 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
               />
             </div>
           )}
+
+          {/* Reminder — task mode only, only when a due date or time is set */}
+          {!isHabit && (due || time) && (() => {
+            // -1 is a sentinel meaning "custom input mode"
+            const CUSTOM = -1
+            const presets: { label: string; value: number | undefined }[] = [
+              { label: 'None',    value: undefined },
+              { label: 'On time', value: 0         },
+              { label: '5 min',   value: 5         },
+              { label: '30 min',  value: 30        },
+              { label: '1 hour',  value: 60        },
+              { label: '1 day',   value: 1440      },
+            ]
+            const isCustom = reminderMin === CUSTOM
+            return (
+              <div>
+                <div className="eyebrow" style={{ marginBottom: 8 }}>Remind me</div>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                  {presets.map(o => (
+                    <OptionPill
+                      key={String(o.value)}
+                      active={reminderMin === o.value}
+                      onClick={() => { setReminderMin(o.value); setCustomReminder('') }}
+                    >
+                      {o.label}
+                    </OptionPill>
+                  ))}
+                  <OptionPill
+                    active={isCustom}
+                    onClick={() => { setReminderMin(CUSTOM); setTimeout(() => document.getElementById('reminder-custom-input')?.focus(), 50) }}
+                  >
+                    Custom
+                  </OptionPill>
+                </div>
+                {isCustom && (
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      id="reminder-custom-input"
+                      type="number"
+                      min={1}
+                      value={customReminder}
+                      onChange={e => setCustomReminder(e.target.value)}
+                      placeholder="e.g. 45"
+                      style={{
+                        width: 100, padding: '8px 12px',
+                        background: 'var(--paper-2)', border: '1px solid var(--rule)',
+                        borderRadius: 10, fontSize: 13, color: 'var(--ink)',
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>minutes before</span>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Notes */}
           <div>

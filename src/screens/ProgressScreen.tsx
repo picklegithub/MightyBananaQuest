@@ -14,7 +14,53 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
-import type { Screen } from '../types'
+import { EFFORT } from '../constants'
+import type { Screen, AppSettings, Task, Category } from '../types'
+
+// ── Progress stats shape ──────────────────────────────────────────────────────
+interface ProgressStats {
+  tasksCompleted: number   // last 30 days
+  journalDays:   number   // distinct days with any journal entry, last 30
+  habitsDone:    number   // total habit completions, last 30 days
+  weekTasksDone: number   // tasks done in last 7 days
+}
+
+// ── Headline generator — 10 editorial tiers ───────────────────────────────────
+// Mirrors WeeklyReviewScreen's generateInsight() pattern.
+// Ordered from rarest (most impressive) → most common so the first true
+// condition always wins the most meaningful observation.
+function generateProgressHeadline(
+  streak: number,
+  stats: ProgressStats,
+): { prefix: string; em: string; suffix: string } {
+  const { tasksCompleted, journalDays, habitsDone, weekTasksDone } = stats
+
+  // ── Streak tiers ──────────────────────────────────────────────────────────
+  if (streak >= 30) return { prefix: 'A',        em: 'remarkable',  suffix: 'month.'      }
+  if (streak >= 14) return { prefix: 'A',        em: 'brilliant',   suffix: 'fortnight.'  }
+  if (streak >= 7)  return { prefix: 'Seven',    em: 'consecutive', suffix: 'days.'       }
+
+  // ── Task volume tiers ─────────────────────────────────────────────────────
+  if (tasksCompleted >= 40) return { prefix: 'A',    em: 'legendary',  suffix: 'month.'      }
+  if (tasksCompleted >= 20) return { prefix: 'A',    em: 'productive', suffix: 'month.'      }
+  if (tasksCompleted >= 10) return { prefix: 'Good', em: 'momentum',   suffix: 'this month.' }
+
+  // ── Habit consistency ─────────────────────────────────────────────────────
+  if (habitsDone >= 50) return { prefix: 'Habits',     em: 'cemented.',  suffix: 'Remarkable.'  }
+  if (habitsDone >= 20) return { prefix: 'Habits',     em: 'holding.',   suffix: 'Keep at it.'  }
+
+  // ── Journal consistency ───────────────────────────────────────────────────
+  if (journalDays >= 20) return { prefix: 'A',          em: 'reflective', suffix: 'month.'       }
+  if (journalDays >= 10) return { prefix: 'Reflection', em: 'becoming',   suffix: 'a habit.'     }
+
+  // ── Getting started ───────────────────────────────────────────────────────
+  if (weekTasksDone >= 3) return { prefix: 'A',      em: 'steady',  suffix: 'week.'    }
+  if (tasksCompleted > 0 || journalDays > 0 || habitsDone > 0)
+                           return { prefix: 'Every',  em: 'step',    suffix: 'counts.'  }
+
+  // ── Empty / brand new ─────────────────────────────────────────────────────
+  return { prefix: 'A fresh', em: 'start', suffix: 'awaits.' }
+}
 
 interface Props { navigate: (s: Screen) => void; back?: () => void }
 
@@ -37,6 +83,89 @@ function BigStat({
   )
 }
 
+// ── Activity log helpers ──────────────────────────────────────────────────────
+const ACTIVITY_LIMIT = 50  // max completed tasks to show in the log
+
+/** Group a sorted array of tasks into { dateISO → Task[] } ordered most-recent first */
+function groupByDate(tasks: Task[]): { date: string; tasks: Task[] }[] {
+  const map: Record<string, Task[]> = {}
+  for (const t of tasks) {
+    // Prefer completedAt timestamp → fall back to due date
+    const iso = t.completedAt
+      ? new Date(t.completedAt).toISOString().slice(0, 10)
+      : t.due
+    if (!map[iso]) map[iso] = []
+    map[iso].push(t)
+  }
+  // Sort groups most-recent first
+  return Object.entries(map)
+    .sort(([a], [b]) => (a < b ? 1 : -1))
+    .map(([date, tasks]) => ({ date, tasks }))
+}
+
+function formatActivityDate(iso: string, todayISO: string): string {
+  const yesterday = new Date(todayISO + 'T12:00:00')
+  yesterday.setDate(yesterday.getDate() - 1)
+  const yesterdayISO = yesterday.toISOString().slice(0, 10)
+  if (iso === todayISO)      return 'Today'
+  if (iso === yesterdayISO)  return 'Yesterday'
+  return new Date(iso + 'T12:00:00').toLocaleDateString(undefined, {
+    weekday: 'long', month: 'short', day: 'numeric',
+  })
+}
+
+// ── ActivityRow ───────────────────────────────────────────────────────────────
+function ActivityRow({ task, cat }: { task: Task; cat: Category | undefined }) {
+  const I = cat ? (Icons[cat.icon as keyof typeof Icons] ?? Icons.home) : Icons.check
+  const xp = EFFORT[task.effort]?.xp ?? 15
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '10px 0',
+      borderBottom: '1px solid var(--rule)',
+    }}>
+      {/* Category dot/icon */}
+      <div style={{
+        width: 28, height: 28, borderRadius: '50%',
+        background: 'var(--paper-3)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexShrink: 0,
+      }}>
+        <I size={12} stroke="var(--ink-2)" />
+      </div>
+
+      {/* Title + category label */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 13, color: 'var(--ink)',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
+          {task.title}
+        </div>
+        {cat && (
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 9,
+            color: 'var(--ink-3)', marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.06em',
+          }}>
+            {cat.name}
+          </div>
+        )}
+      </div>
+
+      {/* XP badge */}
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10,
+        color: 'var(--ink-3)',
+        background: 'var(--paper-3)',
+        borderRadius: 4, padding: '2px 6px',
+        flexShrink: 0,
+      }}>
+        +{xp} XP
+      </div>
+    </div>
+  )
+}
+
 // ── SectionHead (eyebrow + sub) ───────────────────────────────────────────────
 function SectionHead({ title, sub }: { title: string; sub: string }) {
   return (
@@ -53,6 +182,20 @@ export const ProgressScreen = ({ back }: Props) => {
   const tasks     = useLiveQuery(() => db.tasks.toArray(), [])
   const cats      = useLiveQuery(() => db.categories.toArray(), []) ?? []
   const habitLogs = useLiveQuery(() => db.habitLog.toArray(), [])
+  const journal   = useLiveQuery(() => db.journal.toArray(), []) ?? []
+
+  // Activity log: most-recent ACTIVITY_LIMIT completed tasks, newest first
+  const recentDone = useLiveQuery(
+    () => db.tasks
+      .filter(t => !!t.done)
+      .toArray()
+      .then(arr =>
+        arr
+          .sort((a, b) => (b.completedAt ?? b.createdAt ?? 0) - (a.completedAt ?? a.createdAt ?? 0))
+          .slice(0, ACTIVITY_LIMIT)
+      ),
+    [],
+  ) ?? []
 
   if (!settings || !tasks || !habitLogs) return null
 
@@ -89,8 +232,8 @@ export const ProgressScreen = ({ back }: Props) => {
   })
 
   // ── This week stats ───────────────────────────────────────────────────────
-  const weekDone  = tasks.filter(t => last7.includes(t.due) && t.done).length
-  const weekTotal = tasks.filter(t => last7.includes(t.due)).length
+  const weekDone  = tasks.filter(t => t.done && t.completedAt && last7.includes(localDateISO(new Date(t.completedAt)))).length
+  const weekTotal = tasks.filter(t => t.due && last7.includes(t.due)).length
 
   // ── Habit heatmap: last 84 days (12 columns × 7 rows) ────────────────────
   const dots84 = Array.from({ length: 84 }, (_, i) => isoOffset(83 - i))
@@ -101,6 +244,29 @@ export const ProgressScreen = ({ back }: Props) => {
   const startLabel = new Date(dots84[0]  + 'T12:00:00').toLocaleDateString(undefined, { month: 'short' })
   const endLabel   = new Date(dots84[83] + 'T12:00:00').toLocaleDateString(undefined, { month: 'short' })
 
+  // ── Category lookup map ───────────────────────────────────────────────────
+  const catMap = React.useMemo(
+    () => Object.fromEntries(cats.map(c => [c.id, c])),
+    [cats],
+  )
+
+  // ── Activity log groups ───────────────────────────────────────────────────
+  const activityGroups = React.useMemo(
+    () => groupByDate(recentDone),
+    [recentDone],
+  )
+
+  // ── Dynamic headline ──────────────────────────────────────────────────────
+  const last30 = Array.from({ length: 30 }, (_, i) => isoOffset(29 - i))
+
+  const progressStats: ProgressStats = {
+    tasksCompleted: tasks.filter(t => t.done && t.completedAt && last30.includes(localDateISO(new Date(t.completedAt)))).length,
+    journalDays:    new Set(journal.filter(e => last30.includes(e.date)).map(e => e.date)).size,
+    habitsDone:     habitLogs.filter(l => last30.includes(l.date)).length,
+    weekTasksDone:  tasks.filter(t => t.done && t.completedAt && last7.includes(localDateISO(new Date(t.completedAt)))).length,
+  }
+  const { prefix, em, suffix } = generateProgressHeadline(streak, progressStats)
+
   return (
     <div className="screen">
       <ScreenHeader title="Progress" back={back} />
@@ -110,7 +276,7 @@ export const ProgressScreen = ({ back }: Props) => {
         {/* ── Display title ─────────────────────────────────────────────────── */}
         <div style={{ padding: '18px 22px 0' }}>
           <div className="t-display" style={{ fontSize: 36, lineHeight: 1.1 }}>
-            A <em>steady</em> month.
+            {prefix} <em>{em}</em> {suffix}
           </div>
         </div>
 
@@ -222,6 +388,41 @@ export const ProgressScreen = ({ back }: Props) => {
             })}
           </div>
         )}
+
+        {/* ── Activity log ─────────────────────────────────────────────── */}
+        <div style={{ padding: '28px 22px 0' }}>
+          <SectionHead title="Activity" sub={`last ${recentDone.length} completed`} />
+
+          {activityGroups.length === 0 ? (
+            <div style={{
+              padding: '24px 0', textAlign: 'center',
+              fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)',
+            }}>
+              Complete a task to see your history here.
+            </div>
+          ) : (
+            activityGroups.map(group => (
+              <div key={group.date}>
+                {/* Date header */}
+                <div style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 9,
+                  color: 'var(--ink-3)', textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  padding: '12px 0 2px',
+                }}>
+                  {formatActivityDate(group.date, todayISO)}
+                </div>
+                {group.tasks.map(task => (
+                  <ActivityRow
+                    key={task.id}
+                    task={task}
+                    cat={catMap[task.cat]}
+                  />
+                ))}
+              </div>
+            ))
+          )}
+        </div>
 
       </div>
     </div>

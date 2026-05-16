@@ -220,7 +220,7 @@ function CalendarGhostInput({ due, defaultCat = 'inbox' }: { due: string; defaul
     const t = value.trim()
     if (!t) { setActive(false); return }
     await addTask({
-      id: `t${Date.now()}`,
+      id: crypto.randomUUID(),
       title: t,
       cat: defaultCat,
       effort: 's',

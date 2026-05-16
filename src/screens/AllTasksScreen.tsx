@@ -163,7 +163,7 @@ function GhostInput({ catId, onSaved }: { catId: string; onSaved: () => void }) 
     const t = value.trim()
     if (!t) { setActive(false); return }
     await addTask({
-      id: `t${Date.now()}`,
+      id: crypto.randomUUID(),
       title: t,
       cat: catId === 'all' ? 'inbox' : catId,
       effort: 's',

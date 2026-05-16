@@ -28,7 +28,7 @@ export function AddGoalSheet({ categories, onClose }: Props) {
   async function handleSave() {
     if (!title.trim()) return
     await addGoal({
-      id: `g${Date.now()}`,
+      id: crypto.randomUUID(),
       title: title.trim(), area, horizon,
       why: why.trim(), progress: 0, linked: [],
     })

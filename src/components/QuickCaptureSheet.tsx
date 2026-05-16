@@ -148,7 +148,7 @@ export function QuickCaptureSheet({ onClose, onExpand, defaultCatId, defaultTitl
     const effectiveCatId = catId ?? p.catId ?? null
 
     const task: Task = {
-      id:        `t${Date.now()}`,
+      id:        crypto.randomUUID(),
       title:     p.title || trimmed,
       cat:       effectiveCatId ?? 'inbox',
       effort:    (p.effort ?? effort) as Task['effort'],

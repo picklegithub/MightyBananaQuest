@@ -14,7 +14,7 @@ export const GoalsScreen = ({ navigate, back }: Props) => {
   const goals    = useLiveQuery(() => db.goals.toArray(), [])
   const cats     = useLiveQuery(() => db.categories.toArray(), []) ?? []
   const allTasks = useLiveQuery(() => db.tasks.toArray(), [])
-  const settings = useLiveQuery(() => db.settings.get('main'), [])
+  const settings = useLiveQuery(() => db.settings.get(1), [])
 
   const [adding, setAdding] = useState(false)
   const [draft, setDraft]   = useState({ title: '', area: '', horizon: '12 weeks', why: '' })
@@ -31,7 +31,7 @@ export const GoalsScreen = ({ navigate, back }: Props) => {
   const submit = async () => {
     if (!draft.title.trim()) return
     await addGoal({
-      id:       `g${Date.now()}`,
+      id:       crypto.randomUUID(),
       title:    draft.title.trim(),
       area:     draft.area || defaultArea,
       horizon:  draft.horizon,

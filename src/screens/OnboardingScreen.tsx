@@ -100,7 +100,7 @@ function StepAreas({ onNext }: { onNext: () => void }) {
   async function addCustom() {
     const name = newName.trim()
     if (!name) return
-    const id = `c_${Date.now()}`
+    const id = crypto.randomUUID()
     await db.categories.add({ id, name, icon: 'sparkle', hue: 200 })
     setSelected(prev => new Set([...prev, id]))
     setNewName(''); setAdding(false)
@@ -204,7 +204,7 @@ function StepFirstTask({ onNext }: { onNext: () => void }) {
     const trimmed = title.trim()
     if (!trimmed) return
     const task: Task = {
-      id: `t${Date.now()}`,
+      id: crypto.randomUUID(),
       title: trimmed, cat: 'inbox', effort: 's', due: 'Today',
       quad: 'q2', recurring: null,
       done: false, streak: 0, sub: [],

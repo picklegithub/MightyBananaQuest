@@ -38,7 +38,7 @@
 
 import { supabase } from './supabase'
 import { db, type OutboxEntry } from '../data/db'
-import type { Task, Goal, JournalEntry, InboxItem, Category, AppSettings, ShoppingItem, Habit, WeeklyReview, DailyPlan, GoalPulse } from '../types'
+import type { Task, Goal, JournalEntry, InboxItem, Category, AppSettings, ShoppingItem, Habit, WeeklyReview, DailyPlan, GoalPulse, CopingCard } from '../types'
 
 // ── Error message extractor ───────────────────────────────────────────────────
 // Supabase PostgrestError is a plain object { message, details, hint, code },
@@ -295,6 +295,33 @@ function rowToInbox(row: Record<string, unknown>): any {
   }
 }
 
+function copingCardToRow(card: CopingCard, userId: string) {
+  return {
+    id:         card.id,
+    user_id:    userId,
+    title:      card.title,
+    content:    card.content,
+    category:   card.category,
+    is_default: card.isDefault,
+    is_pinned:  card.isPinned ?? false,
+    created_at: new Date(card.createdAt).toISOString(),
+    updated_at: card.updatedAt ? new Date(card.updatedAt).toISOString() : isoNow(),
+  }
+}
+
+function rowToCopingCard(row: Record<string, unknown>): CopingCard {
+  return {
+    id:        row.id as string,
+    title:     (row.title as string) ?? '',
+    content:   (row.content as string) ?? '',
+    category:  (row.category as CopingCard['category']) ?? 'mindfulness',
+    isDefault: (row.is_default as boolean) ?? false,
+    isPinned:  (row.is_pinned as boolean) ?? false,
+    createdAt: row.created_at ? new Date(row.created_at as string).getTime() : Date.now(),
+    updatedAt: row.updated_at ? new Date(row.updated_at as string).getTime() : Date.now(),
+  }
+}
+
 function inboxItemsToRow(item: InboxItem, userId: string) {
   return {
     id:              item.id,
@@ -516,6 +543,7 @@ function serializeForSupabase(
     case 'habits':          return habitToRow(data as Habit, userId)
     case 'weekly_reviews':  return weeklyReviewToRow(data as WeeklyReview, userId)
     case 'daily_plans':     return dailyPlanToRow(data as DailyPlan, userId)
+    case 'coping_cards':   return copingCardToRow(data as CopingCard, userId)
     default:               return { ...data, user_id: userId }
   }
 }
@@ -658,6 +686,7 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         case 'journal':        await db.journal.delete(id);       break
         case 'inbox':          await db.inbox.delete(id);         break
         case 'inbox_items':    await db.inboxItems.delete(id);    break
+        case 'coping_cards':   await db.copingCards.delete(id);   break
         case 'categories':     await db.categories.delete(id);    break
         case 'shopping_items':  await db.shoppingItems.delete(id);      break
         case 'habits':          await db.habits.delete(id);             break
@@ -728,6 +757,14 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         const incomingTs = incoming.updatedAt ?? incoming.createdAt ?? 0
         const localTs    = local?.updatedAt ?? local?.createdAt ?? 0
         if (!local || incomingTs > localTs) { await db.inboxItems.put(incoming); pulled++ }
+        break
+      }
+      case 'coping_cards': {
+        const incoming   = rowToCopingCard(payload)
+        const local      = await db.copingCards.get(incoming.id)
+        const incomingTs = incoming.updatedAt ?? 0
+        const localTs    = local?.updatedAt ?? 0
+        if (!local || incomingTs > localTs) { await db.copingCards.put(incoming); pulled++ }
         break
       }
       case 'categories': {
@@ -1047,6 +1084,32 @@ const TABLE_PULLERS: Array<{
       return { pulled, deleted, maxSeq }
     },
   },
+  {
+    name: 'coping_cards',
+    pull: async (since, userId) => {
+      let pulled = 0; let deleted = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('coping_cards').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          if (row.deleted_at) {
+            await db.copingCards.delete(row.id as string); deleted++
+          } else {
+            const incoming = rowToCopingCard(row as Record<string, unknown>)
+            const local    = await db.copingCards.get(incoming.id)
+            const inTs     = incoming.updatedAt ?? 0
+            const loTs     = local?.updatedAt ?? 0
+            if (!local || inTs > loTs) { await db.copingCards.put(incoming); pulled++ }
+          }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted, maxSeq }
+    },
+  },
 ]
 
 export async function incrementalPullBySeq(
@@ -1174,7 +1237,7 @@ export async function pushAllLocal(): Promise<void> {
 
   const tombstoneIds = new Set((await db.deletedTasks.toArray()).map(t => t.id))
 
-  const [tasks, goals, journal, inbox, categories, settings, shoppingItems, habits, weeklyReviews, dailyPlans, inboxItems] = await Promise.all([
+  const [tasks, goals, journal, inbox, categories, settings, shoppingItems, habits, weeklyReviews, dailyPlans, inboxItems, copingCards] = await Promise.all([
     db.tasks.toArray(),
     db.goals.toArray(),
     db.journal.toArray(),
@@ -1186,6 +1249,7 @@ export async function pushAllLocal(): Promise<void> {
     db.weeklyReviews.toArray(),
     db.dailyPlans.toArray(),
     db.inboxItems.toArray(),
+    db.copingCards.toArray(),
   ])
 
   const filteredTasks = tasks.filter(t => !tombstoneIds.has(t.id))
@@ -1223,6 +1287,9 @@ export async function pushAllLocal(): Promise<void> {
       : null,
     inboxItems.length
       ? supabase.from('inbox_items').upsert(inboxItems.map(i => inboxItemsToRow(i, userId)), { onConflict: 'id' })
+      : null,
+    copingCards.filter(c => !c.isDefault).length
+      ? supabase.from('coping_cards').upsert(copingCards.filter(c => !c.isDefault).map(c => copingCardToRow(c, userId)), { onConflict: 'id' })
       : null,
   ])
 }
@@ -1443,6 +1510,24 @@ export function startRealtime(userId: string): void {
         const incomingTs = incoming.updatedAt ?? incoming.createdAt ?? 0
         const localTs    = local?.updatedAt ?? local?.createdAt ?? 0
         if (!local || incomingTs > localTs) await db.inboxItems.put(incoming)
+      }
+    )
+
+    // ── coping_cards ───────────────────────────────────────────────────────────
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'coping_cards', filter: `user_id=eq.${userId}` },
+      async (payload) => {
+        if (payload.eventType === 'DELETE') {
+          await db.copingCards.delete((payload.old as { id: string }).id)
+          return
+        }
+        const row = payload.new as Record<string, unknown>
+        if (row.deleted_at) { await db.copingCards.delete(row.id as string); return }
+        const incoming   = rowToCopingCard(row)
+        const local      = await db.copingCards.get(incoming.id)
+        const incomingTs = incoming.updatedAt ?? 0
+        const localTs    = local?.updatedAt ?? 0
+        if (!local || incomingTs > localTs) await db.copingCards.put(incoming)
       }
     )
 
