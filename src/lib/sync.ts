@@ -295,6 +295,10 @@ function rowToInbox(row: Record<string, unknown>): any {
   }
 }
 
+function habitLogToRow(log: { id: string; taskId: string; date: string }, userId: string) {
+  return { id: log.id, user_id: userId, task_id: log.taskId, date: log.date }
+}
+
 function copingCardToRow(card: CopingCard, userId: string) {
   return {
     id:         card.id,
@@ -544,6 +548,7 @@ function serializeForSupabase(
     case 'weekly_reviews':  return weeklyReviewToRow(data as WeeklyReview, userId)
     case 'daily_plans':     return dailyPlanToRow(data as DailyPlan, userId)
     case 'coping_cards':   return copingCardToRow(data as CopingCard, userId)
+    case 'habit_log':      return habitLogToRow(data as { id: string; taskId: string; date: string }, userId)
     default:               return { ...data, user_id: userId }
   }
 }
@@ -1110,6 +1115,25 @@ const TABLE_PULLERS: Array<{
       return { pulled, deleted, maxSeq }
     },
   },
+  {
+    name: 'habit_log',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('habit_log').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          const entry = { id: row.id as string, taskId: row.task_id as string, date: row.date as string }
+          if (!(await db.habitLog.get(entry.id))) { await db.habitLog.put(entry); pulled++ }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
 ]
 
 export async function incrementalPullBySeq(
@@ -1237,7 +1261,7 @@ export async function pushAllLocal(): Promise<void> {
 
   const tombstoneIds = new Set((await db.deletedTasks.toArray()).map(t => t.id))
 
-  const [tasks, goals, journal, inbox, categories, settings, shoppingItems, habits, weeklyReviews, dailyPlans, inboxItems, copingCards] = await Promise.all([
+  const [tasks, goals, journal, inbox, categories, settings, shoppingItems, habits, weeklyReviews, dailyPlans, inboxItems, copingCards, habitLogs] = await Promise.all([
     db.tasks.toArray(),
     db.goals.toArray(),
     db.journal.toArray(),
@@ -1250,6 +1274,7 @@ export async function pushAllLocal(): Promise<void> {
     db.dailyPlans.toArray(),
     db.inboxItems.toArray(),
     db.copingCards.toArray(),
+    db.habitLog.toArray(),
   ])
 
   const filteredTasks = tasks.filter(t => !tombstoneIds.has(t.id))
@@ -1290,6 +1315,9 @@ export async function pushAllLocal(): Promise<void> {
       : null,
     copingCards.filter(c => !c.isDefault).length
       ? supabase.from('coping_cards').upsert(copingCards.filter(c => !c.isDefault).map(c => copingCardToRow(c, userId)), { onConflict: 'id' })
+      : null,
+    habitLogs.length
+      ? supabase.from('habit_log').upsert(habitLogs.map(l => habitLogToRow(l, userId)), { onConflict: 'id' })
       : null,
   ])
 }
@@ -1528,6 +1556,17 @@ export function startRealtime(userId: string): void {
         const incomingTs = incoming.updatedAt ?? 0
         const localTs    = local?.updatedAt ?? 0
         if (!local || incomingTs > localTs) await db.copingCards.put(incoming)
+      }
+    )
+
+    // ── habit_log ──────────────────────────────────────────────────────────────
+    .on('postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'habit_log', filter: `user_id=eq.${userId}` },
+      async (payload) => {
+        const row = payload.new as { id: string; task_id: string; date: string }
+        if (!(await db.habitLog.get(row.id))) {
+          await db.habitLog.put({ id: row.id, taskId: row.task_id, date: row.date })
+        }
       }
     )
 

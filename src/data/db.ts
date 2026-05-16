@@ -394,19 +394,23 @@ export async function completeTask(taskId: string): Promise<{ xp: number; nextDu
   // For recurring tasks, increment per-task streak
   const newStreak = task.recurring ? (task.streak ?? 0) + 1 : task.streak ?? 0
   const completedAt = Date.now()
-  await db.tasks.update(taskId, { done: true, streak: newStreak, completedAt, updatedAt: completedAt })
-  const updated = await db.tasks.get(taskId)
-  if (updated) enqueueUpsert('tasks', updated.id, updated)
-  // Write completion tombstone so sync pull cannot re-open this task before
-  // the outbox drains (i.e. before done=true reaches the server).
-  await db.completedTasks.put({ id: taskId, completedAt })
 
-  const settings = await db.settings.get(1)
-  if (settings) {
-    await db.settings.update(1, { xp: (settings.xp ?? 0) + gained })
-    const newSettings = await db.settings.get(1)
-    if (newSettings) enqueueUpsert('settings', String(newSettings.id), newSettings)
-  }
+  // Atomic read-modify-write: task + XP inside one IDB transaction to prevent
+  // double-award on rapid taps or concurrent completions from two sources.
+  let updatedTask: Task | undefined
+  let updatedSettings: AppSettings | undefined
+  await db.transaction('rw', [db.tasks, db.settings, db.completedTasks], async () => {
+    await db.tasks.update(taskId, { done: true, streak: newStreak, completedAt, updatedAt: completedAt })
+    updatedTask = (await db.tasks.get(taskId)) ?? undefined
+    await db.completedTasks.put({ id: taskId, completedAt })
+    const settings = await db.settings.get(1)
+    if (settings) {
+      await db.settings.update(1, { xp: (settings.xp ?? 0) + gained })
+      updatedSettings = (await db.settings.get(1)) ?? undefined
+    }
+  })
+  if (updatedTask) enqueueUpsert('tasks', updatedTask.id, updatedTask)
+  if (updatedSettings) enqueueUpsert('settings', String(updatedSettings.id), updatedSettings)
 
   // Log completion for recurring tasks (habits now live in their own table)
   if (task.recurring) {
@@ -488,7 +492,9 @@ export async function resetRecurringTasks(): Promise<void> {
 // ── Helper: log a habit completion ───────────────────────────────────────────
 export async function logHabitCompletion(taskId: string, date: string) {
   const id = `${taskId}:${date}`
-  await db.habitLog.put({ id, taskId, date })
+  const entry = { id, taskId, date }
+  await db.habitLog.put(entry)
+  enqueueUpsert('habit_log', id, entry)
 }
 
 // ── Habit CRUD ────────────────────────────────────────────────────────────────
@@ -536,7 +542,9 @@ export async function completeHabit(habitId: string): Promise<number> {
   }
 
   const today = localDateISO()
-  await db.habitLog.put({ id: `${habitId}:${today}`, taskId: habitId, date: today })
+  const logEntry = { id: `${habitId}:${today}`, taskId: habitId, date: today }
+  await db.habitLog.put(logEntry)
+  enqueueUpsert('habit_log', logEntry.id, logEntry)
   await recordDailyActivity()
   return gained
 }
