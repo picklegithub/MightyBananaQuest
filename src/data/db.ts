@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie'
-import type { Task, Habit, Category, Goal, JournalEntry, InboxItem, AppSettings, WeeklyReview, ShoppingItem, DailyPlan, CopingCard } from '../types'
+import type { Task, Habit, Category, Goal, JournalEntry, InboxItem, AppSettings, WeeklyReview, ShoppingItem, DailyPlan, CopingCard, CopingCategory } from '../types'
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS, EFFORT } from '../constants'
-import { SEED_TASKS, SEED_GOALS, SEED_JOURNAL, SEED_INBOX } from './seeds'
+import { SEED_TASKS, SEED_GOALS, SEED_JOURNAL, SEED_INBOX, SEED_COPING_CARDS } from './seeds'
 import { enqueueUpsert, enqueueDelete } from '../lib/sync'
 import { localDateISO } from '../lib/useCurrentDate'
 
@@ -16,6 +16,15 @@ export interface HabitLog {
 export interface DeletedTask {
   id: string
   deletedAt: number
+}
+
+// ── Completion tombstone — protects against sync re-opening completed tasks ──
+// Written by completeTask(); checked in the pull LWW guard for tasks.
+// If a pull arrives with done=false for an id in this table and the server
+// timestamp is older than our local completedAt, the pull is skipped.
+export interface CompletedTask {
+  id: string
+  completedAt: number
 }
 
 // ── Outbox entry (pending sync operations) ───────────────────────────────────
@@ -42,11 +51,13 @@ export class MightyBananaQuestDB extends Dexie {
   categories!:     Table<Category>
   goals!:          Table<Goal>
   journal!:        Table<JournalEntry>
-  inbox!:          Table<InboxItem>
+  inbox!:          Table<any>
+  inboxItems!:     Table<InboxItem>
   settings!:       Table<AppSettings>
   habitLog!:       Table<HabitLog>
   weeklyReviews!:  Table<WeeklyReview>
   deletedTasks!:   Table<DeletedTask>
+  completedTasks!: Table<CompletedTask>
   shoppingItems!:  Table<ShoppingItem>
   outbox!:         Table<OutboxEntry>
   dailyPlans!:     Table<DailyPlan>
@@ -179,6 +190,91 @@ export class MightyBananaQuestDB extends Dexie {
       dailyPlans:    'date, completedAt',
       copingCards:   'id',
     })
+
+    // ── Version 16 — copingCards: singleton → deck (id: string, category, isPinned) ──
+    this.version(16).stores({
+      tasks:         'id, cat, due, done, effort, quad, createdAt, status',
+      categories:    'id',
+      goals:         'id, area',
+      journal:       'id, date, kind',
+      inbox:         'id, kind, processed',
+      settings:      'id',
+      habitLog:      'id, taskId, date',
+      weeklyReviews: 'id, weekStart, completedAt',
+      deletedTasks:  'id, deletedAt',
+      shoppingItems: 'id, category, createdAt',
+      habits:        'id, cat, done, createdAt, isArchived',
+      outbox:        'key, table, queuedAt, nextRetryAt',
+      dailyPlans:    'date, completedAt',
+      copingCards:   'id, category, isPinned',
+    }).upgrade(async tx => {
+      // Clear the old singleton record (id: 1) — incompatible shape
+      await tx.table('copingCards').clear()
+      // Seed the full deck
+      await tx.table('copingCards').bulkAdd(SEED_COPING_CARDS)
+    })
+
+    // ── Version 17 — tasks: add reminderMin + completedAt indexes ─────────────
+    this.version(17).stores({
+      tasks:         'id, cat, due, done, effort, quad, createdAt, status, completedAt',
+      categories:    'id',
+      goals:         'id, area',
+      journal:       'id, date, kind',
+      inbox:         'id, kind, processed',
+      settings:      'id',
+      habitLog:      'id, taskId, date',
+      weeklyReviews: 'id, weekStart, completedAt',
+      deletedTasks:  'id, deletedAt',
+      shoppingItems: 'id, category, createdAt',
+      habits:        'id, cat, done, createdAt, isArchived',
+      outbox:        'key, table, queuedAt, nextRetryAt',
+      dailyPlans:    'date, completedAt',
+      copingCards:   'id, category, isPinned',
+    })
+
+    // ── Version 18 — add completedTasks tombstone table ───────────────────────
+    // Protects completed tasks from being re-opened by a stale server pull that
+    // arrives before the outbox drains (done=true hasn't reached the server yet).
+    // See: sync.ts tasks puller LWW guard.
+    this.version(18).stores({
+      tasks:          'id, cat, due, done, effort, quad, createdAt, status, completedAt',
+      categories:     'id',
+      goals:          'id, area',
+      journal:        'id, date, kind',
+      inbox:          'id, kind, processed',
+      settings:       'id',
+      habitLog:       'id, taskId, date',
+      weeklyReviews:  'id, weekStart, completedAt',
+      deletedTasks:   'id, deletedAt',
+      completedTasks: 'id, completedAt',
+      shoppingItems:  'id, category, createdAt',
+      habits:         'id, cat, done, createdAt, isArchived',
+      outbox:         'key, table, queuedAt, nextRetryAt',
+      dailyPlans:     'date, completedAt',
+      copingCards:    'id, category, isPinned',
+    })
+    // No upgrade needed — new table starts empty; existing completed tasks will
+    // write their tombstone on the next completion or on undo+redo.
+
+    // ── Version 19 — add inboxItems (active capture inbox) ───────────────────
+    this.version(19).stores({
+      tasks:          'id, cat, due, done, effort, quad, createdAt, status, completedAt',
+      categories:     'id',
+      goals:          'id, area',
+      journal:        'id, date, kind',
+      inbox:          'id, kind, processed',
+      settings:       'id',
+      habitLog:       'id, taskId, date',
+      weeklyReviews:  'id, weekStart, completedAt',
+      deletedTasks:   'id, deletedAt',
+      completedTasks: 'id, completedAt',
+      shoppingItems:  'id, category, createdAt',
+      habits:         'id, cat, done, createdAt, isArchived',
+      outbox:         'key, table, queuedAt, nextRetryAt',
+      dailyPlans:     'date, completedAt',
+      copingCards:    'id, category, isPinned',
+      inboxItems:     'id, status, createdAt, source',
+    })
   }
 }
 
@@ -189,13 +285,14 @@ db.on('ready', async () => {
   const count = await db.settings.count()
   if (count > 0) return  // already seeded
 
-  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.goals, db.journal, db.inbox], async () => {
+  await db.transaction('rw', [db.settings, db.categories, db.tasks, db.goals, db.journal, db.inbox, db.copingCards], async () => {
     await db.settings.add(DEFAULT_SETTINGS)
     await db.categories.bulkAdd(DEFAULT_CATEGORIES)
     await db.tasks.bulkAdd(SEED_TASKS)
     await db.goals.bulkAdd(SEED_GOALS)
     await db.journal.bulkAdd(SEED_JOURNAL)
     await db.inbox.bulkAdd(SEED_INBOX)
+    await db.copingCards.bulkAdd(SEED_COPING_CARDS)
   })
 })
 
@@ -258,6 +355,33 @@ export function nextOccurrenceISO(currentDue: string, recurring: string): string
   return `${y}-${mo}-${d}`
 }
 
+// ── Helper: record daily activity and maintain global streak ─────────────────
+// Call from completeTask, completeHabit, saveJournalEntry — any meaningful action.
+// Increments settings.streak when called on a new calendar day, resets to 1 if
+// a day was skipped. Idempotent — multiple calls on the same day are safe.
+export async function recordDailyActivity(): Promise<void> {
+  const today    = localDateISO()
+  const settings = await db.settings.get(1)
+  if (!settings) return
+  const last = settings.lastActiveDate ?? null
+  if (last === today) return  // already recorded today — no-op
+
+  let newStreak: number
+  if (last === null) {
+    newStreak = 1  // first-ever activity
+  } else {
+    // Check if yesterday
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayISO = localDateISO(yesterday)
+    newStreak = last === yesterdayISO ? (settings.streak ?? 0) + 1 : 1
+  }
+
+  await db.settings.update(1, { streak: newStreak, lastActiveDate: today })
+  const updated = await db.settings.get(1)
+  if (updated) enqueueUpsert('settings', String(updated.id), updated)
+}
+
 // ── Helper: complete a task (award XP + update streak + log habit) ──────────
 // Returns { xp, nextDue } where nextDue is the ISO next-occurrence date for
 // recurring tasks (used by the UI to show "✓ Next: Thursday" feedback), or
@@ -270,9 +394,13 @@ export async function completeTask(taskId: string): Promise<{ xp: number; nextDu
 
   // For recurring tasks, increment per-task streak
   const newStreak = task.recurring ? (task.streak ?? 0) + 1 : task.streak ?? 0
-  await db.tasks.update(taskId, { done: true, streak: newStreak, updatedAt: Date.now() })
+  const completedAt = Date.now()
+  await db.tasks.update(taskId, { done: true, streak: newStreak, completedAt, updatedAt: completedAt })
   const updated = await db.tasks.get(taskId)
   if (updated) enqueueUpsert('tasks', updated.id, updated)
+  // Write completion tombstone so sync pull cannot re-open this task before
+  // the outbox drains (i.e. before done=true reaches the server).
+  await db.completedTasks.put({ id: taskId, completedAt })
 
   const settings = await db.settings.get(1)
   if (settings) {
@@ -304,6 +432,7 @@ export async function completeTask(taskId: string): Promise<{ xp: number; nextDu
     enqueueUpsert('tasks', copy.id, copy)
   }
 
+  await recordDailyActivity()
   return { xp: gained, nextDue }
 }
 
@@ -317,6 +446,8 @@ export async function uncompleteTask(taskId: string): Promise<void> {
   await db.tasks.update(taskId, { done: false, streak: newStreak, updatedAt: Date.now() })
   const updated = await db.tasks.get(taskId)
   if (updated) enqueueUpsert('tasks', updated.id, updated)
+  // Remove completion tombstone so the pull guard doesn't block future syncs
+  await db.completedTasks.delete(taskId)
 
   const settings = await db.settings.get(1)
   if (settings) {
@@ -407,6 +538,7 @@ export async function completeHabit(habitId: string): Promise<number> {
 
   const today = localDateISO()
   await db.habitLog.put({ id: `${habitId}:${today}`, taskId: habitId, date: today })
+  await recordDailyActivity()
   return gained
 }
 
@@ -468,17 +600,24 @@ export async function getSettings(): Promise<AppSettings> {
 
 // ── Helper: delete a task ─────────────────────────────────────────────────────
 export async function deleteTask(taskId: string) {
+  // Snapshot the record BEFORE deletion so the outbox can send the full row
+  // with deleted_at — not just {id, user_id, deleted_at} — to the server.
+  // This preserves all field values on other devices' next pull.
+  const snapshot = await db.tasks.get(taskId)
   await db.deletedTasks.put({ id: taskId, deletedAt: Date.now() })
+  await db.completedTasks.delete(taskId)  // clean up any completion tombstone
   await db.tasks.delete(taskId)
-  enqueueDelete('tasks', taskId)
+  enqueueDelete('tasks', taskId, snapshot ?? undefined)
 }
 
 // ── Helper: delete multiple tasks ────────────────────────────────────────────
 export async function deleteTasks(taskIds: string[]) {
   const now = Date.now()
+  const snapshots = await db.tasks.bulkGet(taskIds)
   await db.deletedTasks.bulkPut(taskIds.map(id => ({ id, deletedAt: now })))
+  await db.completedTasks.bulkDelete(taskIds)
   await db.tasks.bulkDelete(taskIds)
-  taskIds.forEach(id => enqueueDelete('tasks', id))
+  taskIds.forEach((id, i) => enqueueDelete('tasks', id, snapshots[i] ?? undefined))
 }
 
 // ── Helper: get all tombstoned task IDs ──────────────────────────────────────
@@ -550,6 +689,7 @@ export async function saveJournalEntry(entry: JournalEntry) {
 
   await db.journal.put(toSave)
   enqueueUpsert('journal', toSave.id, toSave)
+  await recordDailyActivity()
 }
 
 // ── Helper: delete a single journal entry ─────────────────────────────────────
@@ -559,9 +699,48 @@ export async function deleteJournalEntry(entryId: string) {
 }
 
 // ── Helper: save an inbox item ────────────────────────────────────────────────
-export async function saveInboxItem(item: InboxItem) {
+export async function saveInboxItem(item: any) {
   await db.inbox.put(item)
   enqueueUpsert('inbox', item.id, item)
+}
+
+// ── Active inbox helpers ──────────────────────────────────────────────────────
+export async function createInboxItem(
+  partial: Pick<InboxItem, 'text' | 'source'> & { sourceMeta?: InboxItem['sourceMeta'] }
+): Promise<InboxItem> {
+  const item: InboxItem = {
+    id: `ib${Date.now()}`,
+    text: partial.text,
+    source: partial.source,
+    sourceMeta: partial.sourceMeta,
+    createdAt: Date.now(),
+    status: 'inbox',
+  }
+  await db.inboxItems.add(item)
+  enqueueUpsert('inbox_items', item.id, item)
+  return item
+}
+
+export async function countInbox(): Promise<number> {
+  return db.inboxItems.where('status').equals('inbox').count()
+}
+
+export async function processInboxItem(
+  id: string,
+  status: 'converted' | 'someday' | 'archived',
+  convertedTaskId?: string
+): Promise<void> {
+  const patch: Partial<InboxItem> = { status, processedAt: Date.now() }
+  if (convertedTaskId) patch.convertedTaskId = convertedTaskId
+  await db.inboxItems.update(id, patch)
+  const updated = await db.inboxItems.get(id)
+  if (updated) enqueueUpsert('inbox_items', id, updated)
+}
+
+export async function revertInboxItem(id: string, status: 'inbox'): Promise<void> {
+  await db.inboxItems.update(id, { status, processedAt: undefined, convertedTaskId: undefined })
+  const updated = await db.inboxItems.get(id)
+  if (updated) enqueueUpsert('inbox_items', id, updated)
 }
 
 // ── Shopping list helpers ─────────────────────────────────────────────────────
@@ -651,9 +830,10 @@ export async function wipeStreaks(): Promise<void> {
 
 // ── Helper: wipe tasks only ───────────────────────────────────────────────────
 export async function wipeTasks(): Promise<void> {
-  await db.transaction('rw', [db.tasks, db.deletedTasks, db.dailyPlans, db.outbox], async () => {
+  await db.transaction('rw', [db.tasks, db.deletedTasks, db.completedTasks, db.dailyPlans, db.outbox], async () => {
     await db.tasks.clear()
     await db.deletedTasks.clear()
+    await db.completedTasks.clear()
     await db.dailyPlans.clear()
     const keys = await db.outbox.where('table').anyOf(['tasks', 'daily_plans']).primaryKeys()
     await db.outbox.bulkDelete(keys as string[])
@@ -673,8 +853,8 @@ export async function wipeGoals(): Promise<void> {
 export async function wipeAllData(): Promise<void> {
   await db.transaction('rw', [
     db.settings, db.categories, db.tasks, db.habits, db.goals,
-    db.journal, db.inbox, db.habitLog, db.deletedTasks, db.outbox,
-    db.dailyPlans, db.weeklyReviews, db.shoppingItems,
+    db.journal, db.inbox, db.habitLog, db.deletedTasks, db.completedTasks, db.outbox,
+    db.dailyPlans, db.weeklyReviews, db.shoppingItems, db.copingCards, db.inboxItems,
   ], async () => {
     await db.settings.clear()
     await db.categories.clear()
@@ -683,23 +863,49 @@ export async function wipeAllData(): Promise<void> {
     await db.goals.clear()
     await db.journal.clear()
     await db.inbox.clear()
+    await db.inboxItems.clear()
     await db.habitLog.clear()
     await db.deletedTasks.clear()
+    await db.completedTasks.clear()
     await db.outbox.clear()
     await db.dailyPlans.clear()
     await db.weeklyReviews.clear()
     await db.shoppingItems.clear()
+    await db.copingCards.clear()
   })
   try { localStorage.removeItem('mbq_last_pull_at') } catch {}
+  try { localStorage.removeItem('mbq_last_server_seq') } catch {}
 }
 
 // ── Coping card helpers ───────────────────────────────────────────────────────
-export async function getCopingCard(): Promise<CopingCard | null> {
-  return (await db.copingCards.get(1)) ?? null
+export async function getAllCopingCards(category?: CopingCategory): Promise<CopingCard[]> {
+  if (category) return db.copingCards.where('category').equals(category).toArray()
+  return db.copingCards.toArray()
 }
 
-export async function saveCopingCard(content: string): Promise<void> {
-  await db.copingCards.put({ id: 1, content, updatedAt: Date.now() })
+export async function getPinnedCard(): Promise<CopingCard | null> {
+  const pinned = await db.copingCards.where('isPinned').equals(1).first()
+  return pinned ?? null
+}
+
+export async function addCopingCard(card: Omit<CopingCard, 'createdAt' | 'updatedAt'>): Promise<void> {
+  const now = Date.now()
+  await db.copingCards.add({ ...card, createdAt: now, updatedAt: now })
+}
+
+export async function updateCopingCard(id: string, patch: Partial<CopingCard>): Promise<void> {
+  await db.copingCards.update(id, { ...patch, updatedAt: Date.now() })
+}
+
+export async function deleteCopingCard(id: string): Promise<void> {
+  await db.copingCards.delete(id)
+}
+
+export async function pinCopingCard(id: string): Promise<void> {
+  // Clear existing pin first, then set new one
+  const allPinned = await db.copingCards.where('isPinned').equals(1).toArray()
+  await Promise.all(allPinned.map(c => db.copingCards.update(c.id, { isPinned: false })))
+  await db.copingCards.update(id, { isPinned: true, updatedAt: Date.now() })
 }
 
 // ── Helper: clear local state and prepare for a full server re-pull ──────────

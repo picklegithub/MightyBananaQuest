@@ -158,6 +158,13 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
     () => db.outbox.orderBy('queuedAt').reverse().first().then(e => e?.lastError ?? null),
     []
   ) ?? null
+  const processedThisWeek = useLiveQuery(
+    () => {
+      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+      return db.inboxItems.filter(i => !!i.processedAt && i.processedAt >= sevenDaysAgo).count()
+    },
+    []
+  ) ?? 0
 
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() =>
     notificationsSupported() ? Notification.permission : 'denied'
@@ -311,17 +318,6 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
                 { v: 'loud',     l: 'Loud' },
               ]} />
           </Row>
-          <Row label="Default focus length" sub="Pomodoro timer default">
-            <Seg
-              value={String(settings.defaultPomodoroMins)}
-              setValue={v => update({ defaultPomodoroMins: Number(v) })}
-              options={[
-                { v: '15', l: '15m' },
-                { v: '25', l: '25m' },
-                { v: '50', l: '50m' },
-              ]}
-            />
-          </Row>
         </Section>
 
         {/* Today */}
@@ -331,6 +327,27 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
               on={settings.showPlanYourDay ?? true}
               onChange={v => update({ showPlanYourDay: v })}
             />
+          </Row>
+        </Section>
+
+        {/* Capture */}
+        <Section title="Capture">
+          <Row label="Show inbox badge" sub="Numeric count on the inbox icon in Today header">
+            <Toggle
+              on={settings.showInboxBadge ?? true}
+              onChange={v => update({ showInboxBadge: v })}
+            />
+          </Row>
+          <Row label="Voice captures to inbox" sub="Off: voice dictation creates tasks directly">
+            <Toggle
+              on={settings.voiceCaptureToInbox ?? true}
+              onChange={v => update({ voiceCaptureToInbox: v })}
+            />
+          </Row>
+          <Row label="Processed this week">
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-3)' }}>
+              {processedThisWeek} item{processedThisWeek !== 1 ? 's' : ''}
+            </span>
           </Row>
         </Section>
 
@@ -449,6 +466,21 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
             </div>
             <Icons.arrow size={16} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
           </button>
+          <button
+            onClick={() => navigate({ name: 'coping-cards' })}
+            style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '13px 20px', width: '100%',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>Coping cards</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+                CBT · ACT · DBT · mindfulness · self-compassion
+              </div>
+            </div>
+            <Icons.arrow size={16} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
+          </button>
         </Section>
 
         {/* Stats */}
@@ -515,10 +547,10 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
 
           {/* Cancel */}
           <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--rule)' }}>
-            <SyncBtn full onClick={handleCancel} disabled={!syncOp}>
+            <SyncBtn full onClick={handleCancel} disabled={!syncOp && !['pushing','pulling','previewing'].includes(syncState.phase)}>
               Cancel sync
             </SyncBtn>
-            {!syncOp && (
+            {!syncOp && !['pushing','pulling','previewing'].includes(syncState.phase) && (
               <div style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.04em' }}>
                 No sync in progress. Local data is intact.
               </div>

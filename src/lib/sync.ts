@@ -21,12 +21,15 @@
  *     `synced_at > lastPullAt` — only fetches rows changed since last pull.
  *     For each row:
  *       • deleted_at set   → remove locally + tombstone
- *       • else LWW check   → remote wins only if updatedAt >= local.updatedAt
+ *       • else LWW check   → remote wins only if updatedAt > local.updatedAt
+ *                            (strict >: local always wins on equal timestamps)
+ *       • tasks extra guard → if task is in completedTasks and incoming.done=false
+ *                            with incomingTs <= completedAt, skip (outbox not yet drained)
  *     Records the max synced_at from this batch; next pull starts from there.
  *
  *  4. REALTIME SUBSCRIPTIONS  (startRealtime)
  *     Supabase Realtime pushes INSERT/UPDATE/DELETE events.
- *     LWW guard: only overwrites local if incoming updatedAt >= local.updatedAt.
+ *     LWW guard: only overwrites local if incoming updatedAt > local.updatedAt.
  *     Handles soft-deletes: if the incoming row has deleted_at, delete locally.
  *
  *  5. FULL PUSH AFTER RESET  (pushAllLocal)
@@ -130,12 +133,16 @@ export function enqueueUpsert(table: string, recordId: string, data: object): vo
   })
 }
 
-export function enqueueDelete(table: string, recordId: string): void {
+// data is an optional snapshot of the record at deletion time. When present,
+// drainOutbox merges deleted_at into the full serialized row so the server
+// retains all field values — preventing ghost re-inserts on other devices.
+export function enqueueDelete(table: string, recordId: string, data?: object): void {
   const key = `${table}:${recordId}`
   const now  = Date.now()
   db.outbox.get(key).then(existing => {
     db.outbox.put({
       key, table, recordId, op: 'delete',
+      data,
       queuedAt:       existing?.queuedAt ?? now,
       attempts:       0,
       nextRetryAt:    now,
@@ -144,7 +151,7 @@ export function enqueueDelete(table: string, recordId: string): void {
     }).catch(() => {})
   }).catch(() => {
     db.outbox.put({
-      key, table, recordId, op: 'delete',
+      key, table, recordId, op: 'delete', data,
       queuedAt: now, attempts: 0, nextRetryAt: now,
       idempotencyKey: crypto.randomUUID(), deadLettered: false,
     }).catch(() => {})
@@ -266,25 +273,40 @@ function rowToJournal(row: Record<string, unknown>): JournalEntry {
   }
 }
 
-function inboxToRow(item: InboxItem, userId: string) {
+function inboxToRow(item: any, userId: string) {
   return {
     id:         item.id,
     user_id:    userId,
-    kind:       item.kind,
+    kind:       item.kind ?? 'capture',
     text:       item.text,
-    when_ts:    item.when,
-    processed:  item.processed,
+    when_ts:    item.when ?? '',
+    processed:  item.processed ?? false,
     updated_at: isoNow(),
   }
 }
 
-function rowToInbox(row: Record<string, unknown>): InboxItem {
+function rowToInbox(row: Record<string, unknown>): any {
   return {
     id:        row.id as string,
     kind:      'capture' as const,
     text:      (row.text as string) ?? '',
     when:      (row.when_ts as string) ?? '',
     processed: (row.processed as boolean) ?? false,
+  }
+}
+
+function inboxItemsToRow(item: InboxItem, userId: string) {
+  return {
+    id:              item.id,
+    user_id:         userId,
+    text:            item.text,
+    source:          item.source,
+    source_meta:     item.sourceMeta ?? null,
+    created_at:      new Date(item.createdAt).toISOString(),
+    processed_at:    item.processedAt ? new Date(item.processedAt).toISOString() : null,
+    status:          item.status,
+    converted_task_id: item.convertedTaskId ?? null,
+    updated_at:      isoNow(),
   }
 }
 
@@ -374,6 +396,9 @@ function rowToHabit(row: Record<string, unknown>): Habit {
     done:       (row.done as boolean) ?? false,
     notes:      (row.notes as string | undefined) ?? undefined,
     time:       (row.time as string | undefined) ?? undefined,
+    strength:   (row.strength as number | undefined) ?? undefined,
+    timeOfDay:  (row.time_of_day as Habit['timeOfDay']) ?? undefined,
+    isArchived: (row.is_archived as boolean | undefined) ?? undefined,
     createdAt:  (row.created_at as number | undefined) ?? undefined,
     updatedAt:  row.updated_at ? new Date(row.updated_at as string).getTime() : undefined,
   }
@@ -448,6 +473,7 @@ function dailyPlanToRow(plan: DailyPlan, userId: string) {
   return {
     user_id:        userId,
     date:           plan.date,
+    mood:           plan.mood ?? null,
     picked_ids:     plan.pickedIds,
     top3_ids:       plan.top3Ids,
     reckonings:     plan.reckonings,
@@ -460,6 +486,7 @@ function dailyPlanToRow(plan: DailyPlan, userId: string) {
 function rowToDailyPlan(row: Record<string, unknown>): DailyPlan {
   return {
     date:          (row.date as string) ?? '',
+    mood:          (row.mood as DailyPlan['mood']) ?? null,
     pickedIds:     (row.picked_ids as string[]) ?? [],
     top3Ids:       (row.top3_ids as string[]) ?? [],
     reckonings:    (row.reckonings as DailyPlan['reckonings']) ?? [],
@@ -481,7 +508,8 @@ function serializeForSupabase(
     case 'tasks':          return taskToRow(data as Task, userId)
     case 'goals':          return goalToRow(data as Goal, userId)
     case 'journal':        return journalToRow(data as JournalEntry, userId)
-    case 'inbox':          return inboxToRow(data as InboxItem, userId)
+    case 'inbox':          return inboxToRow(data as any, userId)
+    case 'inbox_items':    return inboxItemsToRow(data as InboxItem, userId)
     case 'categories':     return categoryToRow(data as Category, userId)
     case 'settings':       return settingsToRow(data as AppSettings, userId)
     case 'shopping_items':  return shoppingItemToRow(data as ShoppingItem, userId)
@@ -515,13 +543,17 @@ export async function drainOutbox(): Promise<number> {
     try {
       if (entry.op === 'delete') {
         // Try soft-delete first (requires 002_incremental_sync.sql migration).
-        // If deleted_at column doesn't exist yet, fall back to hard delete.
+        // If we have the full record snapshot, merge deleted_at into the
+        // serialized row so the server retains all field values. Other devices
+        // pulling the row will see the complete state + deleted_at and remove
+        // it locally — preventing ghost re-inserts from partial payloads.
+        const deletedAt = new Date().toISOString()
+        const softPayload = entry.data
+          ? { ...serializeForSupabase(entry.table, entry.data, userId), deleted_at: deletedAt }
+          : { id: entry.recordId, user_id: userId, deleted_at: deletedAt }
         const softResult = await supabase
           .from(entry.table)
-          .upsert(
-            { id: entry.recordId, user_id: userId, deleted_at: new Date().toISOString() },
-            { onConflict: 'id' }
-          )
+          .upsert(softPayload, { onConflict: 'id' })
         if (softResult.error) {
           // Fallback: hard delete (works before migration; no multi-device propagation)
           const { error } = await supabase
@@ -625,6 +657,7 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         case 'goals':          await db.goals.delete(id);         break
         case 'journal':        await db.journal.delete(id);       break
         case 'inbox':          await db.inbox.delete(id);         break
+        case 'inbox_items':    await db.inboxItems.delete(id);    break
         case 'categories':     await db.categories.delete(id);    break
         case 'shopping_items':  await db.shoppingItems.delete(id);      break
         case 'habits':          await db.habits.delete(id);             break
@@ -644,7 +677,15 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         const local      = await db.tasks.get(id)
         const incomingTs = incoming.updatedAt ?? 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) { await db.tasks.put(incoming); pulled++ }
+        // Completion guard: if this task was completed locally but the outbox
+        // hasn't drained yet, the server still has done=false. Don't let that
+        // stale row re-open the task. Once the outbox drains the server will
+        // have done=true and the next pull will pass this check cleanly.
+        if (!incoming.done || !local) {
+          const completed = await db.completedTasks.get(id)
+          if (completed && !incoming.done && completed.completedAt >= incomingTs) break
+        }
+        if (!local || incomingTs > localTs) { await db.tasks.put(incoming); pulled++ }
         break
       }
       case 'goals': {
@@ -652,7 +693,7 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         const local      = await db.goals.get(incoming.id) as (Goal & { updatedAt?: number }) | undefined
         const incomingTs = payload.updated_at ? new Date(payload.updated_at as string).getTime() : 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) { await db.goals.put(incoming); pulled++ }
+        if (!local || incomingTs > localTs) { await db.goals.put(incoming); pulled++ }
         break
       }
       case 'journal': {
@@ -660,15 +701,32 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         const local      = await db.journal.get(incoming.id) as (JournalEntry & { updatedAt?: number }) | undefined
         const incomingTs = payload.updated_at ? new Date(payload.updated_at as string).getTime() : 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) { await db.journal.put(incoming); pulled++ }
+        if (!local || incomingTs > localTs) { await db.journal.put(incoming); pulled++ }
         break
       }
       case 'inbox': {
         const incoming   = rowToInbox(payload)
-        const local      = await db.inbox.get(incoming.id) as (InboxItem & { updatedAt?: number }) | undefined
+        const local      = await db.inbox.get(incoming.id)
         const incomingTs = payload.updated_at ? new Date(payload.updated_at as string).getTime() : 0
-        const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) { await db.inbox.put(incoming); pulled++ }
+        const localTs    = (local as any)?.updatedAt ?? 0
+        if (!local || incomingTs > localTs) { await db.inbox.put(incoming); pulled++ }
+        break
+      }
+      case 'inbox_items': {
+        const incoming: InboxItem = {
+          id:              payload.id as string,
+          text:            (payload.text as string) ?? '',
+          source:          (payload.source as InboxItem['source']) ?? 'capture',
+          sourceMeta:      (payload.source_meta as InboxItem['sourceMeta']) ?? undefined,
+          createdAt:       payload.created_at ? new Date(payload.created_at as string).getTime() : Date.now(),
+          processedAt:     payload.processed_at ? new Date(payload.processed_at as string).getTime() : undefined,
+          status:          (payload.status as InboxItem['status']) ?? 'inbox',
+          convertedTaskId: (payload.converted_task_id as string | undefined) ?? undefined,
+        }
+        const local      = await db.inboxItems.get(incoming.id)
+        const incomingTs = payload.updated_at ? new Date(payload.updated_at as string).getTime() : 0
+        const localTs    = local?.processedAt ?? local?.createdAt ?? 0
+        if (!local || incomingTs > localTs) { await db.inboxItems.put(incoming); pulled++ }
         break
       }
       case 'categories': {
@@ -686,7 +744,7 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         const local      = await db.shoppingItems.get(incoming.id)
         const incomingTs = incoming.updatedAt
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) { await db.shoppingItems.put(incoming); pulled++ }
+        if (!local || incomingTs > localTs) { await db.shoppingItems.put(incoming); pulled++ }
         break
       }
       case 'habits': {
@@ -694,7 +752,7 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         const local      = await db.habits.get(incoming.id)
         const incomingTs = incoming.updatedAt ?? 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) { await db.habits.put(incoming); pulled++ }
+        if (!local || incomingTs > localTs) { await db.habits.put(incoming); pulled++ }
         break
       }
       case 'weekly_reviews': {
@@ -702,14 +760,14 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         const local      = await db.weeklyReviews.get(incoming.id)
         const incomingTs = incoming.updatedAt ?? 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) { await db.weeklyReviews.put(incoming); pulled++ }
+        if (!local || incomingTs > localTs) { await db.weeklyReviews.put(incoming); pulled++ }
         break
       }
       case 'daily_plans': {
         const incoming = rowToDailyPlan(payload)
         const local    = await db.dailyPlans.get(incoming.date)
         // DailyPlan has no updatedAt — last write wins (date is the PK)
-        if (!local || (incoming.completedAt ?? 0) >= (local.completedAt ?? 0)) {
+        if (!local || (incoming.completedAt ?? 0) > (local.completedAt ?? 0)) {
           await db.dailyPlans.put(incoming); pulled++
         }
         break
@@ -756,7 +814,13 @@ const TABLE_PULLERS: Array<{
           } else if (!tombstoneIds.has(row.id as string)) {
             const incoming = rowToTask(row); const local = await db.tasks.get(incoming.id)
             const inTs = incoming.updatedAt ?? 0; const loTs = local?.updatedAt ?? 0
-            if (!local || inTs >= loTs) { await db.tasks.put(incoming); pulled++ }
+            // Completion guard: block re-opening a locally-completed task whose
+            // done=true hasn't reached the server yet (outbox not yet drained).
+            if (!incoming.done || !local) {
+              const completed = await db.completedTasks.get(incoming.id)
+              if (completed && !incoming.done && completed.completedAt >= inTs) continue
+            }
+            if (!local || inTs > loTs) { await db.tasks.put(incoming); pulled++ }
           }
         }
         hasMore = data.length === PULL_PAGE_SIZE
@@ -777,7 +841,7 @@ const TABLE_PULLERS: Array<{
           const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
           const incoming = rowToHabit(row); const local = await db.habits.get(incoming.id)
           const inTs = incoming.updatedAt ?? 0; const loTs = local?.updatedAt ?? 0
-          if (!local || inTs >= loTs) { await db.habits.put(incoming); pulled++ }
+          if (!local || inTs > loTs) { await db.habits.put(incoming); pulled++ }
         }
         hasMore = data.length === PULL_PAGE_SIZE
       }
@@ -798,7 +862,7 @@ const TABLE_PULLERS: Array<{
           const incoming = rowToGoal(row); const local = await db.goals.get(incoming.id) as (Goal & { updatedAt?: number }) | undefined
           const inTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
           const loTs = local?.updatedAt ?? 0
-          if (!local || inTs >= loTs) { await db.goals.put(incoming); pulled++ }
+          if (!local || inTs > loTs) { await db.goals.put(incoming); pulled++ }
         }
         hasMore = data.length === PULL_PAGE_SIZE
       }
@@ -818,9 +882,139 @@ const TABLE_PULLERS: Array<{
       return { pulled, deleted: 0, maxSeq }
     },
   },
+  {
+    name: 'categories',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('categories').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          await db.categories.put(rowToCategory(row as Record<string, unknown>)); pulled++
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
+  {
+    name: 'journal',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('journal').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          const incoming   = rowToJournal(row as Record<string, unknown>)
+          const local      = await db.journal.get(incoming.id) as (JournalEntry & { updatedAt?: number }) | undefined
+          const inTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
+          const loTs = local?.updatedAt ?? 0
+          if (!local || inTs > loTs) { await db.journal.put(incoming); pulled++ }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
+  {
+    name: 'inbox',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('inbox').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          const incoming   = rowToInbox(row as Record<string, unknown>)
+          const local      = await db.inbox.get(incoming.id) as (InboxItem & { updatedAt?: number }) | undefined
+          const inTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
+          const loTs = local?.updatedAt ?? 0
+          if (!local || inTs > loTs) { await db.inbox.put(incoming); pulled++ }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
+  {
+    name: 'shopping_items',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('shopping_items').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          const incoming   = rowToShoppingItem(row as Record<string, unknown>)
+          const local      = await db.shoppingItems.get(incoming.id)
+          const inTs = incoming.updatedAt
+          const loTs = local?.updatedAt ?? 0
+          if (!local || inTs > loTs) { await db.shoppingItems.put(incoming); pulled++ }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
+  {
+    name: 'weekly_reviews',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('weekly_reviews').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          const incoming   = rowToWeeklyReview(row as Record<string, unknown>)
+          const local      = await db.weeklyReviews.get(incoming.id)
+          const inTs = incoming.updatedAt ?? 0
+          const loTs = local?.updatedAt ?? 0
+          if (!local || inTs > loTs) { await db.weeklyReviews.put(incoming); pulled++ }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
+  {
+    name: 'daily_plans',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('daily_plans').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          const incoming = rowToDailyPlan(row as Record<string, unknown>)
+          const local    = await db.dailyPlans.get(incoming.date)
+          if (!local || (incoming.completedAt ?? 0) > (local.completedAt ?? 0)) {
+            await db.dailyPlans.put(incoming); pulled++
+          }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
 ]
 
-export async function incrementalPullBySeq(): Promise<{ pulled: number; deleted: number } | null> {
+export async function incrementalPullBySeq(
+  onProgress?: (pct: number) => void,
+): Promise<{ pulled: number; deleted: number } | null> {
   const userId = await getUserIdAsync()
   if (!userId) return null
 
@@ -832,10 +1026,11 @@ export async function incrementalPullBySeq(): Promise<{ pulled: number; deleted:
   const lastSeq = getLastServerSeq()
   let totalPulled = 0; let totalDeleted = 0; let maxSeq = lastSeq
 
-  for (const puller of TABLE_PULLERS) {
-    const { pulled, deleted, maxSeq: tableMax } = await puller.pull(lastSeq, userId)
+  for (let i = 0; i < TABLE_PULLERS.length; i++) {
+    const { pulled, deleted, maxSeq: tableMax } = await TABLE_PULLERS[i].pull(lastSeq, userId)
     totalPulled += pulled; totalDeleted += deleted
     if (tableMax > maxSeq) maxSeq = tableMax
+    onProgress?.(Math.round(10 + ((i + 1) / TABLE_PULLERS.length) * 90))
   }
 
   if (maxSeq > lastSeq) setLastServerSeq(maxSeq)
@@ -857,7 +1052,7 @@ async function _fallbackFullPull(userId: string): Promise<void> {
     if (tombstoneIds.has(id)) continue
     const incoming = rowToTask(row as Record<string, unknown>)
     const local    = await db.tasks.get(id)
-    if (!local || (incoming.updatedAt ?? 0) >= (local.updatedAt ?? 0)) {
+    if (!local || (incoming.updatedAt ?? 0) > (local.updatedAt ?? 0)) {
       toUpsert.push(incoming)
     }
   }
@@ -874,7 +1069,7 @@ async function _fallbackFullPull(userId: string): Promise<void> {
     for (const row of items) {
       const incoming = rowToShoppingItem(row as Record<string, unknown>)
       const local    = await db.shoppingItems.get(incoming.id)
-      if (!local || incoming.updatedAt >= (local?.updatedAt ?? 0)) {
+      if (!local || incoming.updatedAt > (local?.updatedAt ?? 0)) {
         await db.shoppingItems.put(incoming)
       }
     }
@@ -897,7 +1092,7 @@ async function _fallbackFullPull(userId: string): Promise<void> {
       for (const row of habits) {
         const incoming = rowToHabit(row as Record<string, unknown>)
         const local    = await db.habits.get(incoming.id)
-        if (!local || (incoming.updatedAt ?? 0) >= (local.updatedAt ?? 0)) {
+        if (!local || (incoming.updatedAt ?? 0) > (local.updatedAt ?? 0)) {
           await db.habits.put(incoming)
         }
       }
@@ -914,7 +1109,7 @@ async function _fallbackFullPull(userId: string): Promise<void> {
       for (const row of reviews) {
         const incoming = rowToWeeklyReview(row as Record<string, unknown>)
         const local    = await db.weeklyReviews.get(incoming.id)
-        if (!local || (incoming.updatedAt ?? 0) >= (local.updatedAt ?? 0)) {
+        if (!local || (incoming.updatedAt ?? 0) > (local.updatedAt ?? 0)) {
           await db.weeklyReviews.put(incoming)
         }
       }
@@ -923,7 +1118,7 @@ async function _fallbackFullPull(userId: string): Promise<void> {
       for (const row of plans) {
         const incoming = rowToDailyPlan(row as Record<string, unknown>)
         const local    = await db.dailyPlans.get(incoming.date)
-        if (!local || (incoming.completedAt ?? 0) >= (local.completedAt ?? 0)) {
+        if (!local || (incoming.completedAt ?? 0) > (local.completedAt ?? 0)) {
           await db.dailyPlans.put(incoming)
         }
       }
@@ -1022,7 +1217,13 @@ export function startRealtime(userId: string): void {
         const local      = await db.tasks.get(incoming.id)
         const incomingTs = incoming.updatedAt ?? 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) {
+        // Completion guard: don't let a stale done=false from the server
+        // re-open a task that was completed locally but not yet synced.
+        if (!incoming.done || !local) {
+          const completed = await db.completedTasks.get(incoming.id)
+          if (completed && !incoming.done && completed.completedAt >= incomingTs) return
+        }
+        if (!local || incomingTs > localTs) {
           await db.tasks.put(incoming)
         }
       }
@@ -1042,7 +1243,7 @@ export function startRealtime(userId: string): void {
         const local      = await db.goals.get(incoming.id) as (Goal & { updatedAt?: number }) | undefined
         const incomingTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) await db.goals.put(incoming)
+        if (!local || incomingTs > localTs) await db.goals.put(incoming)
       }
     )
 
@@ -1060,7 +1261,7 @@ export function startRealtime(userId: string): void {
         const local      = await db.journal.get(incoming.id) as (JournalEntry & { updatedAt?: number }) | undefined
         const incomingTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) await db.journal.put(incoming)
+        if (!local || incomingTs > localTs) await db.journal.put(incoming)
       }
     )
 
@@ -1078,7 +1279,7 @@ export function startRealtime(userId: string): void {
         const local      = await db.inbox.get(incoming.id) as (InboxItem & { updatedAt?: number }) | undefined
         const incomingTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) await db.inbox.put(incoming)
+        if (!local || incomingTs > localTs) await db.inbox.put(incoming)
       }
     )
 
@@ -1120,7 +1321,7 @@ export function startRealtime(userId: string): void {
         const local      = await db.shoppingItems.get(incoming.id)
         const incomingTs = incoming.updatedAt
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) await db.shoppingItems.put(incoming)
+        if (!local || incomingTs > localTs) await db.shoppingItems.put(incoming)
       }
     )
 
@@ -1138,7 +1339,7 @@ export function startRealtime(userId: string): void {
         const local      = await db.habits.get(incoming.id)
         const incomingTs = incoming.updatedAt ?? 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) await db.habits.put(incoming)
+        if (!local || incomingTs > localTs) await db.habits.put(incoming)
       }
     )
 
@@ -1155,7 +1356,7 @@ export function startRealtime(userId: string): void {
         const local      = await db.weeklyReviews.get(incoming.id)
         const incomingTs = incoming.updatedAt ?? 0
         const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs >= localTs) await db.weeklyReviews.put(incoming)
+        if (!local || incomingTs > localTs) await db.weeklyReviews.put(incoming)
       }
     )
 
@@ -1170,7 +1371,7 @@ export function startRealtime(userId: string): void {
         const row      = payload.new as Record<string, unknown>
         const incoming = rowToDailyPlan(row)
         const local    = await db.dailyPlans.get(incoming.date)
-        if (!local || (incoming.completedAt ?? 0) >= (local.completedAt ?? 0)) {
+        if (!local || (incoming.completedAt ?? 0) > (local.completedAt ?? 0)) {
           await db.dailyPlans.put(incoming)
         }
       }
@@ -1223,5 +1424,17 @@ export async function retryDeadLettered(): Promise<void> {
       nextRetryAt:  Date.now(),
       lastError:    undefined,
     })
+  }
+}
+
+/**
+ * Prune incremental_sync_events rows older than max_age_days (default 30).
+ * Called silently after a successful sync — fire-and-forget, never throws.
+ */
+export async function pruneEventLog(maxAgeDays = 30): Promise<void> {
+  try {
+    await supabase.rpc('incremental_sync_prune_events', { max_age_days: maxAgeDays })
+  } catch {
+    // Non-critical — swallow silently
   }
 }

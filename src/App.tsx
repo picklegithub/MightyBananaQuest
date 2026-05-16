@@ -32,6 +32,9 @@ import { OnboardingScreen }    from './screens/OnboardingScreen'
 import { AuthScreen }          from './screens/AuthScreen'
 import { DailyPlanRitualScreen }    from './screens/DailyPlanRitualScreen'
 import { HabitAnalyticsScreen }    from './screens/HabitAnalyticsScreen'
+import { CopingCardsScreen }      from './screens/CopingCardsScreen'
+import { ProgressScreen }          from './screens/ProgressScreen'
+import { CalendarScreen }          from './screens/CalendarScreen'
 import { VoiceCapture }             from './components/VoiceCapture'
 import { SearchSheet }             from './components/SearchSheet'
 import type { Screen, AppSettings, Category } from './types'
@@ -59,16 +62,19 @@ function applyTheme(settings: AppSettings) {
 }
 
 // ── Nav screens that show BottomNav ───────────────────────────────────────────
-const NAV_SCREENS = new Set(['dashboard', 'journal', 'goals', 'category', 'inbox', 'all-tasks', 'all-habits', 'review'])
+// Goals, inbox, all-tasks, review now live in the More sheet — no longer full tabs.
+const NAV_SCREENS = new Set(['dashboard', 'journal', 'category', 'all-habits'])
 function showsNav(screen: Screen): boolean { return NAV_SCREENS.has(screen.name) }
 function activeTab(screen: Screen): string {
   if (screen.name === 'journal')    return 'journal'
-  if (screen.name === 'goals')      return 'goals'
   if (screen.name === 'all-habits') return 'all-habits'
+  // Goals/inbox/progress/review surfaced via More sheet — highlight "more"
+  if (screen.name === 'goals' || screen.name === 'inbox' ||
+      screen.name === 'all-tasks' || screen.name === 'review' ||
+      screen.name === 'progress' || screen.name === 'calendar') return 'more'
   // Screens that logically live under "Today"
   if (screen.name === 'dashboard' || screen.name === 'category' ||
       screen.name === 'task'       || screen.name === 'daily-plan') return 'dashboard'
-  // All other NAV_SCREENS (inbox, all-tasks, review) are standalone — no bottom tab should light up
   return ''
 }
 
@@ -80,10 +86,11 @@ export default function App() {
   const [screenStack, setScreenStack] = useState<Screen[]>([{ name: 'dashboard' }])
   const screen = screenStack[screenStack.length - 1]
 
-  const [authState,  setAuthState]  = useState<AuthState>('loading')
-  const [isOnline,   setIsOnline]   = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true)
-  const [fabSheet,    setFabSheet]    = useState<FabSheet>('none')
-  const [searchOpen,  setSearchOpen]  = useState(false)
+  const [authState,    setAuthState]    = useState<AuthState>('loading')
+  const [isOnline,     setIsOnline]     = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true)
+  const [fabSheet,     setFabSheet]     = useState<FabSheet>('none')
+  const [searchOpen,   setSearchOpen]   = useState(false)
+  const [moreOpen,     setMoreOpen]     = useState(false)
   const [taskPrefill, setTaskPrefill] = useState<{ title?: string; catId?: string; due?: string; isHabit?: boolean; linkToGoalId?: string } | null>(null)
   const [isDesktop,  setIsDesktop]  = useState(() => window.innerWidth >= 960)
 
@@ -278,7 +285,7 @@ export default function App() {
         {/* Screen mount area */}
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
           {screen.name === 'dashboard'  && <DashboardScreen navigate={navigate} />}
-          {screen.name === 'task'       && <TaskDetailScreen taskId={screen.taskId} navigate={navigate} back={() => navigateTab({ name: 'dashboard' })} />}
+          {screen.name === 'task'       && <TaskDetailScreen taskId={screen.taskId} navigate={navigate} back={back} />}
           {screen.name === 'category'   && (
             <CategoryScreen
               catId={screen.catId}
@@ -327,7 +334,10 @@ export default function App() {
           {screen.name === 'habit-analytics' && (
             <HabitAnalyticsScreen navigate={navigate} back={() => navigateTab({ name: 'dashboard' })} />
           )}
-          {screen.name === 'review'     && <WeeklyReviewScreen navigate={navigate} back={() => navigateTab({ name: 'dashboard' })} />}
+          {screen.name === 'review'       && <WeeklyReviewScreen navigate={navigate} back={() => navigateTab({ name: 'dashboard' })} />}
+          {screen.name === 'progress'     && <ProgressScreen navigate={navigate} back={back} />}
+          {screen.name === 'calendar'     && <CalendarScreen navigate={navigate} back={back} onAddTask={() => openAddTask()} />}
+          {screen.name === 'coping-cards' && <CopingCardsScreen navigate={navigate} back={back} />}
           {screen.name === 'daily-plan' && <DailyPlanRitualScreen navigate={navigate} back={back} />}
           {screen.name === 'onboarding'     && <OnboardingScreen onDone={() => navigateTab({ name: 'dashboard' })} />}
           {screen.name === 'splash'         && <SplashScreen onDone={() => navigateTab(settings?.onboarded ? { name: 'dashboard' } : { name: 'onboarding' })} />}
@@ -366,6 +376,17 @@ export default function App() {
           onFabTap={handleFabTap}
           onFabLongPress={handleFabLongPress}
           onSearchTap={() => setSearchOpen(true)}
+          onMoreTap={() => setMoreOpen(true)}
+        />
+      )}
+
+      {/* More sheet */}
+      {moreOpen && (
+        <MoreSheet
+          onClose={() => setMoreOpen(false)}
+          navigate={(s: Screen) => { setMoreOpen(false); navigate(s) }}
+          navigateTab={(s: Screen) => { setMoreOpen(false); navigateTab(s) }}
+          onAddGoal={() => { setMoreOpen(false); setFabSheet('goal') }}
         />
       )}
 
@@ -413,6 +434,8 @@ export default function App() {
       {fabSheet === 'voice' && (
         <VoiceCapture
           onClose={closeSheet}
+          captureToInbox={settings?.voiceCaptureToInbox ?? true}
+          onCaptured={() => { closeSheet(); navigate({ name: 'inbox' }) }}
           onExpand={parsed => {
             setTaskPrefill({ title: parsed.title, catId: parsed.catId ?? undefined, due: parsed.due ?? undefined })
             setFabSheet('task')
@@ -433,6 +456,163 @@ export default function App() {
   )
 
   return renderMobileStack()
+}
+
+// ── More sheet — Goals / Plan / Capture / Stats ───────────────────────────────
+interface MoreSheetProps {
+  onClose: () => void
+  navigate: (s: Screen) => void
+  navigateTab: (s: Screen) => void
+  onAddGoal: () => void
+}
+
+function MoreSheet({ onClose, navigate, navigateTab, onAddGoal }: MoreSheetProps) {
+  const today = new Date()
+  const isSunday = today.getDay() === 0
+
+  const sections: {
+    label: string
+    items: { icon: string; title: string; sub: string; onTap: () => void }[]
+  }[] = [
+    {
+      label: 'GROW',
+      items: [
+        {
+          icon: 'target',
+          title: 'Goals',
+          sub: 'Track what you\'re building toward',
+          onTap: () => navigate({ name: 'goals' }),
+        },
+
+      ],
+    },
+    {
+      label: 'PLAN',
+      items: [
+        {
+          icon: 'check',
+          title: 'Plan my day',
+          sub: 'Morning ritual — mood, reckoning, top 3',
+          onTap: () => navigate({ name: 'daily-plan' }),
+        },
+        {
+          icon: 'bolt',
+          title: 'Weekly Progress',
+          sub: 'Reflect on the week, XP, and streaks',
+          onTap: () => navigate({ name: 'review' }),
+        },
+        {
+          icon: 'calendar',
+          title: 'Calendar',
+          sub: 'Tasks and habits by date',
+          onTap: () => navigate({ name: 'calendar' }),
+        },
+      ],
+    },
+    {
+      label: 'CAPTURE',
+      items: [
+        {
+          icon: 'inbox',
+          title: 'Inbox',
+          sub: 'Quick captures waiting to be sorted',
+          onTap: () => navigate({ name: 'inbox' }),
+        },
+        {
+          icon: 'layers',
+          title: 'All tasks',
+          sub: 'Everything, everywhere',
+          onTap: () => navigate({ name: 'all-tasks' }),
+        },
+      ],
+    },
+    {
+      label: 'ACCOUNT',
+      items: [
+        {
+          icon: 'settings',
+          title: 'Settings',
+          sub: 'Theme, sync, notifications',
+          onTap: () => navigate({ name: 'settings' }),
+        },
+      ],
+    },
+  ]
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{
+        background: 'var(--paper)', borderRadius: '20px 20px 0 0',
+        width: '100%', maxWidth: 430, margin: '0 auto',
+        maxHeight: '80vh',
+        paddingBottom: 'calc(20px + env(safe-area-inset-bottom))',
+        overflowY: 'auto',
+      }}>
+        {/* Handle */}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 0' }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--rule)' }} />
+        </div>
+
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px 8px' }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 20 }}>Explore</span>
+          <button onClick={onClose} style={{ color: 'var(--ink-3)', padding: 4 }}>
+            <Icons.close size={18} />
+          </button>
+        </div>
+
+        {/* Sections */}
+        {sections.map(section => (
+          <div key={section.label} style={{ padding: '12px 20px 0' }}>
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
+              color: 'var(--ink-4)', marginBottom: 8,
+            }}>
+              {section.label}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {section.items.map(item => {
+                const I = (Icons as Record<string, React.FC<{ size?: number; stroke?: string }>>)[item.icon] ?? Icons.home
+                return (
+                  <button
+                    key={item.title}
+                    onClick={item.onTap}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 14,
+                      padding: '11px 14px', borderRadius: 12,
+                      background: 'var(--paper-2)', textAlign: 'left',
+                      border: '1px solid var(--rule)',
+                    }}
+                  >
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 10,
+                      background: 'var(--paper-3)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      <I size={17} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', marginBottom: 2 }}>
+                        {item.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', letterSpacing: '0.02em' }}>
+                        {item.sub}
+                      </div>
+                    </div>
+                    <Icons.arrow size={14} style={{ color: 'var(--ink-4)', flexShrink: 0, transform: 'rotate(-45deg)' }} />
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 // ── Splash ────────────────────────────────────────────────────────────────────

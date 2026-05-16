@@ -1,597 +1,413 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { localDateISO } from '../lib/useCurrentDate'
-import { db, addTask, completeTask, deleteTask, updateTask } from '../data/db'
-import { EFFORT } from '../constants'
+import { db, processInboxItem, revertInboxItem, addTask } from '../data/db'
 import { Icons } from '../components/ui/Icons'
-import { ConfettiBurst } from '../components/ui'
-import { SwipeableRow } from '../components/SwipeableRow'
-import { ScreenHeader } from '../components/layout/ScreenHeader'
-import type { Screen, Task, Category, EffortKey } from '../types'
-import { useIsColorful, useIsDark } from '../lib/colorMode'
-import { areaColor } from '../lib/areaColor'
+import { SectionHeader } from '../components/ui'
+import type { Screen, InboxItem, Task } from '../types'
 
-// ── Short syntax parser ───────────────────────────────────────────────────────
-// Tokens:
-//   #word      → category (matched by name prefix, case-insensitive)
-//   @today     → due = today's ISO date
-//   @tomorrow  → due = tomorrow's ISO date
-//   @YYYY-MM-DD → exact due date
-//   p1/p2/p3   → status: p1=active, p2=backlog, p3=someday
-//   1h/30m/2h  → effort: ≤15m=xs, ≤30m=s, ≤90m=m, ≤3h=l, ≤8h=xl, >8h=xxl
-
-function parseDateToken(token: string): string | null {
-  const t = token.toLowerCase()
-  if (t === '@today') return localDateISO()
-  if (t === '@tomorrow') {
-    const d = new Date()
-    d.setDate(d.getDate() + 1)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }
-  // @YYYY-MM-DD
-  const dateMatch = token.match(/^@(\d{4}-\d{2}-\d{2})$/)
-  if (dateMatch) return dateMatch[1]
-  // @Mon, @Tue etc — find next occurrence
-  const dayNames = ['sun','mon','tue','wed','thu','fri','sat']
-  const dayMatch = token.match(/^@([a-zA-Z]{3})$/)
-  if (dayMatch) {
-    const target = dayNames.indexOf(dayMatch[1].toLowerCase())
-    if (target >= 0) {
-      const d = new Date()
-      let offset = (target - d.getDay() + 7) % 7
-      if (offset === 0) offset = 7  // always next occurrence
-      d.setDate(d.getDate() + offset)
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    }
-  }
-  return null
+// ── Relative time ─────────────────────────────────────────────────────────────
+function relativeTime(ts: number): string {
+  const diffMs = Date.now() - ts
+  const mins   = Math.floor(diffMs / 60000)
+  if (mins < 1)   return 'just now'
+  if (mins < 60)  return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24)   return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
 }
 
-function parseTimeToken(token: string): EffortKey | null {
-  const m = token.match(/^(\d+(?:\.\d+)?)(h|m)$/)
-  if (!m) return null
-  const val = parseFloat(m[1])
-  const mins = m[2] === 'h' ? val * 60 : val
-  if (mins <= 5)   return 'xs'
-  if (mins <= 20)  return 's'
-  if (mins <= 90)  return 'm'
-  if (mins <= 180) return 'l'
-  if (mins <= 480) return 'xl'
-  return 'xxl'
+function isFresh(createdAt: number): boolean {
+  return Date.now() - createdAt < 24 * 60 * 60 * 1000
 }
 
-interface ParsedCapture {
-  title: string
-  catId?: string
-  due?: string
-  status?: Task['status']
-  effort?: EffortKey
+// ── Source colour ─────────────────────────────────────────────────────────────
+const SOURCE_COLOR: Record<InboxItem['source'], string> = {
+  voice:   'var(--accent)',
+  capture: 'var(--ink-3)',
+  share:   'var(--ink-3)',
+  email:   'var(--ink-3)',
 }
 
-function parseShortSyntax(raw: string, cats: Category[]): ParsedCapture {
-  const words = raw.trim().split(/\s+/)
-  const result: ParsedCapture = { title: '' }
-  const titleWords: string[] = []
-
-  for (const word of words) {
-    // Category: #word
-    if (word.startsWith('#') && word.length > 1) {
-      const slug = word.slice(1).toLowerCase()
-      const match = cats.find(c => c.name.toLowerCase().startsWith(slug))
-      if (match) { result.catId = match.id; continue }
-    }
-    // Due date: @token
-    if (word.startsWith('@') && word.length > 1) {
-      const parsed = parseDateToken(word)
-      if (parsed) { result.due = parsed; continue }
-    }
-    // Status: p1/p2/p3
-    if (/^p[123]$/i.test(word)) {
-      result.status = word === 'p1' ? 'active' : word === 'p2' ? 'backlog' : 'someday'
-      continue
-    }
-    // Effort: 1h / 30m etc
-    const effortKey = parseTimeToken(word.toLowerCase())
-    if (effortKey) { result.effort = effortKey; continue }
-    titleWords.push(word)
-  }
-
-  result.title = titleWords.join(' ')
-  return result
+const SOURCE_ICON: Record<InboxItem['source'], keyof typeof Icons> = {
+  voice:   'mic',
+  capture: 'edit',
+  share:   'rss',
+  email:   'inbox',
 }
 
-// ── Voice capture hook ────────────────────────────────────────────────────────
-type ListeningState = 'idle' | 'listening' | 'processing' | 'unsupported'
-
-function useVoiceCapture(onResult: (text: string) => void) {
-  const [state, setState] = useState<ListeningState>(() => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    return SR ? 'idle' : 'unsupported'
-  })
-  const recRef = useRef<any>(null)
-
-  const start = useCallback(() => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SR) return
-    const rec = new SR()
-    rec.lang = 'en-US'
-    rec.continuous = false
-    rec.interimResults = false
-    rec.maxAlternatives = 1
-    rec.onstart  = () => setState('listening')
-    rec.onresult = (e: any) => {
-      const transcript = e.results[0][0].transcript
-      setState('idle')
-      onResult(transcript)
-    }
-    rec.onerror = () => setState('idle')
-    rec.onend   = () => setState(s => s === 'listening' ? 'idle' : s)
-    rec.start()
-    recRef.current = rec
-    setState('listening')
-  }, [onResult])
-
-  const stop = useCallback(() => {
-    recRef.current?.stop()
-    setState('idle')
-  }, [])
-
-  return { state, start, stop }
+// ── Undo toast ────────────────────────────────────────────────────────────────
+interface UndoState {
+  label: string
+  onUndo: () => Promise<void>
 }
 
-// ── Ghost input with short syntax + voice ─────────────────────────────────────
-function GhostInput({ cats, onSaved }: { cats: Category[]; onSaved: () => void }) {
-  const [active, setActive] = useState(false)
-  const [value,  setValue]  = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const { state: voiceState, start: startVoice, stop: stopVoice } = useVoiceCapture((text) => {
-    setValue(text)
-    setActive(true)
-    setTimeout(() => inputRef.current?.focus(), 60)
-  })
+function UndoToast({ undo, onDismiss }: { undo: UndoState; onDismiss: () => void }) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (active) setTimeout(() => inputRef.current?.focus(), 40)
-  }, [active])
+    timerRef.current = setTimeout(onDismiss, 4000)
+    return () => { if (timerRef.current) clearTimeout(timerRef.current) }
+  }, [undo, onDismiss])
 
-  // Preview parsed tokens
-  const parsed = value.trim() ? parseShortSyntax(value, cats) : null
-  const hasTokens = parsed && (parsed.catId || parsed.due || parsed.status || parsed.effort)
+  return (
+    <div style={{
+      position: 'fixed', bottom: 'calc(80px + env(safe-area-inset-bottom))', left: 16, right: 16,
+      background: 'var(--ink)', borderRadius: 12, padding: '12px 16px',
+      display: 'flex', alignItems: 'center', gap: 10, zIndex: 300,
+    }}>
+      <span style={{ flex: 1, fontSize: 13, color: 'var(--paper)' }}>{undo.label}</span>
+      <button
+        onClick={async () => { if (timerRef.current) clearTimeout(timerRef.current); await undo.onUndo(); onDismiss() }}
+        style={{
+          fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.06em',
+          color: 'var(--accent)', padding: '4px 10px', borderRadius: 8,
+          border: '1px solid var(--accent)', background: 'transparent', flexShrink: 0,
+        }}
+      >
+        UNDO
+      </button>
+    </div>
+  )
+}
 
-  async function handleSave() {
-    const raw = value.trim()
-    if (!raw) { setActive(false); return }
-    const p = parseShortSyntax(raw, cats)
-    const title = p.title || raw  // fallback to full text if all tokens
-    await addTask({
-      id: `t${Date.now()}`,
-      title,
-      cat: p.catId ?? 'inbox',
-      effort: p.effort ?? 's',
-      due: p.due ?? '',
-      status: p.status ?? undefined,
+// ── Triage pills ──────────────────────────────────────────────────────────────
+function TriagePills({
+  item,
+  onAction,
+}: {
+  item: InboxItem
+  onAction: (undo: UndoState) => void
+}) {
+  const hasUrl = !!item.sourceMeta?.url
+
+  async function handleToTask() {
+    const taskId = `t${Date.now()}`
+    const task: Task = {
+      id: taskId,
+      title: item.text,
+      cat: '',
+      effort: 'm',
+      due: '',
       quad: 'q2',
       recurring: null,
       done: false,
       streak: 0,
       sub: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    await addTask(task)
+    await processInboxItem(item.id, 'converted', taskId)
+    onAction({
+      label: 'Added to tasks.',
+      onUndo: async () => {
+        await db.tasks.delete(taskId)
+        await revertInboxItem(item.id, 'inbox')
+      },
     })
-    setValue('')
-    setActive(false)
-    onSaved()
   }
 
-  if (!active && voiceState === 'idle') {
-    return (
-      <div style={{ display: 'flex', gap: 7 }}>
-        <button
-          onClick={() => setActive(true)}
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 9,
-            padding: '9px 13px',
-            borderRadius: 12, border: '1px dashed var(--rule)',
-            color: 'var(--ink-4)', fontSize: 13,
-            fontFamily: 'var(--font-ui)',
-          }}
-        >
-          <span style={{
-            width: 22, height: 22, borderRadius: '50%',
-            border: '1.5px dashed var(--rule)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--ink-4)', flexShrink: 0,
-          }}>
-            <Icons.plus size={11} />
-          </span>
-          New task… <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', marginLeft: 4 }}>#cat @date p1</span>
-        </button>
-        <button
-          onClick={startVoice}
-          title="Voice capture"
-          style={{
-            width: 42, height: 42, borderRadius: 12, flexShrink: 0,
-            border: '1px solid var(--rule)', background: 'var(--paper-2)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--ink-3)',
-          }}
-        >
-          <Icons.mic size={16} />
-        </button>
-      </div>
-    )
+  async function handleSomeday() {
+    const taskId = `t${Date.now()}`
+    const task: Task = {
+      id: taskId,
+      title: item.text,
+      cat: '',
+      effort: 'm',
+      due: '',
+      status: 'someday',
+      quad: 'q2',
+      recurring: null,
+      done: false,
+      streak: 0,
+      sub: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    await addTask(task)
+    await processInboxItem(item.id, 'someday', taskId)
+    onAction({
+      label: 'Moved to someday.',
+      onUndo: async () => {
+        await db.tasks.delete(taskId)
+        await revertInboxItem(item.id, 'inbox')
+      },
+    })
   }
 
-  // Listening state
-  if (voiceState === 'listening') {
-    return (
-      <button
-        onClick={stopVoice}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          width: '100%', padding: '12px 16px', borderRadius: 12,
-          border: '2px solid var(--accent)', background: 'var(--accent-soft)',
-          color: 'var(--accent)', fontSize: 14,
-        }}
-      >
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0,
-          animation: 'pulse 1s ease-in-out infinite',
-        }} />
-        Listening… tap to stop
-      </button>
-    )
+  async function handleReadLater() {
+    // TODO: route to read-later list view when built
+    const taskId = `t${Date.now()}`
+    const task: Task = {
+      id: taskId,
+      title: item.text,
+      cat: '',
+      effort: 's',
+      due: '',
+      status: 'someday',
+      notes: `readLater · ${item.sourceMeta?.url ?? ''}`,
+      quad: 'q2',
+      recurring: null,
+      done: false,
+      streak: 0,
+      sub: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    await addTask(task)
+    await processInboxItem(item.id, 'someday', taskId)
+    onAction({
+      label: 'Saved to read later.',
+      onUndo: async () => {
+        await db.tasks.delete(taskId)
+        await revertInboxItem(item.id, 'inbox')
+      },
+    })
+  }
+
+  async function handleArchive() {
+    await processInboxItem(item.id, 'archived')
+    onAction({
+      label: 'Archived.',
+      onUndo: async () => { await revertInboxItem(item.id, 'inbox') },
+    })
+  }
+
+  const pillBase: React.CSSProperties = {
+    flexShrink: 0, padding: '5px 12px', borderRadius: 999,
+    fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+    border: '1px solid var(--rule)', background: 'transparent', color: 'var(--ink-2)',
+    whiteSpace: 'nowrap',
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-        <input
-          ref={inputRef}
-          value={value}
-          onChange={e => setValue(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) handleSave()
-            if (e.key === 'Escape') { setValue(''); setActive(false) }
-          }}
-          placeholder="Task… #health @tomorrow p1 1h"
-          style={{
-            flex: 1, padding: '10px 13px', borderRadius: 12,
-            border: '2px solid var(--accent)',
-            background: 'var(--paper-2)', fontSize: 14, color: 'var(--ink)',
-            outline: 'none',
-          }}
-        />
-        <button
-          onClick={handleSave}
-          disabled={!value.trim()}
-          style={{
-            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-            background: value.trim() ? 'var(--ink)' : 'var(--paper-3)',
-            color: value.trim() ? 'var(--paper)' : 'var(--ink-4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <Icons.check size={14} sw={2.5} />
-        </button>
-        <button
-          onClick={() => { setValue(''); setActive(false) }}
-          style={{ width: 38, height: 38, borderRadius: 10, color: 'var(--ink-3)', border: '1px solid var(--rule)', flexShrink: 0 }}
-        >
-          <Icons.close size={14} />
-        </button>
-      </div>
-
-      {/* Token preview */}
-      {hasTokens && (
-        <div style={{
-          display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 7, paddingLeft: 2,
-        }}>
-          {parsed!.title && (
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-2)',
-              padding: '2px 8px', borderRadius: 6, background: 'var(--paper-3)', border: '1px solid var(--rule)',
-            }}>
-              "{parsed!.title}"
-            </span>
-          )}
-          {parsed!.catId && (
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)',
-              padding: '2px 8px', borderRadius: 6, background: 'var(--accent-soft)',
-            }}>
-              #{cats.find(c => c.id === parsed!.catId)?.name ?? parsed!.catId}
-            </span>
-          )}
-          {parsed!.due && (
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-2)',
-              padding: '2px 8px', borderRadius: 6, background: 'var(--paper-3)', border: '1px solid var(--rule)',
-            }}>
-              @{parsed!.due}
-            </span>
-          )}
-          {parsed!.status && (
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-2)',
-              padding: '2px 8px', borderRadius: 6, background: 'var(--paper-3)', border: '1px solid var(--rule)',
-            }}>
-              {parsed!.status}
-            </span>
-          )}
-          {parsed!.effort && (
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-2)',
-              padding: '2px 8px', borderRadius: 6, background: 'var(--paper-3)', border: '1px solid var(--rule)',
-            }}>
-              {EFFORT[parsed!.effort]?.label}
-            </span>
-          )}
-        </div>
+    <div style={{
+      display: 'flex', gap: 6, overflowX: 'auto', padding: '8px 14px 10px',
+      borderTop: '1px solid var(--rule)', background: 'var(--paper-2)',
+    }}>
+      <button
+        onClick={handleToTask}
+        style={{ ...pillBase, borderColor: 'var(--accent)', color: 'var(--accent)' }}
+      >
+        → Task
+      </button>
+      <button onClick={handleSomeday} style={pillBase}>Someday</button>
+      {hasUrl && (
+        <button onClick={handleReadLater} style={pillBase}>Read later</button>
       )}
+      <button onClick={handleArchive} style={pillBase}>Archive</button>
     </div>
   )
 }
 
-interface Props {
-  navigate: (s: Screen) => void
-  back: () => void
-}
-
-interface Burst { id: number; x: number; y: number; xp: number }
-
-// ── Effort display label ──────────────────────────────────────────────────────
-function effortLabel(effort: Task['effort']): string {
-  const mins = EFFORT[effort]?.mins ?? 15
-  if (mins >= 1440) return Math.round(mins / 1440) + 'd'
-  if (mins >= 60)   return (mins / 60) + 'h'
-  return mins + 'm'
-}
-
-// ── Single inbox task card ────────────────────────────────────────────────────
-function InboxTaskCard({
-  task, cats, onNavigate, onComplete, onDelete, onAssign,
+// ── Single row ────────────────────────────────────────────────────────────────
+function InboxRow({
+  item,
+  onAction,
 }: {
-  task: Task
-  cats: Category[]
-  onNavigate: () => void
-  onComplete: (e: React.MouseEvent) => void
-  onDelete: () => void
-  onAssign: (catId: string) => void
+  item: InboxItem
+  onAction: (undo: UndoState) => void
 }) {
-  const eDef = EFFORT[task.effort]
-  const isColorful = useIsColorful()
-  const isDark     = useIsDark()
-  const cat = cats.find(c => c.id === task.cat)
-  const borderColor = (isColorful && cat?.hue !== undefined)
-    ? areaColor(cat.hue, 'fg', isDark)
-    : 'var(--rule)'
+  const fresh     = isFresh(item.createdAt)
+  const color     = SOURCE_COLOR[item.source]
+  const iconKey   = SOURCE_ICON[item.source]
+  const GlyphIcon = Icons[iconKey] ?? Icons.inbox
+  const lowConf   = (item.sourceMeta?.transcriptConfidence ?? 1) < 0.6
 
   return (
     <div style={{
-      border: '1px solid var(--rule)', borderLeft: `3px solid ${borderColor}`,
-      borderRadius: 12, overflow: 'hidden',
-      opacity: task.done ? 0.52 : 1, transition: 'opacity .2s',
+      border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden',
+      background: 'var(--paper-2)',
     }}>
-      {/* Main row — swipeable for delete */}
-      <SwipeableRow onDelete={onDelete}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '11px 14px 11px 12px', background: 'var(--paper-2)' }}>
-
-        {/* Complete button — matches TaskCard size */}
-        <button
-          onClick={onComplete}
-          style={{
-            flexShrink: 0, marginTop: 1,
-            width: 24, height: 24, borderRadius: '50%',
-            border: `1.5px solid ${task.done ? 'var(--accent)' : 'var(--rule)'}`,
-            background: task.done ? 'var(--accent)' : 'transparent',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: task.done ? 'var(--paper)' : 'transparent',
-            transition: 'all .15s',
-          }}
-        >
-          {task.done && <Icons.check size={11} sw={2.5} />}
-        </button>
-
-        {/* Content — tappable to open task detail */}
-        <button onClick={onNavigate} style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-          <div style={{
-            fontSize: 14, fontWeight: 500, lineHeight: 1.35,
-            textDecoration: task.done ? 'line-through' : 'none',
-            color: 'var(--ink)',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            marginBottom: 4,
-          }}>
-            {task.title}
-          </div>
-
-          {/* Meta row — matches TaskCard meta style */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {eDef && (
-              <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)',
-                letterSpacing: '0.05em',
-              }}>
-                {eDef.glyph} {effortLabel(task.effort)}
-              </span>
-            )}
-            {task.due && task.due !== '' && (
-              <>
-                <span style={{ width: 2, height: 2, borderRadius: '50%', background: 'var(--rule)', flexShrink: 0 }} />
-                <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)',
-                  letterSpacing: '0.05em', fontWeight: 600,
-                }}>
-                  {task.due}
-                </span>
-              </>
-            )}
-            {task.status && task.status !== 'backlog' && (
-              <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
-                color: task.status === 'active' ? 'var(--accent)' : 'var(--ink-4)',
-                padding: '1px 6px', borderRadius: 4,
-                background: task.status === 'active' ? 'var(--accent-soft)' : 'var(--paper-3)',
-              }}>
-                {task.status === 'active' ? '⚡ Active' : 'Someday'}
-              </span>
-            )}
-            {task.notes && (
-              <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)',
-                letterSpacing: '0.02em',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                maxWidth: 140,
-              }}>
-                {task.notes}
-              </span>
-            )}
-          </div>
-        </button>
-
-      </div>
-      </SwipeableRow>
-
-      {/* Area assign row — always visible, scrollable */}
-      {!task.done && (
+      {/* Main row */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 14px 10px' }}>
+        {/* Source icon */}
         <div style={{
-          borderTop: '1px solid var(--rule)',
-          padding: '8px 12px',
-          display: 'flex', gap: 5, overflowX: 'auto',
-          alignItems: 'center', background: 'var(--paper-2)',
+          width: 24, height: 24, borderRadius: 6, flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color, marginTop: 1,
         }}>
-          <span style={{
-            fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)',
-            letterSpacing: '0.08em', flexShrink: 0, marginRight: 2,
-          }}>
-            MOVE TO
-          </span>
-          {cats.map(c => {
-            // C3: show area icon so triage pills are recognisable at a glance
-            const CatIcon = ((Icons as unknown) as Record<string, React.FC<{ size?: number }>>)[c.icon] ?? Icons.home
-            return (
-              <button
-                key={c.id}
-                onClick={() => onAssign(c.id)}
-                style={{
-                  flexShrink: 0,
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '5px 10px', borderRadius: 20,
-                  fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em',
-                  background: 'var(--paper-3)', color: 'var(--ink-2)',
-                  border: '1px solid var(--rule)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <CatIcon size={11} />
-                {c.name}
-              </button>
-            )
-          })}
+          <GlyphIcon size={14} />
         </div>
-      )}
+
+        {/* Content */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {lowConf && item.source === 'voice' ? (
+            <>
+              <div style={{
+                fontSize: 13, fontWeight: 500, color: 'var(--ink-3)',
+                fontStyle: 'italic', lineHeight: 1.4, marginBottom: 2,
+              }}>
+                {item.text}
+              </div>
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)',
+                letterSpacing: '0.04em',
+              }}>
+                Tap to listen
+              </div>
+            </>
+          ) : (
+            <div style={{
+              fontSize: 13.5, fontWeight: 500, color: 'var(--ink)',
+              lineHeight: 1.4,
+            }}>
+              {item.text}
+            </div>
+          )}
+        </div>
+
+        {/* Right: fresh dot + relative time */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, marginTop: 2 }}>
+          {fresh && (
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: 'var(--accent)', flexShrink: 0,
+            }} />
+          )}
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)',
+          }}>
+            {relativeTime(item.createdAt)}
+          </span>
+        </div>
+      </div>
+
+      {/* Triage pills */}
+      <TriagePills item={item} onAction={onAction} />
     </div>
   )
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-export const InboxScreen = ({ navigate, back }: Props) => {
-  const [bursts, setBursts] = useState<Burst[]>([])
+interface Props {
+  navigate: (s: Screen) => void
+  back: () => void
+}
 
-  const tasks = useLiveQuery(
-    () => db.tasks.where('cat').equals('inbox').toArray(),
+export const InboxScreen = ({ back }: Props) => {
+  const [undoState, setUndoState] = useState<UndoState | null>(null)
+
+  const items = useLiveQuery(
+    () => db.inboxItems.where('status').equals('inbox').sortBy('createdAt'),
     []
-  )
-  const cats = useLiveQuery(() => db.categories.toArray(), []) ?? []
+  ) ?? []
 
-  if (!tasks) return null
+  const fresh = items.filter(i => isFresh(i.createdAt))
+  const older = items.filter(i => !isFresh(i.createdAt))
 
-  const pending = tasks.filter(t => !t.done)
-  const done    = tasks.filter(t => t.done)
+  const voiceN   = items.filter(i => i.source === 'voice').length
+  const shareN   = items.filter(i => i.source === 'share').length
+  const captureN = items.filter(i => i.source === 'capture' || i.source === 'email').length
 
-  async function handleComplete(e: React.MouseEvent, task: Task) {
-    e.stopPropagation()
-    if (task.done) return
-    const { xp: gained } = await completeTask(task.id)
-    if (gained > 0) {
-      const rect = (e.target as HTMLElement).getBoundingClientRect()
-      const burst: Burst = { id: Date.now(), x: rect.left + rect.width / 2, y: rect.top, xp: gained }
-      setBursts(b => [...b, burst])
-      setTimeout(() => setBursts(b => b.filter(x => x.id !== burst.id)), 1400)
-    }
+  function handleAction(undo: UndoState) {
+    setUndoState(undo)
   }
 
-  async function handleAssign(taskId: string, catId: string) {
-    await updateTask(taskId, { cat: catId, due: 'Today' })
-  }
-
-  async function handleDelete(taskId: string) {
-    await deleteTask(taskId)
-  }
-
-  const isEmpty = tasks.length === 0
+  const n = items.length
 
   return (
-    <div className="screen">
-      <ScreenHeader
-        title="Inbox"
-        subtitle={pending.length > 0 ? `${pending.length} to sort` : undefined}
-        back={back}
-      />
-
-      <div className="screen-scroll" style={{ padding: '16px 20px 24px' }}>
-
-        {/* Empty state */}
-        {isEmpty && (
-          <div style={{ textAlign: 'center', padding: '60px 20px 24px' }}>
-            <Icons.inbox size={40} style={{ color: 'var(--ink-4)', margin: '0 auto 16px', display: 'block' }} />
-            <div className="t-display" style={{ fontSize: 20, marginBottom: 6 }}>Inbox zero</div>
-            <div style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6 }}>
-              Captures land here. Assign an area<br />or complete them to clear the queue.
-            </div>
-          </div>
-        )}
-
-        {/* Pending tasks */}
-        {pending.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: done.length > 0 ? 24 : 0 }}>
-            {pending.map(task => (
-              <InboxTaskCard
-                key={task.id}
-                task={task}
-                cats={cats}
-                onNavigate={() => navigate({ name: 'task', taskId: task.id })}
-                onComplete={e => handleComplete(e, task)}
-                onDelete={() => handleDelete(task.id)}
-                onAssign={catId => handleAssign(task.id, catId)}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Done tasks — collapsed section */}
-        {done.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div className="eyebrow" style={{ marginBottom: 10, opacity: 0.5 }}>Completed</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {done.map(task => (
-                <InboxTaskCard
-                  key={task.id}
-                  task={task}
-                  cats={cats}
-                  onNavigate={() => navigate({ name: 'task', taskId: task.id })}
-                  onComplete={e => handleComplete(e, task)}
-                  onDelete={() => handleDelete(task.id)}
-                  onAssign={catId => handleAssign(task.id, catId)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Ghost input — short syntax + voice */}
-        <GhostInput cats={cats} onSaved={() => {}} />
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      height: '100%', background: 'var(--paper)',
+      borderRadius: '20px 20px 0 0', overflow: 'hidden',
+    }}>
+      {/* Sheet handle */}
+      <div style={{
+        display: 'flex', justifyContent: 'center',
+        paddingTop: 10, paddingBottom: 4, flexShrink: 0,
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--rule)' }} />
       </div>
 
-      {bursts.map(b => <ConfettiBurst key={b.id} x={b.x} y={b.y} xp={b.xp} />)}
+      {/* Header row */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '6px 20px 14px', borderBottom: '1px solid var(--rule)', flexShrink: 0,
+      }}>
+        <button onClick={back} style={{ color: 'var(--ink-3)', flexShrink: 0 }}>
+          <Icons.close size={20} />
+        </button>
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+            color: 'var(--ink-3)', textTransform: 'uppercase',
+          }}>
+            Inbox · {n} to process
+          </div>
+        </div>
+        {/* Overflow placeholder */}
+        <button style={{ color: 'var(--ink-4)', flexShrink: 0 }}>
+          <Icons.more size={20} />
+        </button>
+      </div>
+
+      {/* Scroll area */}
+      <div className="screen-scroll" style={{ padding: '20px 20px 40px', flex: 1 }}>
+
+        {/* Empty state */}
+        {n === 0 && (
+          <div style={{ textAlign: 'center', paddingTop: 60 }}>
+            <p style={{
+              fontFamily: 'var(--font-display)', fontStyle: 'italic',
+              fontSize: 16, color: 'var(--ink-3)', lineHeight: 1.6,
+            }}>
+              Nothing to sort. Capture something when it comes.
+            </p>
+          </div>
+        )}
+
+        {n > 0 && (
+          <>
+            {/* Headline */}
+            <div style={{ marginBottom: 4 }}>
+              <div className="t-display" style={{ fontSize: 26 }}>
+                A small {n === 1 ? 'thing' : 'pile'} to sort.
+              </div>
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)',
+                letterSpacing: '0.06em', marginTop: 6,
+              }}>
+                {voiceN > 0 && `${voiceN} voice`}
+                {voiceN > 0 && (shareN > 0 || captureN > 0) && ' · '}
+                {shareN > 0 && `${shareN} shared`}
+                {shareN > 0 && captureN > 0 && ' · '}
+                {captureN > 0 && `${captureN} capture${captureN !== 1 ? 's' : ''}`}
+              </div>
+            </div>
+
+            {/* Fresh section */}
+            {fresh.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <SectionHeader title="Fresh" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+                  {fresh.map(item => (
+                    <InboxRow key={item.id} item={item} onAction={handleAction} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Older section */}
+            {older.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <SectionHeader title="Older" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+                  {older.map(item => (
+                    <InboxRow key={item.id} item={item} onAction={handleAction} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Undo toast */}
+      {undoState && (
+        <UndoToast undo={undoState} onDismiss={() => setUndoState(null)} />
+      )}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import * as chrono from 'chrono-node'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, addTask } from '../data/db'
+import { db, addTask, createInboxItem } from '../data/db'
 import { Icons } from './ui/Icons'
 import type { Task, EffortKey } from '../types'
 import { useIsDark } from '../lib/colorMode'
@@ -25,6 +25,8 @@ interface Parsed {
 interface Props {
   onClose: () => void
   onExpand: (parsed: Parsed) => void   // hand off to full AddTaskSheet
+  captureToInbox?: boolean             // when true, save to inboxItems instead of tasks
+  onCaptured?: () => void              // called after inbox save (before close delay)
 }
 
 // ── Speech API feature detection ──────────────────────────────────────────────
@@ -145,7 +147,7 @@ const BARS = [0.35, 0.65, 0.85, 1, 0.80, 0.55, 0.30, 0.50, 0.70, 0.90, 0.65, 0.3
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function VoiceCapture({ onClose, onExpand }: Props) {
+export function VoiceCapture({ onClose, onExpand, captureToInbox = false, onCaptured }: Props) {
   const categories = useLiveQuery(() => db.categories.toArray(), []) ?? []
 
   const [phase,       setPhase]       = useState<Phase>(() => SpeechRecognitionCtor ? 'listening' : 'unsupported')
@@ -157,6 +159,7 @@ export function VoiceCapture({ onClose, onExpand }: Props) {
 
   const recogRef      = useRef<any>(null)
   const countdownRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const confidenceRef = useRef<number>(1)
   // Tracks deliberate user stop so onend doesn't restart
   const stoppedRef    = useRef(false)
 
@@ -176,8 +179,11 @@ export function VoiceCapture({ onClose, onExpand }: Props) {
       let final = '', inter = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript
-        if (e.results[i].isFinal) final += t
-        else inter += t
+        if (e.results[i].isFinal) {
+          final += t
+          const conf = e.results[i][0].confidence
+          if (typeof conf === 'number') confidenceRef.current = conf
+        } else inter += t
       }
       if (final) setTranscript(prev => prev + final)
       setInterim(inter)
@@ -261,21 +267,32 @@ export function VoiceCapture({ onClose, onExpand }: Props) {
   async function confirmSave(p: Parsed) {
     if (saved) return
     setSaved(true)
-    const task: Task = {
-      id:        `t${Date.now()}`,
-      title:     p.title,
-      cat:       p.catId ?? '',
-      effort:    p.effort,
-      due:       p.due ?? '',
-      quad:      'q2',
-      recurring: null,
-      done:      false,
-      streak:    0,
-      sub:       [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+    if (captureToInbox) {
+      await createInboxItem({
+        text:      p.title,
+        source:    'voice',
+        sourceMeta: {
+          transcriptConfidence: confidenceRef.current,
+        },
+      })
+      onCaptured?.()
+    } else {
+      const task: Task = {
+        id:        `t${Date.now()}`,
+        title:     p.title,
+        cat:       p.catId ?? '',
+        effort:    p.effort,
+        due:       p.due ?? '',
+        quad:      'q2',
+        recurring: null,
+        done:      false,
+        streak:    0,
+        sub:       [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      await addTask(task)
     }
-    await addTask(task)
     setTimeout(onClose, 600)
   }
 
@@ -298,6 +315,7 @@ export function VoiceCapture({ onClose, onExpand }: Props) {
         parsed={parsed}
         countdown={countdown}
         saved={saved}
+        captureToInbox={captureToInbox}
         onConfirm={() => { cancelCountdown(); confirmSave(parsed) }}
         onEdit={handleEdit}
         onClose={() => { cancelCountdown(); onClose() }}
@@ -433,16 +451,17 @@ function ListeningView({
 // ── Parsed phase ──────────────────────────────────────────────────────────────
 
 function ParsedView({
-  transcript, parsed, countdown, saved,
+  transcript, parsed, countdown, saved, captureToInbox,
   onConfirm, onEdit, onClose,
 }: {
-  transcript: string
-  parsed:     Parsed
-  countdown:  number
-  saved:      boolean
-  onConfirm:  () => void
-  onEdit:     () => void
-  onClose:    () => void
+  transcript:     string
+  parsed:         Parsed
+  countdown:      number
+  saved:          boolean
+  captureToInbox: boolean
+  onConfirm:      () => void
+  onEdit:         () => void
+  onClose:        () => void
 }) {
   const effort = EFFORT_LABELS[parsed.effort]
 
@@ -550,7 +569,7 @@ function ParsedView({
             fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.04em',
           }}>
             <Icons.check size={14} />
-            Saved!
+            {captureToInbox ? 'Captured to inbox.' : 'Saved!'}
           </div>
         )}
       </div>
@@ -588,7 +607,7 @@ function ParsedView({
           }}
         >
           <Icons.check size={16} />
-          {saved ? 'Saved!' : 'Add task'}
+          {saved ? (captureToInbox ? 'Captured!' : 'Saved!') : (captureToInbox ? 'Capture to inbox' : 'Add task')}
         </button>
       </div>
 

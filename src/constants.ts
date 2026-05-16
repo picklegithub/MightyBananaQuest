@@ -43,4 +43,6 @@ export const DEFAULT_SETTINGS = {
   xp: 0,
   streak: 0,
   showPlanYourDay: true,
+  showInboxBadge: true,
+  voiceCaptureToInbox: true,
 }

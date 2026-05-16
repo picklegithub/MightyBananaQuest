@@ -38,6 +38,8 @@ export interface Task {
   isHabit?: boolean   // first-class habit flag — logs to habitLog on completion
   status?: 'backlog' | 'someday' | 'active'  // Slow Productivity workflow state (undefined = backlog)
   goalId?: string        // linked goal — surface its why on Task Detail
+  reminderMin?: number  // minutes before due/time to notify; 0=on-time, 5/30/60/1440=early; undefined=none
+  completedAt?: number  // ms timestamp when task was completed
   createdAt?: number
   updatedAt?: number
   deletedAt?: number  // soft-delete timestamp; present → record is a tombstone
@@ -60,6 +62,8 @@ export interface Habit {
   strength?: number     // EMA adherence score 0.0–1.0; updated on each completion / miss
   timeOfDay?: 'morning' | 'afternoon' | 'evening' | 'anytime'  // time-of-day segment
   isArchived?: boolean  // paused without losing streak history
+  why?: string          // personal intention — "Why this habit matters to me"
+  goalId?: string       // optional link to a goal — surfaces "Building toward: [goal]" on completion
   createdAt?: number
   updatedAt?: number
 }
@@ -111,10 +115,17 @@ export interface JournalEntry {
 // ── Inbox item ───────────────────────────────────────────────────────────────
 export interface InboxItem {
   id: string
-  kind: 'capture'
   text: string
-  when: string
-  processed: boolean
+  source: 'voice' | 'capture' | 'share' | 'email'
+  sourceMeta?: {
+    audioBlobId?: string
+    transcriptConfidence?: number
+    url?: string
+  }
+  createdAt: number
+  processedAt?: number
+  status: 'inbox' | 'converted' | 'someday' | 'archived'
+  convertedTaskId?: string
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -142,8 +153,11 @@ export interface AppSettings {
   onboarded: boolean
   xp: number
   streak: number
+  lastActiveDate?: string   // ISO 'YYYY-MM-DD' — used to compute daily streak
   petIcon?: 'classic' | 'face' | 'paw'  // which pet icon style to use in areas
   showPlanYourDay?: boolean
+  showInboxBadge?: boolean
+  voiceCaptureToInbox?: boolean
 }
 
 // ── Weekly Review ────────────────────────────────────────────────────────────
@@ -198,10 +212,17 @@ export interface Reckoning {
  * One row per calendar date, keyed on ISO date string ('YYYY-MM-DD').
  * Written when the user taps "Start the day" in Step 4.
  */
-// ── Coping card ──────────────────────────────────────────────────────────────
+// ── Coping cards ─────────────────────────────────────────────────────────────
+export type CopingCategory = 'anxiety' | 'social' | 'low-mood' | 'grounding' | 'values' | 'crisis' | 'mindfulness' | 'self-compassion'
+
 export interface CopingCard {
-  id: 1            // singleton
+  id: string
+  title: string
   content: string
+  category: CopingCategory
+  isDefault: boolean   // true = shipped with app; false = user-created
+  isPinned?: boolean   // the one card surfaced in Journal overlay
+  createdAt: number
   updatedAt: number
 }
 
@@ -233,3 +254,5 @@ export type Screen =
   | { name: 'habit-analytics' }
   | { name: 'inbox' }
   | { name: 'settings' }
+  | { name: 'coping-cards' }
+  | { name: 'progress' }
