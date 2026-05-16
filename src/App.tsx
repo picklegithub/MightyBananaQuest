@@ -159,7 +159,12 @@ export default function App() {
   // ── Pull on reconnect ─────────────────────────────────────────────────────
   useEffect(() => {
     if (authState !== 'authed') return
-    const handler = () => triggerSync().catch(e => console.warn('[sync] online pull', e))
+    const handler = async () => {
+      // Re-establish Realtime subscription in case it went dark during offline
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) startRealtime(session.user.id)
+      triggerSync().catch(e => console.warn('[sync] online pull', e))
+    }
     window.addEventListener('online', handler)
     return () => window.removeEventListener('online', handler)
   }, [authState])
