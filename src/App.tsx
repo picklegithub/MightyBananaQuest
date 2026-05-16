@@ -322,6 +322,7 @@ export default function App() {
               navigate={navigate}
               back={() => navigateTab({ name: 'dashboard' })}
               onAddTask={() => openAddTask()}
+              screen={screen}
             />
           )}
           {screen.name === 'all-habits' && (

@@ -148,7 +148,7 @@ function TriagePills({
       }
       await addTask(task)
       await processInboxItem(item.id, 'someday', taskId)
-      navigate({ name: 'all-tasks' })
+      navigate({ name: 'all-tasks', initialStatus: 'someday' })
       onAction({
         label: 'Saved to read later.',
         onUndo: async () => {

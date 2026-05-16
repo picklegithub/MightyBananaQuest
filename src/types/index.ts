@@ -250,7 +250,7 @@ export type Screen =
   | { name: 'review' }
   | { name: 'goals' }
   | { name: 'journal'; phase?: 'morning' | 'evening' | 'history' }
-  | { name: 'all-tasks' }
+  | { name: 'all-tasks'; initialStatus?: 'active' | 'someday' | 'backlog' }
   | { name: 'all-habits' }
   | { name: 'habit-analytics' }
   | { name: 'inbox' }

@@ -14,7 +14,7 @@ import type { Screen, Task } from '../types'
 import { useIsColorful, useIsDark } from '../lib/colorMode'
 import { areaColor } from '../lib/areaColor'
 
-interface Props { navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void }
+interface Props { navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void; screen?: Screen }
 interface Burst { id: number; x: number; y: number; xp: number }
 interface NextBanner { id: number; text: string }
 
@@ -222,9 +222,10 @@ function GhostInput({ catId, onSaved }: { catId: string; onSaved: () => void }) 
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-export const AllTasksScreen = ({ navigate, back, onAddTask }: Props) => {
-  const [filter,       setFilter]       = useState<'open' | 'all' | 'done'>('open')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'someday' | 'backlog'>('all')
+export const AllTasksScreen = ({ navigate, back, onAddTask, screen }: Props) => {
+  const initialStatus = screen?.name === 'all-tasks' ? (screen.initialStatus ?? 'all') : 'all'
+  const [filter,       setFilter]       = useState<'open' | 'all' | 'done'>(initialStatus !== 'all' ? 'open' : 'open')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'someday' | 'backlog'>(initialStatus)
   const [groupBy,      setGroupBy]      = useState<'area' | 'due' | 'effort'>('due')
   const [search,    setSearch]    = useState('')
   const [bursts,     setBursts]     = useState<Burst[]>([])
