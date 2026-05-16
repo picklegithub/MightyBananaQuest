@@ -410,6 +410,8 @@ export default function App() {
           onClose={closeSheet}
           onExpand={title => { setTaskPrefill({ title, catId: currentCatId ?? 'inbox' }); setFabSheet('task') }}
           defaultCatId={currentCatId ?? 'inbox'}
+          captureToInbox={settings?.voiceCaptureToInbox ?? true}
+          onCaptured={() => { closeSheet(); navigate({ name: 'inbox' }) }}
         />
       )}
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, addTask } from '../data/db'
+import { db, addTask, createInboxItem } from '../data/db'
 import { EFFORT_ORDER } from '../constants'
 import { Icons } from './ui/Icons'
 import { UnifiedDuePicker } from './ui/UnifiedDuePicker'
@@ -12,6 +12,8 @@ interface Props {
   onExpand: (title: string) => void   // open full AddTaskSheet with prefilled title
   defaultCatId?: string               // pre-select area (e.g. from CategoryScreen)
   defaultTitle?: string               // pre-fill title (e.g. from Inbox)
+  captureToInbox?: boolean            // when true, save to inboxItems instead of tasks
+  onCaptured?: () => void             // called after inbox save
 }
 
 // ── Web Speech API types ──────────────────────────────────────────────────────
@@ -72,11 +74,11 @@ function ParsedFieldRow({ label, value, icon, iconHue, onTap }: {
   )
 }
 
-export function QuickCaptureSheet({ onClose, onExpand, defaultCatId, defaultTitle }: Props) {
+export function QuickCaptureSheet({ onClose, onExpand, defaultCatId, defaultTitle, captureToInbox = false, onCaptured }: Props) {
   const [title,         setTitle]         = useState(defaultTitle ?? '')
   const [effort,        setEffort]        = useState<string>('s')
   const [catId,         setCatId]         = useState<string | null>(defaultCatId ?? null)
-  const [due,           setDue]           = useState('Today')
+  const [due,           setDue]           = useState('')
   const [recurring,     setRecurring]     = useState<string | null>(null)
   const [time,          setTime]          = useState<string | undefined>(undefined)
   const [showSchedule,  setShowSchedule]  = useState(false)
@@ -123,14 +125,24 @@ export function QuickCaptureSheet({ onClose, onExpand, defaultCatId, defaultTitl
     if (parsed.catId && !defaultCatId) setCatId(parsed.catId)
     if (parsed.effort)                 setEffort(parsed.effort)
     if (parsed.due)                    setDue(parsed.due)
-  }, [parsed?.catId, parsed?.effort, parsed?.due])
+    if (parsed.time)                   setTime(parsed.time)
+    if (parsed.recurring)              setRecurring(parsed.recurring)
+  }, [parsed?.catId, parsed?.effort, parsed?.due, parsed?.time, parsed?.recurring])
 
-  function reset() { setTitle(''); setEffort('s'); setCatId(defaultCatId ?? null); setDue('Today'); setRecurring(null); setTime(undefined); setSaved(false) }
+  function reset() { setTitle(''); setEffort('s'); setCatId(defaultCatId ?? null); setDue(''); setRecurring(null); setTime(undefined); setSaved(false) }
 
   // ── Capture — accepts an explicit text so auto-confirm avoids stale closure ──
   async function handleCapture(overrideTitle?: string) {
     const trimmed = (overrideTitle ?? title).trim()
     if (!trimmed) return
+
+    if (captureToInbox) {
+      await createInboxItem({ text: trimmed, source: 'capture' })
+      setSaved(true)
+      onCaptured?.()
+      setTimeout(() => { reset(); onClose() }, 600)
+      return
+    }
 
     const p = parseNL(trimmed, categories)
     const effectiveCatId = catId ?? p.catId ?? null
@@ -360,7 +372,7 @@ export function QuickCaptureSheet({ onClose, onExpand, defaultCatId, defaultTitl
             <ParsedFieldRow
               label="DUE"
               icon="calendar"
-              value={due + (recurring ? ` · ${recurring}` : '') + (time ? ` · ${time}` : '')}
+              value={(due || 'No date') + (recurring ? ` · ${recurring}` : '') + (time ? ` · ${time}` : '')}
               onTap={() => setShowSchedule(true)}
             />
 
