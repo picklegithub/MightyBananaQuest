@@ -41,6 +41,7 @@ export const JournalScreen = ({ navigate, back, phase: initPhase }: Props) => {
   const entries        = useLiveQuery(() => db.journal.toArray(), [])
   const allCopingCards = useLiveQuery(() => getAllCopingCards(), []) ?? []
   const todayPlan      = useLiveQuery(() => db.dailyPlans.get(todayISO()), [])
+  const tasks          = useLiveQuery(() => db.tasks.toArray(), []) ?? []
   if (!entries) return null
 
   const streak       = computeJournalStreak(entries)
@@ -113,14 +114,51 @@ export const JournalScreen = ({ navigate, back, phase: initPhase }: Props) => {
         </div>
       </div>
 
-      {/* ── Plan tab: full DPR embedded ── */}
+      {/* ── Plan tab ── */}
       {tab === 'plan' ? (
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          <DailyPlanRitualScreen
-            navigate={navigate}
-            back={() => setTab('morning')}
-          />
-        </div>
+        planDone ? (
+          /* Summary view — plan already complete, one canonical entry on Dashboard */
+          <div className="screen-scroll" style={{ padding: '32px 22px 44px' }}>
+            <div style={{ textAlign: 'center', marginBottom: 28 }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>✅</div>
+              <div className="t-display t-italic" style={{ fontSize: 22, marginBottom: 6 }}>Day planned.</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6 }}>
+                Your top 3 are locked in. Head to Today to stay on track.
+              </div>
+            </div>
+            {(todayPlan?.top3Ids ?? []).length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--ink-4)', textTransform: 'uppercase', marginBottom: 10 }}>Top 3</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {todayPlan!.top3Ids.map((id, i) => {
+                    const t = tasks.find(x => x.id === id)
+                    if (!t) return null
+                    return (
+                      <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, background: 'var(--paper-2)', border: '1px solid var(--rule)' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', flexShrink: 0 }}>{i + 1}</span>
+                        <span style={{ fontSize: 14, color: t.done ? 'var(--ink-3)' : 'var(--ink)', textDecoration: t.done ? 'line-through' : 'none', flex: 1 }}>{t.title}</span>
+                        {t.done && <Icons.check size={13} stroke="var(--accent)" />}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => navigate({ name: 'daily-plan' })}
+              style={{ width: '100%', padding: '12px', borderRadius: 12, background: 'var(--paper-2)', border: '1px solid var(--rule)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            >
+              <Icons.reset size={12} /> Re-plan day
+            </button>
+          </div>
+        ) : (
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            <DailyPlanRitualScreen
+              navigate={navigate}
+              back={() => setTab('morning')}
+            />
+          </div>
+        )
       ) : (
         <div className="screen-scroll" style={{ padding: '24px 22px 44px' }}>
           {/* Editorial intro — morning/evening only */}

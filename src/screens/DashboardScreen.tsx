@@ -40,6 +40,7 @@ export const DashboardScreen = ({ navigate }: Props) => {
   const isDark       = useIsDark()
 
   const tasks    = useLiveQuery(() => db.tasks.toArray(), [])
+  const goals    = useLiveQuery(() => db.goals.toArray(), []) ?? []
   const habits   = useLiveQuery(() => db.habits.toArray(), [])
   const settings = useLiveQuery(() => db.settings.get(1), [])
   const cats     = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
@@ -74,6 +75,16 @@ export const DashboardScreen = ({ navigate }: Props) => {
   const totalToday     = allTodayTasks.length
   const xp     = settings.xp ?? 0
   const streak = settings.streak ?? 0
+
+  // Top active goal — first goal with at least one linked task and incomplete progress
+  const topGoal = goals.length > 0 ? (() => {
+    const scored = goals.map(g => {
+      const linked = (tasks ?? []).filter(t => g.linked.includes(t.id) || t.goalId === g.id)
+      const progress = linked.length > 0 ? linked.filter(t => t.done).length / linked.length : g.progress
+      return { g, progress, linked: linked.length }
+    })
+    return scored.find(x => x.progress < 1) ?? scored[0] ?? null
+  })() : null
 
   const isComplete        = !!todayPlan && todayPlan.completedAt !== null
   const hasTop3           = (todayPlan?.top3Ids?.length ?? 0) > 0
@@ -151,6 +162,31 @@ export const DashboardScreen = ({ navigate }: Props) => {
           energy={yesterdayEvening?.energy} isTired={todayPlan?.mood === 'tired'}
           onDotTap={() => setShowContextSheet(true)}
         />
+
+        {topGoal && (
+          <button
+            onClick={() => navigate({ name: 'goal', goalId: topGoal.g.id })}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              margin: '0 20px 4px', padding: '10px 14px',
+              borderRadius: 12, background: 'var(--paper-2)', border: '1px solid var(--rule)',
+              textAlign: 'left', width: 'calc(100% - 40px)',
+            }}
+          >
+            <Icons.target size={14} stroke="var(--ink-3)" style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {topGoal.g.title}
+              </div>
+              <div style={{ height: 3, borderRadius: 2, background: 'var(--rule)', marginTop: 5, overflow: 'hidden' }}>
+                <div style={{ height: '100%', borderRadius: 2, background: 'var(--accent)', width: `${Math.round(topGoal.progress * 100)}%`, transition: 'width .4s ease' }} />
+              </div>
+            </div>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', flexShrink: 0 }}>
+              {Math.round(topGoal.progress * 100)}%
+            </span>
+          </button>
+        )}
 
         {!hasTop3 && journalPinnedIds.length > 0 && (
           <JournalPrioritiesSection pinnedIds={journalPinnedIds} cats={cats} navigate={navigate} />

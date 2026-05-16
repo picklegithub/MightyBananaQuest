@@ -221,9 +221,15 @@ function StepFirstTask({ onNext }: { onNext: () => void }) {
       <div style={{ textAlign: 'center', marginBottom: 28 }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>✏️</div>
         <h2 className="t-display" style={{ fontSize: 24, marginBottom: 8 }}>Add your first task</h2>
-        <p style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6 }}>
+        <p style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6, marginBottom: 10 }}>
           What's one thing on your mind right now? Even small things count.
         </p>
+        <div style={{ background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 10, padding: '10px 14px', textAlign: 'left' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--ink-4)', textTransform: 'uppercase', marginBottom: 4 }}>Slow Productivity</div>
+          <p style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.6, margin: 0 }}>
+            Tasks move through <strong>Backlog → Active → Done</strong>. You can only have <strong>3 active tasks</strong> at once — this keeps focus sharp and prevents the overwhelm of too many open commitments.
+          </p>
+        </div>
       </div>
 
       <input

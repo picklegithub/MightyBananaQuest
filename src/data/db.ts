@@ -418,21 +418,18 @@ export async function completeTask(taskId: string): Promise<{ xp: number; nextDu
     await logHabitCompletion(taskId, today)
   }
 
-  // For recurring tasks: create a fresh copy with the next occurrence date
+  // For recurring tasks: reset in-place with next occurrence date (prevents unbounded clone accumulation)
   let nextDue: string | null = null
   if (task.recurring) {
     nextDue = nextOccurrenceISO(task.due, task.recurring)
-    const copy: Task = {
-      ...task,
-      id: crypto.randomUUID(),
-      done: false,
-      streak: newStreak,
-      due: nextDue,
+    const resetPatch = {
+      done: false, due: nextDue, streak: newStreak,
       sub: task.sub.map(s => ({ ...s, done: false })),
       updatedAt: Date.now(),
     }
-    await db.tasks.add(copy)
-    enqueueUpsert('tasks', copy.id, copy)
+    await db.tasks.update(taskId, resetPatch)
+    const reset = await db.tasks.get(taskId)
+    if (reset) enqueueUpsert('tasks', taskId, reset)
   }
 
   await recordDailyActivity()
@@ -460,6 +457,7 @@ export async function uncompleteTask(taskId: string): Promise<void> {
   if (task.recurring) {
     const today = localDateISO()
     await db.habitLog.delete(`${taskId}:${today}`)
+    enqueueDelete('habit_log', `${taskId}:${today}`)
   }
 }
 
@@ -550,6 +548,11 @@ export async function completeHabit(habitId: string): Promise<number> {
 }
 
 // ── Helper: reset habits that weren't completed today ─────────────────────────
+export async function pruneStaleDeletedTasks(): Promise<void> {
+  const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000
+  await db.deletedTasks.where('deletedAt').below(cutoff).delete()
+}
+
 // Call alongside resetRecurringTasks on app start.
 export async function resetHabits(): Promise<void> {
   const today     = localDateISO()
@@ -586,16 +589,21 @@ export async function toggleSubTask(taskId: string, index: number) {
 }
 
 // ── Helper: add a task ───────────────────────────────────────────────────────
+function stampSubIds(subs: Task['sub']): Task['sub'] {
+  return subs.map(s => s.id ? s : { ...s, id: crypto.randomUUID() })
+}
+
 export async function addTask(task: Task) {
   const now = Date.now()
-  const toAdd = { ...task, createdAt: now, updatedAt: now }
+  const toAdd = { ...task, sub: stampSubIds(task.sub ?? []), createdAt: now, updatedAt: now }
   await db.tasks.add(toAdd)
   enqueueUpsert('tasks', toAdd.id, toAdd)
 }
 
 // ── Helper: update a task (always stamps updatedAt, syncs to Supabase) ───────
 export async function updateTask(taskId: string, patch: Partial<Task>) {
-  await db.tasks.update(taskId, { ...patch, updatedAt: Date.now() })
+  const stamped = patch.sub !== undefined ? { ...patch, sub: stampSubIds(patch.sub) } : patch
+  await db.tasks.update(taskId, { ...stamped, updatedAt: Date.now() })
   const updated = await db.tasks.get(taskId)
   if (updated) enqueueUpsert('tasks', updated.id, updated)
 }

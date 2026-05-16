@@ -420,6 +420,9 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
 
         {editingField === 'status' && (
           <div style={{ padding: '0 0 14px' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.09em', color: 'var(--ink-4)', textTransform: 'uppercase', marginBottom: 8 }}>
+              Slow Productivity · max 3 active
+            </div>
             <div style={{ display: 'flex', gap: 6, marginBottom: capWarning ? 10 : 0 }}>
               {(['backlog', 'someday', 'active'] as const).map(s => {
                 const labels = { backlog: 'Backlog', someday: 'Someday', active: '⚡ Active' }
