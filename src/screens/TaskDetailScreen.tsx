@@ -26,7 +26,7 @@ type EditingField = null | 'area' | 'effort' | 'status'
 
 // ── Effort short labels for pills ────────────────────────────────────────────
 const EFFORT_SHORT: Record<EffortKey, string> = {
-  xs: 'Micro', s: 'Small', m: 'Medium', l: 'Long', xl: 'Mammoth', xxl: 'Giant',
+  xs: 'Micro', s: 'Small', m: 'Medium', l: 'Long', xl: 'Mammoth', xxl: 'Gargantuan',
 }
 const EFFORT_TIME: Record<EffortKey, string> = {
   xs: '1–5m', s: '15m', m: '1h', l: '2h', xl: '6h', xxl: '1d+',
@@ -160,9 +160,13 @@ function AreaSheet({
 
 // ══════════════════════════════════════════════════════════════════════════════
 export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
-  const task       = useLiveQuery(() => db.tasks.get(taskId), [taskId])
-  const settings   = useLiveQuery(() => db.settings.get(1), [])
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const task        = useLiveQuery(() => db.tasks.get(taskId), [taskId])
+  const settings    = useLiveQuery(() => db.settings.get(1), [])
+  const categories  = useLiveQuery(() => db.categories.toArray(), [])
+  const activeTasks = useLiveQuery(
+    () => db.tasks.filter(t => t.status === 'active' && !t.done && t.id !== taskId).toArray(),
+    [taskId],
+  )
   const linkedGoal = useLiveQuery<Goal | undefined>(
     () => task?.goalId ? db.goals.get(task.goalId) : Promise.resolve(undefined),
     [task?.goalId],
@@ -440,28 +444,43 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
                 borderRadius: 10, padding: '10px 14px',
               }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>
-                  You already have 3 active tasks
+                  3 active tasks — demote one first
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5, marginBottom: 10 }}>
-                  Slow Productivity works best with a max of 3 active tasks — it keeps your focus sharp and prevents the overwhelm of too many open commitments.
+                  Slow Productivity keeps focus sharp. Move a current task to backlog to make room.
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => { save({ status: 'active' }); setEditingField(null); setCapWarning(false) }} style={{
-                    flex: 1, padding: '8px', borderRadius: 8,
-                    fontFamily: 'var(--font-mono)', fontSize: 11,
-                    background: 'var(--ink)', color: 'var(--paper)', border: 'none',
-                  }}>
-                    Activate anyway
-                  </button>
-                  <button onClick={() => setCapWarning(false)} style={{
-                    flex: 1, padding: '8px', borderRadius: 8,
-                    fontFamily: 'var(--font-mono)', fontSize: 11,
-                    background: 'var(--paper-3)', color: 'var(--ink-2)',
-                    border: '1px solid var(--rule)',
-                  }}>
-                    Keep as backlog
-                  </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                  {(activeTasks ?? []).map(t => (
+                    <div key={t.id} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '7px 10px', borderRadius: 8,
+                      background: 'var(--paper)', border: '1px solid var(--rule)',
+                    }}>
+                      <span style={{ fontSize: 12, color: 'var(--ink)', flex: 1, minWidth: 0, marginRight: 8,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.title}
+                      </span>
+                      <button
+                        onClick={() => { updateTask(t.id, { status: 'backlog' }); save({ status: 'active' }); setEditingField(null); setCapWarning(false) }}
+                        style={{
+                          flexShrink: 0, padding: '4px 10px', borderRadius: 6,
+                          fontFamily: 'var(--font-mono)', fontSize: 10,
+                          background: 'var(--ink)', color: 'var(--paper)', border: 'none',
+                        }}
+                      >
+                        Demote
+                      </button>
+                    </div>
+                  ))}
                 </div>
+                <button onClick={() => setCapWarning(false)} style={{
+                  width: '100%', padding: '8px', borderRadius: 8,
+                  fontFamily: 'var(--font-mono)', fontSize: 11,
+                  background: 'var(--paper-3)', color: 'var(--ink-2)',
+                  border: '1px solid var(--rule)',
+                }}>
+                  Keep as backlog
+                </button>
               </div>
             )}
           </div>

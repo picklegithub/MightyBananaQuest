@@ -6,6 +6,7 @@ import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
+import { ThemeToggle } from '../components/ThemeToggle'
 import { SwipeableRow } from '../components/SwipeableRow'
 import { HabitHeatmap } from '../components/HabitHeatmap'
 import { AddTaskSheet } from '../components/AddTaskSheet'
@@ -82,7 +83,7 @@ function StreakBadge({ streak }: { streak: number }) {
 // ── Habit card row ────────────────────────────────────────────────────────────
 function HabitRow({
   habit, hue, showStrength,
-  onCheckin, onDelete, onTap, onArchive, onEdit,
+  onCheckin, onDelete, onTap, onArchive, onEdit, goals,
 }: {
   habit: Habit
   hue?: number
@@ -92,12 +93,14 @@ function HabitRow({
   onTap: () => void
   onArchive: () => void
   onEdit: () => void
+  goals: { id: string; title: string }[]
 }) {
+  const isDark      = useIsDark()
   const loggedToday = !!habit.done
-  const safeHue = hue ?? 220
-  const color    = `hsl(${safeHue}, 55%, 42%)`
-  const softBg   = `hsl(${safeHue}, 40%, 93%)`
-  const softRule = `hsl(${safeHue}, 35%, 80%)`
+  const safeHue  = hue ?? 220
+  const color    = areaColor(safeHue, 'fg', isDark)
+  const softBg   = areaColor(safeHue, 'bg', isDark)
+  const softRule = isDark ? `oklch(0.35 0.060 ${safeHue})` : `oklch(0.80 0.050 ${safeHue})`
 
   return (
     <SwipeableRow onDelete={onDelete}>
@@ -129,7 +132,7 @@ function HabitRow({
         <button onClick={onTap} style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
           <div style={{
             fontSize: 14, fontWeight: 500, lineHeight: 1.3,
-            color: loggedToday ? `hsl(${safeHue}, 40%, 35%)` : 'var(--ink)',
+            color: loggedToday ? areaColor(safeHue, 'fg', isDark) : 'var(--ink)',
             marginBottom: 3,
           }}>
             {habit.title}
@@ -166,6 +169,29 @@ function HabitRow({
               {habit.notes.trim()}
             </div>
           )}
+          {habit.why && (
+            <div style={{
+              marginTop: 4, fontSize: 11,
+              color: areaColor(safeHue, 'fg', isDark),
+              fontFamily: 'var(--font-display)', fontStyle: 'italic',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>
+              "{habit.why}"
+            </div>
+          )}
+          {habit.goalId && (() => {
+            const g = goals.find(x => x.id === habit.goalId)
+            return g ? (
+              <div style={{
+                marginTop: 3, fontSize: 10,
+                fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+                color: 'var(--ink-4)',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}>
+                ↗ {g.title}
+              </div>
+            ) : null
+          })()}
           {showStrength && <StrengthBar strength={habit.strength} hue={safeHue} />}
         </button>
 
@@ -265,7 +291,6 @@ export const AllHabitsScreen = ({ navigate: _navigate, back, onAddHabit }: Props
   const [catFilter,     setCatFilter]     = useState<string>('all')
   const [bursts,        setBursts]        = useState<Burst[]>([])
   const [expandedHeat,  setExpandedHeat]  = useState<Set<string>>(new Set())
-  const [showStrength,  setShowStrength]  = useState(false)
   const [showArchived,  setShowArchived]  = useState(false)
   const [capWarning,    setCapWarning]    = useState(false)
   const [editingHabit,  setEditingHabit]  = useState<Habit | null>(null)
@@ -273,6 +298,7 @@ export const AllHabitsScreen = ({ navigate: _navigate, back, onAddHabit }: Props
 
   const habits = useLiveQuery(() => db.habits.toArray(), [])
   const cats   = useLiveQuery(() => db.categories.toArray(), []) ?? DEFAULT_CATEGORIES
+  const goals  = useLiveQuery(() => db.goals.toArray(), []) ?? []
 
   if (!habits) return null
 
@@ -336,11 +362,12 @@ export const AllHabitsScreen = ({ navigate: _navigate, back, onAddHabit }: Props
         border: '1px solid var(--rule)', overflow: 'hidden',
       }}>
         <HabitRow
-          habit={habit} hue={hue} showStrength={showStrength}
+          habit={habit} hue={hue} showStrength={true}
           onCheckin={e => handleCheckin(e, habit)}
           onDelete={() => deleteHabit(habit.id)}
           onArchive={() => handleArchive(habit)}
           onEdit={() => setEditingHabit(habit)}
+          goals={goals}
           onTap={() => setExpandedHeat(prev => {
             const next = new Set(prev)
             next.has(habit.id) ? next.delete(habit.id) : next.add(habit.id)
@@ -368,19 +395,7 @@ export const AllHabitsScreen = ({ navigate: _navigate, back, onAddHabit }: Props
         title="Habits"
         subtitle={`${pending.length} pending · ${logged.length} logged today · ${activeHabits.length}/${HABIT_CAP}`}
         back={back}
-        rightActions={
-          <button
-            onClick={() => setShowStrength(s => !s)}
-            style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em',
-              color: showStrength ? 'var(--accent)' : 'var(--ink-3)',
-              padding: '4px 8px', borderRadius: 6,
-              border: '1px solid', borderColor: showStrength ? 'var(--accent)' : 'var(--rule)',
-            }}
-          >
-            Strength
-          </button>
-        }
+        rightActions={<ThemeToggle />}
       />
 
       {/* Category filter chips */}

@@ -85,13 +85,24 @@ export const GoalsScreen = ({ navigate, back }: Props) => {
 
           {/* Empty state */}
           {goals.length === 0 && !adding && (
-            <div style={{ padding: '20px 0 8px', textAlign: 'center' }}>
+            <div style={{ padding: '32px 0 8px', textAlign: 'center' }}>
               <div className="t-display t-italic" style={{ fontSize: 18, color: 'var(--ink-3)' }}>
                 No goals yet.
               </div>
-              <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6 }}>
+              <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6, marginBottom: 20 }}>
                 Set your first to start compounding.
               </div>
+              <button
+                onClick={() => setAdding(true)}
+                style={{
+                  padding: '11px 24px', borderRadius: 12,
+                  background: 'var(--ink)', color: 'var(--paper)',
+                  fontSize: 14, fontWeight: 600,
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                }}
+              >
+                <Icons.plus size={16} /> Add first goal
+              </button>
             </div>
           )}
 

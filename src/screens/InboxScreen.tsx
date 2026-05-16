@@ -103,6 +103,7 @@ function TriagePills({
       }
       await addTask(task)
       await processInboxItem(item.id, 'converted', taskId)
+      navigate({ name: 'task', taskId })
       onAction({
         label: 'Added to tasks.',
         onUndo: async () => {

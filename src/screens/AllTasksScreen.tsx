@@ -430,6 +430,24 @@ export const AllTasksScreen = ({ navigate, back, onAddTask, screen }: Props) => 
         )}
 
         {groups.length === 0 ? (
+          tasks?.length === 0 && !search ? (
+            <div style={{ textAlign: 'center', padding: '64px 20px' }}>
+              <div className="t-display t-italic" style={{ fontSize: 20, color: 'var(--ink-3)', marginBottom: 8 }}>
+                No tasks yet.
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 20 }}>
+                Capture what's on your mind — one thing at a time.
+              </div>
+              <button onClick={onAddTask} style={{
+                padding: '11px 24px', borderRadius: 12,
+                background: 'var(--ink)', color: 'var(--paper)',
+                fontSize: 14, fontWeight: 600,
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+              }}>
+                <Icons.plus size={16} /> Add first task
+              </button>
+            </div>
+          ) : (
           <div style={{
             padding: '48px 0', textAlign: 'center',
             fontFamily: 'var(--font-display)', fontStyle: 'italic',
@@ -437,6 +455,7 @@ export const AllTasksScreen = ({ navigate, back, onAddTask, screen }: Props) => 
           }}>
             Nothing matches.
           </div>
+          )
         ) : (
           groups.map(group => {
             const I = group.icon ? (Icons[group.icon] ?? Icons.sparkle) : null
