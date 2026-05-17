@@ -307,7 +307,7 @@ export const CalendarScreen = ({ navigate, back, onAddTask }: Props) => {
 
   const tasks    = useLiveQuery(() => db.tasks.toArray(), [])
   const cats     = useLiveQuery(() => db.categories.toArray(), []) ?? []
-  const settings = useLiveQuery(() => db.settings.get('main'), [])
+  const settings = useLiveQuery(() => db.settings.get(1), [])
   const isColorful = useIsColorful()
   const isDark     = useIsDark()
 

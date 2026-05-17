@@ -575,7 +575,7 @@ export async function resetHabits(): Promise<void> {
 
 // ── Helper: count active tasks (for Slow Productivity cap) ───────────────────
 export async function countActiveTasks(): Promise<number> {
-  return db.tasks.where('status').equals('active').count()
+  return db.tasks.where('status').equals('active').filter(t => !t.done).count()
 }
 
 // ── Helper: toggle a subtask ─────────────────────────────────────────────────
