@@ -132,6 +132,8 @@ export const Icons: Record<string, (p: IconProps) => JSX.Element> = {
   layers:    (p) => <Icon {...p} d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 18l9 5 9-5" />,
   repeat:    (p) => <Icon {...p} d="M17 2l4 4-4 4M3 11V9a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 01-4 4H3" />,
   folder:    (p) => <Icon {...p} d="M4 20h16a2 2 0 002-2V8a2 2 0 00-2-2h-8L10 4H4a2 2 0 00-2 2v12a2 2 0 002 2z" />,
+  link:      (p) => <Icon {...p} d="M10 14a4 4 0 005.66 0l3-3a4 4 0 00-5.66-5.66l-1.5 1.5M14 10a4 4 0 00-5.66 0l-3 3a4 4 0 005.66 5.66l1.5-1.5" />,
+  users:     (p) => <Icon {...p} d={<><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></>} />,
 
   // Dynamic pet icon — reads from module-level style set by App.tsx via setPetStyle()
   pet: (p) => {

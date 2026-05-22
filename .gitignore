@@ -3,5 +3,11 @@ dist/
 .DS_Store
 *.local
 .claude/
+CLAUDE.md
 .env
 .env.*
+MBQ-web-first-design-prompt.md
+MBQ-ROADMAP.html
+dashboard.html
+dpr-mockup.html
+TASKS.md

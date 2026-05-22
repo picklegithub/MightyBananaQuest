@@ -157,7 +157,7 @@ export function HabitHeatmap({ habitId, hue }: Props) {
       {/* Legend */}
       <div style={{
         marginTop: 8, display: 'flex', alignItems: 'center', gap: 6,
-        fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)',
+        fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)',
         letterSpacing: '0.04em',
       }}>
         <div style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--paper-2)', border: '1px solid var(--rule)' }} />

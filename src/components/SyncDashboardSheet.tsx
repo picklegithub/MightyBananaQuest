@@ -8,7 +8,7 @@
 import React, { useEffect, useState } from 'react'
 import { Icons } from './ui/Icons'
 import { useSyncState } from '../lib/syncState'
-import { outboxSize, outboxDeadCount, getDeadEntries, retryDeadLettered } from '../lib/sync'
+import { outboxSize, outboxDeadCount, getDeadEntries, retryDeadLettered, resolveKeepLocal, resolveAcceptServer, resolveDiscard } from '../lib/sync'
 import { triggerSync } from './SyncStatusBar'
 
 interface DeadEntry {
@@ -49,6 +49,7 @@ export default function SyncDashboardSheet({ onClose }: Props) {
   const [dead,    setDead]        = useState(0)
   const [entries, setEntries]     = useState<DeadEntry[]>([])
   const [retrying, setRetrying]   = useState(false)
+  const [resolving, setResolving] = useState<string | null>(null)
 
   const refresh = () => {
     outboxSize().then(setPending).catch(() => {})
@@ -151,7 +152,7 @@ export default function SyncDashboardSheet({ onClose }: Props) {
                   {value}
                 </div>
                 <div style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em',
                   color: 'var(--ink-4)', textTransform: 'uppercase',
                 }}>
                   {label}
@@ -179,47 +180,72 @@ export default function SyncDashboardSheet({ onClose }: Props) {
           {entries.length > 0 && (
             <div style={{ padding: '12px 16px 0' }}>
               <div style={{
-                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em',
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em',
                 color: 'var(--ink-4)', textTransform: 'uppercase', marginBottom: 8,
               }}>
-                Failed entries
+                Failed entries — choose how to resolve each
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {entries.slice(0, 8).map(e => (
-                  <div key={e.key} style={{
-                    display: 'flex', alignItems: 'flex-start', gap: 10,
-                    padding: '8px 10px', borderRadius: 8,
-                    background: 'var(--paper)', border: '1px solid var(--rule)',
-                  }}>
-                    <span style={{
-                      width: 6, height: 6, borderRadius: '50%',
-                      background: 'var(--warn)', flexShrink: 0, marginTop: 4,
-                    }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-2)',
-                        marginBottom: 2,
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>
-                        {tableLabel(e.table)} · {e.recordId.slice(0, 8)}…
-                      </div>
-                      {e.lastError && (
-                        <div style={{
-                          fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)',
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        }}>
-                          {e.lastError}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {entries.slice(0, 8).map(e => {
+                  const busy = resolving === e.key
+                  return (
+                    <div key={e.key} style={{
+                      padding: '10px 12px', borderRadius: 8,
+                      background: 'var(--paper)', border: '1px solid var(--rule)',
+                    }}>
+                      {/* Entry header */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--warn)', flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-2)',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>
+                            {tableLabel(e.table)} · {e.recordId.slice(0, 8)}…
+                          </div>
+                          {e.lastError && (
+                            <div style={{
+                              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)',
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              marginTop: 1,
+                            }}>
+                              {e.lastError}
+                            </div>
+                          )}
                         </div>
-                      )}
-                      <div style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)',
-                        marginTop: 2,
-                      }}>
-                        {e.attempts} attempt{e.attempts !== 1 ? 's' : ''}
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', flexShrink: 0 }}>
+                          {e.attempts}×
+                        </span>
+                      </div>
+                      {/* Resolution actions */}
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {[
+                          { label: 'Keep mine',      action: async () => { await resolveKeepLocal(e.key); await triggerSync() } },
+                          { label: 'Use server',     action: async () => { await resolveAcceptServer(e.table, e.recordId) } },
+                          { label: 'Discard',        action: async () => { await resolveDiscard(e.key) } },
+                        ].map(({ label, action }) => (
+                          <button
+                            key={label}
+                            disabled={busy}
+                            onClick={async () => {
+                              setResolving(e.key)
+                              try { await action() } finally { setResolving(null); refresh() }
+                            }}
+                            style={{
+                              flex: 1, padding: '6px 4px', borderRadius: 6,
+                              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.03em',
+                              color: 'var(--ink-3)', border: '1px solid var(--rule)',
+                              background: 'var(--paper-2)',
+                              opacity: busy ? 0.5 : 1,
+                            }}
+                          >
+                            {busy && resolving === e.key ? '…' : label}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
                 {entries.length > 8 && (
                   <div style={{
                     fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)',

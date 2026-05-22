@@ -1,3 +1,4 @@
+import { makeId } from '../lib/makeId'
 import { localDateISO } from '../lib/useCurrentDate'
 import React, { useState, useRef, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
@@ -9,10 +10,11 @@ import { ScreenHeader } from '../components/layout/ScreenHeader'
 import { SwipeableRow } from '../components/SwipeableRow'
 import { formatTime, formatDueLabel, nextDueLabel, isDueToday, isDueTomorrow } from '../lib/parseDue'
 import type { Screen, Task, Category } from '../types'
+import { useNav } from '../lib/navContext'
 import { useIsDark } from '../lib/colorMode'
 import { areaColor } from '../lib/areaColor'
 
-interface Props { catId: string; navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void; allCatIds?: string[] }
+interface Props { catId: string; navigate?: (s: Screen) => void; back?: () => void; onAddTask?: () => void; allCatIds?: string[] }
 interface Burst { id: number; x: number; y: number; xp: number }
 interface NextBanner { id: number; text: string }
 
@@ -34,7 +36,7 @@ function EditAreaModal({ cat, onClose, onDelete }: { cat: Category; onClose: () 
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end' }}
+    <div style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 100, display: 'flex', alignItems: 'flex-end' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '24px 20px 40px', width: '100%' }}>
@@ -100,7 +102,7 @@ function EditAreaModal({ cat, onClose, onDelete }: { cat: Category; onClose: () 
 function DeleteAreaSheet({ cat, onConfirm, onCancel }: { cat: Category; onConfirm: () => void; onCancel: () => void }) {
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 110, display: 'flex', alignItems: 'flex-end' }}
+      style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 110, display: 'flex', alignItems: 'flex-end' }}
       onClick={e => { if (e.target === e.currentTarget) onCancel() }}
     >
       <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '24px 20px 44px', width: '100%' }}>
@@ -187,12 +189,12 @@ function RecurringTaskRow({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
           {task.recurring && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 2 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 2 }}>
               <Icons.repeat size={8} /> {task.recurring}
             </span>
           )}
           {task.time && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 2 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 2 }}>
               <Icons.timer size={8} /> {task.time}
             </span>
           )}
@@ -352,12 +354,12 @@ function GhostInput({
     const t = value.trim()
     if (!t) { setActive(false); return }
     await addTask({
-      id: crypto.randomUUID(),
+      id: makeId(),
       title: t,
       cat: catId,
       effort: 's',
       due: '',
-      quad: 'q2',
+      
       recurring: null,
       done: false,
       streak: 0,
@@ -411,7 +413,11 @@ function GhostInput({
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
+export const CategoryScreen = ({ catId, navigate: navProp, back: backProp, onAddTask: onAddTaskProp }: Props) => {
+  const { navigate: ctxNavigate, back: ctxBack, openAddTask: ctxAddTask } = useNav()
+  const navigate   = navProp      ?? ctxNavigate
+  const back       = backProp     ?? ctxBack
+  const onAddTask  = onAddTaskProp ?? ctxAddTask
   const isDark = useIsDark()
   const [activeCatId, setActiveCatId] = useState(catId)
   const [bursts, setBursts]         = useState<Burst[]>([])
@@ -573,7 +579,7 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.09em', textTransform: 'uppercase' }}>
                 On Schedule
               </span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>
                 {recurringTasks.filter(t => t.done).length}/{recurringTasks.length} done
               </span>
             </div>
@@ -718,7 +724,7 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
           background: 'var(--accent)', color: 'white',
           padding: '8px 18px', borderRadius: 20,
           fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.04em',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          boxShadow: 'var(--shadow-pop)',
           zIndex: 200, pointerEvents: 'none',
           animation: 'fadeInUp .2s ease',
           whiteSpace: 'nowrap',
@@ -732,7 +738,7 @@ export const CategoryScreen = ({ catId, navigate, back, onAddTask }: Props) => {
           position: 'fixed', bottom: 'calc(80px + env(safe-area-inset-bottom))', left: 16, right: 16,
           background: 'var(--ink)', borderRadius: 12, padding: '12px 16px',
           display: 'flex', alignItems: 'center', gap: 10, zIndex: 300,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+          boxShadow: 'var(--shadow-pop)',
           animation: 'slideUp .2s ease',
         }}>
           <span style={{ flex: 1, fontSize: 13, color: 'var(--paper)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

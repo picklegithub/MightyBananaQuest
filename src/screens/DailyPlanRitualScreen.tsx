@@ -1,15 +1,20 @@
 import React, { useState, useCallback } from 'react'
-import { db, todayISO, saveDailyPlan, updateTask, deleteTask } from '../data/db'
+import { db, todayISO, saveDailyPlan, updateTask } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import {
   DPRStep1Reckoning, DPRStep2Calendar, DPRStep3Pick, DPRStep4Top3,
   tomorrowISO,
 } from '../components/daily-plan'
-import type { Screen, Reckoning } from '../types'
+import { MoodScalePicker } from '../components/mood/MoodScalePicker'
+import { saveMoodEntry } from '../data/db'
+import { makeId } from '../lib/makeId'
+import { moodScoreToState } from '../components/mood/constants'
+import type { Screen, Reckoning, MoodScore } from '../types'
+import { useNav } from '../lib/navContext'
 
 interface DPRProps {
-  navigate: (s: Screen) => void
-  back: () => void
+  navigate?: (s: Screen) => void
+  back?: () => void
 }
 
 const STEP_CTAS: Record<number, string> = {
@@ -19,9 +24,13 @@ const STEP_CTAS: Record<number, string> = {
   4: 'Start the day',
 }
 
-export function DailyPlanRitualScreen({ navigate: _navigate, back }: DPRProps) {
+export function DailyPlanRitualScreen({ back: backProp }: DPRProps) {
+  const { back: ctxBack } = useNav()
+  const back = backProp ?? ctxBack
   const [step, setStep]               = useState(0)
-  const [mood, setMood]               = useState<'steady' | 'tired' | 'charged' | null>(null)
+  const [moodScore, setMoodScore]     = useState<MoodScore | null>(null)
+  // Legacy 3-state for DailyPlan.mood backward compat
+  const mood = moodScore ? moodScoreToState(moodScore) : null
   const [reckonings, setReckonings]   = useState<Reckoning[]>([])
   const [calBudgetMin, setCalBudgetMin] = useState(0)
   const [pickedIds, setPickedIds]     = useState<Set<string>>(new Set())
@@ -38,7 +47,7 @@ export function DailyPlanRitualScreen({ navigate: _navigate, back }: DPRProps) {
         } else if (r.action === 'reschedule') {
           await updateTask(r.taskId, { due: r.rescheduledTo ?? tomorrow })
         } else if (r.action === 'drop') {
-          await deleteTask(r.taskId)
+          await updateTask(r.taskId, { status: 'someday', due: '' })
         }
       }
       await saveDailyPlan({ mood, reckonings, completedAt: null })
@@ -115,28 +124,28 @@ export function DailyPlanRitualScreen({ navigate: _navigate, back }: DPRProps) {
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontStyle: 'italic', textAlign: 'center', color: 'var(--ink)' }}>
               How are you showing up today?
             </div>
-            <div style={{ display: 'flex', gap: 10, width: '100%' }}>
-              {([
-                { id: 'steady',  label: 'Steady',  emoji: '🌱' },
-                { id: 'tired',   label: 'Tired',   emoji: '😴' },
-                { id: 'charged', label: 'Charged', emoji: '⚡' },
-              ] as const).map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => { setMood(m.id); setStep(1) }}
-                  style={{
-                    flex: 1, padding: '22px 8px', borderRadius: 14,
-                    background: 'var(--paper-2)', border: '1px solid var(--rule)',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <span style={{ fontSize: 28 }}>{m.emoji}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-2)', letterSpacing: '0.08em' }}>
-                    {m.label.toUpperCase()}
-                  </span>
-                </button>
-              ))}
+            <div style={{ width: '100%' }}>
+              <MoodScalePicker
+                value={moodScore}
+                size="large"
+                onChange={async score => {
+                  setMoodScore(score)
+                  // Save to moodEntries table (daily-plan source)
+                  await saveMoodEntry({
+                    id:         makeId(),
+                    date:       todayISO(),
+                    time:       new Date().toTimeString().slice(0, 5),
+                    source:     'daily-plan',
+                    mood:       score,
+                    energy:     null,
+                    emotions:   [],
+                    influences: [],
+                    note:       null,
+                    createdAt:  Date.now(),
+                  })
+                  setStep(1)
+                }}
+              />
             </div>
           </div>
         )}

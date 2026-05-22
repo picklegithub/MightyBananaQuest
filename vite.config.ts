@@ -10,6 +10,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies:   'injectManifest',
+      srcDir:       'src',
+      filename:     'sw.ts',
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png'],
       manifest: {
@@ -35,6 +38,9 @@ export default defineConfig({
             purpose: 'any maskable',
           },
         ],
+      },
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],

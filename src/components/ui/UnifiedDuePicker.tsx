@@ -43,13 +43,11 @@ const DATE_CHIPS = [
 // ── Time helpers ──────────────────────────────────────────────────────────────
 
 const TIME_PRESETS = [
-  { label: 'Morning',   value: '09:00' },
-  { label: 'Noon',      value: '12:00' },
-  { label: 'Afternoon', value: '15:00' },
-  { label: 'Evening',   value: '18:00' },
-  { label: '8:00',      value: '08:00' },
-  { label: '10:00',     value: '10:00' },
-  { label: '14:00',     value: '14:00' },
+  { label: 'Morning',   sub: '9 am',   value: '09:00' },
+  { label: 'Noon',      sub: '12 pm',  value: '12:00' },
+  { label: 'Afternoon', sub: '3 pm',   value: '15:00' },
+  { label: 'Evening',   sub: '6 pm',   value: '18:00' },
+  { label: 'Night',     sub: '9 pm',   value: '21:00' },
 ]
 
 const HOUR_ITEMS = Array.from({ length: 18 }, (_, i) => {
@@ -98,7 +96,7 @@ function chip(active: boolean): React.CSSProperties {
 }
 
 const sectionLabel: React.CSSProperties = {
-  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
+  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
   textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 7,
 }
 
@@ -360,8 +358,9 @@ export function UnifiedDuePicker({ due, recurring, time, onChange }: Props) {
             {TIME_PRESETS.map(p => (
               <button key={p.value}
                 onClick={() => { onChange(due, recurring, p.value); setShowCustomTime(false) }}
-                style={chip(time === p.value && !showCustomTime)}>
-                {p.label}
+                style={{ ...chip(time === p.value && !showCustomTime), flexDirection: 'column', gap: 1, lineHeight: 1 }}>
+                <span>{p.label}</span>
+                <span style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', letterSpacing: '0.04em' }}>{p.sub}</span>
               </button>
             ))}
             <button

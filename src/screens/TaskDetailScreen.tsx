@@ -10,13 +10,14 @@ import { formatTime, formatDueLabel } from '../lib/parseDue'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
 import { TaskPomodoro } from '../components/TaskPomodoro'
 import type { Screen, Task, EffortKey, Goal } from '../types'
+import { useNav } from '../lib/navContext'
 import { useIsDark } from '../lib/colorMode'
 import { areaColor } from '../lib/areaColor'
 
 interface Props {
   taskId: string
-  navigate: (s: Screen) => void
-  back: () => void
+  navigate?: (s: Screen) => void
+  back?: () => void
 }
 
 interface Burst { id: number; x: number; y: number; xp: number }
@@ -97,7 +98,7 @@ function EffortSelector({ value, onChange }: { value: EffortKey; onChange: (k: E
             transition: 'all .12s',
           }}>
             <div style={{ fontWeight: 600, fontSize: 12 }}>{EFFORT_SHORT[k]}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, opacity: 0.7, marginTop: 2 }}>{EFFORT_TIME[k]}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, opacity: 0.7, marginTop: 2 }}>{EFFORT_TIME[k]}</div>
           </button>
         )
       })}
@@ -120,7 +121,7 @@ function AreaSheet({
   const isDark = useIsDark()
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
+      style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div style={{ background: 'var(--paper)', borderRadius: '20px 20px 0 0', padding: '20px 20px 44px', width: '100%' }}>
@@ -159,7 +160,11 @@ function AreaSheet({
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
+export const TaskDetailScreen = ({ taskId, navigate: navProp, back: backProp }: Props) => {
+  const { navigate: ctxNavigate, back: ctxBack } = useNav()
+  const navigate = navProp ?? ctxNavigate
+  const back     = backProp ?? ctxBack
+  const isDark      = useIsDark()
   const task        = useLiveQuery(() => db.tasks.get(taskId), [taskId])
   const settings    = useLiveQuery(() => db.settings.get(1), [])
   const categories  = useLiveQuery(() => db.categories.toArray(), [])
@@ -351,17 +356,6 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
           </div>
         </div>
 
-        {/* ── Type — Task / Habit ── */}
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 7 }}>
-            Type
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <Pill label="Task"  active={!task.isHabit} onClick={() => save({ isHabit: false })} />
-            <Pill label="Habit" active={!!task.isHabit} onClick={() => save({ isHabit: true })} />
-          </div>
-        </div>
-
         {/* ── Pill row — Area · Effort · Status ── */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
           {/* Recurring badge — informational, not editable here (edit via schedule) */}
@@ -420,22 +414,24 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
 
         {editingField === 'status' && (
           <div style={{ padding: '0 0 14px' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.09em', color: 'var(--ink-4)', textTransform: 'uppercase', marginBottom: 8 }}>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>
               Slow Productivity · max 3 active
             </div>
             <div style={{ display: 'flex', gap: 6, marginBottom: capWarning ? 10 : 0 }}>
               {(['backlog', 'someday', 'active'] as const).map(s => {
-                const labels = { backlog: 'Backlog', someday: 'Someday', active: '⚡ Active' }
                 const current = (task.status ?? 'backlog') === s
+                const isFull = s === 'active' && !current && (activeTasks ?? []).length >= 3
+                const label = s === 'backlog' ? 'Backlog' : s === 'someday' ? 'Someday' : isFull ? '⚡ Full' : '⚡ Active'
                 return (
                   <button key={s} onClick={() => handleSetStatus(s)} style={{
                     flex: 1, padding: '9px 4px', borderRadius: 10,
                     fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.03em',
                     background: current ? (s === 'active' ? 'var(--accent)' : 'var(--ink)') : 'var(--paper-2)',
-                    color: current ? 'var(--paper)' : 'var(--ink-2)',
-                    border: '1px solid', borderColor: current ? 'transparent' : 'var(--rule)',
+                    color: current ? 'var(--paper)' : isFull ? 'var(--ink-3)' : 'var(--ink-2)',
+                    border: '1px solid', borderColor: current ? 'transparent' : isFull ? 'var(--warn)' : 'var(--rule)',
+                    opacity: isFull ? 0.7 : 1,
                   }}>
-                    {labels[s]}
+                    {label}
                   </button>
                 )
               })}
@@ -456,7 +452,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
                   {(activeTasks ?? []).map(t => (
                     <div key={t.id} style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '7px 10px', borderRadius: 8,
+                      padding: '7px 10px', borderRadius: 10,
                       background: 'var(--paper)', border: '1px solid var(--rule)',
                     }}>
                       <span style={{ fontSize: 12, color: 'var(--ink)', flex: 1, minWidth: 0, marginRight: 8,
@@ -466,7 +462,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
                       <button
                         onClick={() => { updateTask(t.id, { status: 'backlog' }); save({ status: 'active' }); setEditingField(null); setCapWarning(false) }}
                         style={{
-                          flexShrink: 0, padding: '4px 10px', borderRadius: 6,
+                          flexShrink: 0, padding: '4px 10px', borderRadius: 8,
                           fontFamily: 'var(--font-mono)', fontSize: 10,
                           background: 'var(--ink)', color: 'var(--paper)', border: 'none',
                         }}
@@ -477,7 +473,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
                   ))}
                 </div>
                 <button onClick={() => setCapWarning(false)} style={{
-                  width: '100%', padding: '8px', borderRadius: 8,
+                  width: '100%', padding: '8px', borderRadius: 10,
                   fontFamily: 'var(--font-mono)', fontSize: 11,
                   background: 'var(--paper-3)', color: 'var(--ink-2)',
                   border: '1px solid var(--rule)',
@@ -501,7 +497,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
 
         {/* ── Notes ── */}
         <div style={{ marginTop: 12, marginBottom: 12 }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 7 }}>
+          <div className="eyebrow" style={{ marginBottom: 7 }}>
             Notes
           </div>
           <textarea
@@ -535,7 +531,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
               <div style={{ height: 2, borderRadius: 1, background: 'var(--paper-3)', overflow: 'hidden', marginBottom: 8 }}>
                 <div style={{
                   height: '100%', borderRadius: 1,
-                  background: areaHue !== undefined ? `hsl(${areaHue}, 55%, 42%)` : 'var(--accent)',
+                  background: areaHue !== undefined ? areaColor(areaHue, 'fg', isDark) : 'var(--accent)',
                   width: `${task.sub.length > 0 ? (subDone / task.sub.length) * 100 : 0}%`,
                   transition: 'width .3s ease',
                 }} />
@@ -549,8 +545,8 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
                   }}>
                     <div style={{
                       flexShrink: 0, width: 18, height: 18, borderRadius: '50%',
-                      border: `1.5px solid ${s.d ? (areaHue !== undefined ? `hsl(${areaHue}, 55%, 42%)` : 'var(--accent)') : 'var(--rule)'}`,
-                      background: s.d ? (areaHue !== undefined ? `hsl(${areaHue}, 55%, 42%)` : 'var(--accent)') : 'transparent',
+                      border: `1.5px solid ${s.d ? (areaHue !== undefined ? areaColor(areaHue, 'fg', isDark) : 'var(--accent)') : 'var(--rule)'}`,
+                      background: s.d ? (areaHue !== undefined ? areaColor(areaHue, 'fg', isDark) : 'var(--accent)') : 'transparent',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
                       {s.d && <Icons.check size={9} sw={2.5} style={{ color: 'var(--paper)' }} />}
@@ -631,7 +627,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
         {!task.done ? (
           <button onClick={handleComplete} style={{
             width: '100%', padding: '15px', borderRadius: 14,
-            background: areaHue !== undefined ? `hsl(${areaHue}, 55%, 42%)` : 'var(--ink)',
+            background: areaHue !== undefined ? areaColor(areaHue, 'fg', isDark) : 'var(--ink)',
             color: 'var(--paper)', fontSize: 15, fontWeight: 600,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             marginBottom: 20,
@@ -647,7 +643,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
           }}>
             <div style={{
               flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12,
-              color: areaHue !== undefined ? `hsl(${areaHue}, 55%, 42%)` : 'var(--accent)',
+              color: areaHue !== undefined ? areaColor(areaHue, 'fg', isDark) : 'var(--accent)',
               letterSpacing: '0.06em',
             }}>
               ✓ COMPLETED · +{e.xp} XP EARNED
@@ -674,7 +670,7 @@ export const TaskDetailScreen = ({ taskId, navigate, back }: Props) => {
               onClick={handleSaveChanges}
               style={{
                 flex: 6, padding: '11px 12px', borderRadius: 10, fontSize: 13, fontWeight: 600,
-                background: savedFlash ? 'var(--accent)' : (areaHue !== undefined ? `hsl(${areaHue}, 55%, 42%)` : 'var(--ink)'),
+                background: savedFlash ? 'var(--accent)' : (areaHue !== undefined ? areaColor(areaHue, 'fg', isDark) : 'var(--ink)'),
                 color: 'var(--paper)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 transition: 'background .2s',

@@ -15,7 +15,7 @@ export function PlanRitualCard({ plan, navigate }: Props) {
   return (
     <div style={{ padding: '12px 20px 0' }}>
       <button
-        onClick={() => navigate({ name: 'daily-plan' })}
+        onClick={() => navigate({ name: 'journal', phase: 'plan' })}
         style={{
           width: '100%', padding: '12px 14px', borderRadius: 12, textAlign: 'left',
           background: isComplete ? 'var(--paper-2)' : 'var(--accent-soft)',

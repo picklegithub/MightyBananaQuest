@@ -1,6 +1,8 @@
 import React from 'react'
 import { Icons } from '../ui/Icons'
 import { useCurrentDate } from '../../lib/useCurrentDate'
+import { areaColor } from '../../lib/areaColor'
+import { useIsDark } from '../../lib/colorMode'
 
 interface ScreenHeaderProps {
   title: string
@@ -16,6 +18,11 @@ interface ScreenHeaderProps {
    * to carry the area colour into the header.
    */
   iconHue?: number
+  /**
+   * Custom icon node to render instead of the default home icon.
+   * Navigation behaviour (back tap) is unchanged.
+   */
+  icon?: React.ReactNode
   /** Extra controls rendered on the trailing edge of the title row */
   rightActions?: React.ReactNode
   /**
@@ -32,14 +39,16 @@ export function ScreenHeader({
   subtitle,
   back,
   iconHue,
+  icon,
   rightActions,
   footer,
   noBorder,
 }: ScreenHeaderProps) {
   const { dateStr } = useCurrentDate()
+  const isDark      = useIsDark()
 
   const homeColor = iconHue !== undefined
-    ? `hsl(${iconHue}, 55%, 48%)`
+    ? areaColor(iconHue, 'fg', isDark)
     : 'var(--ink-2)'
 
   return (
@@ -61,11 +70,11 @@ export function ScreenHeader({
             aria-label="Go to Today"
             style={{ color: homeColor, flexShrink: 0, display: 'flex', alignItems: 'center' }}
           >
-            <Icons.home size={22} />
+            {icon ?? <Icons.home size={22} />}
           </button>
         ) : (
           <span style={{ color: 'var(--ink-4)', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-            <Icons.home size={22} />
+            {icon ?? <Icons.home size={22} />}
           </span>
         )}
 

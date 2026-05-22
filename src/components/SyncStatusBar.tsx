@@ -14,7 +14,7 @@
 
 import React, { useEffect, useRef, useState, lazy, Suspense } from 'react'
 import { useSyncState, setSyncState, getSyncState } from '../lib/syncState'
-import { drainOutbox, incrementalPull, incrementalPullBySeq, outboxSize, outboxDeadCount, retryDeadLettered } from '../lib/sync'
+import { drainOutbox, incrementalPull, incrementalPullBySeq, outboxSize, outboxDeadCount, retryDeadLettered, pruneEventLog } from '../lib/sync'
 
 const SyncDashboardSheet = lazy(() => import('./SyncDashboardSheet'))
 
@@ -50,7 +50,7 @@ export async function triggerSync(): Promise<void> {
   try {
     // ── Phase 1: Drain outbox ─────────────────────────────────────────────
     setSyncState({ phase: 'pushing', pushProgress: 0, errorMsg: null })
-    const failures = await withTimeout(drainOutbox(), 30_000, 'Drain outbox')
+    const failures = await withTimeout(drainOutbox(), 60_000, 'Drain outbox')
     setSyncState({ pushProgress: 100 })
 
     if (failures > 0) {
@@ -59,8 +59,17 @@ export async function triggerSync(): Promise<void> {
 
     // ── Phase 2: Incremental pull ─────────────────────────────────────────
     setSyncState({ phase: 'pulling', pullProgress: 10 })
-    const seqResult = await withTimeout(incrementalPullBySeq(), 45_000, 'Seq pull')
-    const { pulled, deleted } = seqResult ?? await withTimeout(incrementalPull(), 45_000, 'Incremental pull')
+    const seqResult = await withTimeout(
+      incrementalPullBySeq(pct => setSyncState({ pullProgress: pct })),
+      45_000, 'Seq pull',
+    )
+    // VITE_REQUIRE_SERVER_SEQ=true retires the synced_at fallback — set once migration 007
+    // is confirmed applied on all environments. Without the flag, falls back gracefully.
+    const requireSeq = import.meta.env.VITE_REQUIRE_SERVER_SEQ === 'true'
+    if (!seqResult && requireSeq) {
+      console.warn('[sync] server_seq pull unavailable but VITE_REQUIRE_SERVER_SEQ=true — migration 007 may not be applied')
+    }
+    const { pulled, deleted } = seqResult ?? (requireSeq ? { pulled: 0, deleted: 0 } : await withTimeout(incrementalPull(), 45_000, 'Incremental pull'))
     setSyncState({ pullProgress: 100 })
 
     console.debug(`[sync] pulled ${pulled} rows, soft-deleted ${deleted} rows`)
@@ -72,6 +81,9 @@ export async function triggerSync(): Promise<void> {
       pullProgress: 100,
       lastSyncAt:   Date.now(),
     })
+
+    // Prune old sync events — fire-and-forget, never blocks the happy path
+    pruneEventLog()
 
     // Fade back to idle after 3 s
     setTimeout(() => {

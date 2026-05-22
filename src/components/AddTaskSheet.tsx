@@ -1,3 +1,4 @@
+import { makeId } from '../lib/makeId'
 import React, { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addTask, addHabit, updateHabit, updateGoal } from '../data/db'
@@ -6,7 +7,7 @@ import { Icons } from './ui/Icons'
 import { UnifiedDuePicker } from './ui/UnifiedDuePicker'
 import type { EffortKey, Task, Habit } from '../types'
 
-const FREQUENCY_OPTIONS = ['daily', 'weekdays', 'weekends', 'weekly', 'monthly']
+const FREQUENCY_OPTIONS = ['daily', 'weekdays', 'weekends', '3x/week', '2x/week', 'weekly', 'monthly']
 
 interface Props {
   onClose: () => void
@@ -50,13 +51,15 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
   const [notes,       setNotes]       = useState(editHabit?.notes ?? '')
   const [why,         setWhy]         = useState(editHabit?.why ?? '')
   const [goalId,      setGoalId]      = useState<string | null>(editHabit?.goalId ?? null)
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [isHabit,     setIsHabit]     = useState(editHabit ? true : defaultIsHabit)
   const [frequency,   setFrequency]   = useState(editHabit?.frequency ?? 'daily')
   const [status,      setStatus]      = useState<'backlog' | 'active' | 'someday'>('backlog')
 
   const liveCategories = useLiveQuery(() => db.categories.toArray(), [])
   const cats  = liveCategories ?? DEFAULT_CATEGORIES
-  const goals = useLiveQuery(() => db.goals.toArray(), []) ?? []
+  const goals      = useLiveQuery(() => db.goals.toArray(), []) ?? []
+  const workspaces = useLiveQuery(() => db.workspaces.toArray(), []) ?? []
   const [cat, setCat] = useState(editHabit?.cat ?? defaultCatId ?? cats[0]?.id ?? 'home')
 
   async function handleAdd() {
@@ -75,7 +78,7 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
     }
     if (isHabit) {
       const habit: Habit = {
-        id: crypto.randomUUID(),
+        id: makeId(),
         title: title.trim(),
         cat: cat || undefined,
         frequency,
@@ -94,11 +97,12 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
         ? (customReminder.trim() ? parseInt(customReminder, 10) || undefined : undefined)
         : reminderMin
       const task: Task = {
-        id: crypto.randomUUID(),
+        id: makeId(),
         title: title.trim(),
-        cat, effort, due, time, quad: 'q2', recurring,
+        cat, effort, due, time,  recurring,
         reminderMin: effectiveReminder,
         notes: notes.trim() || undefined,
+        workspaceId: workspaceId || undefined,
         done: false, streak: 0, sub: [],
         status,
         createdAt: Date.now(),
@@ -115,7 +119,7 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
+      style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
@@ -221,7 +225,7 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
                     }}>
                       <span style={{ fontWeight: 600 }}>{d.label}</span>
-                      <span style={{ fontSize: 9, opacity: 0.65 }}>{d.range}</span>
+                      <span style={{ fontSize: 10, opacity: 0.65 }}>{d.range}</span>
                     </button>
                   )
                 })}
@@ -290,6 +294,23 @@ export function AddTaskSheet({ onClose, defaultTitle = '', defaultCatId, default
                 ] as { v: 'backlog' | 'active' | 'someday'; l: string }[]).map(o => (
                   <OptionPill key={o.v} active={status === o.v} onClick={() => setStatus(o.v)}>
                     {o.l}
+                  </OptionPill>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Workspace — task mode only, only when workspaces exist */}
+          {!isHabit && workspaces.length > 0 && (
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Share to workspace</div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                <OptionPill active={workspaceId === null} onClick={() => setWorkspaceId(null)}>
+                  Personal
+                </OptionPill>
+                {workspaces.map(ws => (
+                  <OptionPill key={ws.id} active={workspaceId === ws.id} onClick={() => setWorkspaceId(ws.id)}>
+                    {ws.name}
                   </OptionPill>
                 ))}
               </div>

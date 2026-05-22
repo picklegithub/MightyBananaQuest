@@ -1,5 +1,12 @@
 @import './tokens.css';
 
+@keyframes habit-pop {
+  0%   { transform: scale(1);    }
+  40%  { transform: scale(1.35); }
+  70%  { transform: scale(0.92); }
+  100% { transform: scale(1);    }
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body, #root {
@@ -17,9 +24,8 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: 'ss01', 'cv11';
-  /* Safe area insets for notched phones */
+  /* Safe area insets — only top (notch); bottom is handled per-component */
   padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
 }
 
 button {
@@ -51,6 +57,21 @@ input, textarea, select {
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Mono type utilities */
+.mono-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.mono-caption {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
   color: var(--ink-3);
 }
 
@@ -88,6 +109,11 @@ input, textarea, select {
 @keyframes syncPulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.5; }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
 }
 
 .journal-input:focus { border-bottom-color: var(--accent) !important; }

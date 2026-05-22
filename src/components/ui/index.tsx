@@ -1,6 +1,43 @@
 import React from 'react'
+export { ScreenErrorBoundary } from './ScreenErrorBoundary'
+export { Text }         from './Text'
+export { SectionLabel } from './SectionLabel'
+export { FieldRow }     from './FieldRow'
 import { EFFORT } from '../../constants'
 import type { EffortKey } from '../../types'
+
+// ── Btn ──────────────────────────────────────────────────────────────────────
+interface BtnProps {
+  variant?: 'primary' | 'secondary' | 'ghost'
+  size?: 'sm' | 'md'
+  danger?: boolean
+  disabled?: boolean
+  onClick?: (e: React.MouseEvent) => void
+  children: React.ReactNode
+  style?: React.CSSProperties
+  type?: 'button' | 'submit' | 'reset'
+}
+export const Btn = ({ variant = 'secondary', size = 'md', danger, disabled, onClick, children, style, type = 'button' }: BtnProps) => {
+  const pad   = size === 'sm' ? '6px 12px' : '10px 20px'
+  const fSize = size === 'sm' ? 11 : 13
+  const base: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    padding: pad, borderRadius: 10, fontSize: fSize, fontWeight: 500,
+    fontFamily: 'var(--font-ui)', cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.45 : 1, transition: 'opacity .15s',
+    border: '1px solid transparent',
+  }
+  const variants: Record<string, React.CSSProperties> = {
+    primary:   { background: danger ? 'var(--destructive-fg)' : 'var(--ink)',       color: 'var(--paper)',              borderColor: 'transparent' },
+    secondary: { background: danger ? 'var(--destructive-bg)' : 'var(--paper-2)',   color: danger ? 'var(--destructive-fg)' : 'var(--ink-2)', borderColor: danger ? 'var(--destructive-border)' : 'var(--rule)' },
+    ghost:     { background: 'transparent',                                          color: danger ? 'var(--destructive-fg)' : 'var(--ink-3)', borderColor: 'transparent' },
+  }
+  return (
+    <button type={type} onClick={onClick} disabled={disabled} style={{ ...base, ...variants[variant], ...style }}>
+      {children}
+    </button>
+  )
+}
 
 // ── Chip ─────────────────────────────────────────────────────────────────────
 interface ChipProps { children: React.ReactNode; accent?: boolean; warn?: boolean }

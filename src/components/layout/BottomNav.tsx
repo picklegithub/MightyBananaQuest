@@ -2,7 +2,7 @@ import React, { useRef, useCallback } from 'react'
 import { Icons } from '../ui/Icons'
 import type { Screen } from '../../types'
 
-type TabId = 'dashboard' | 'journal' | 'goals' | 'all-habits'
+type TabId = 'dashboard' | 'journal' | 'inbox' | 'more'
 
 interface BottomNavProps {
   active: string
@@ -11,12 +11,13 @@ interface BottomNavProps {
   onFabTap: () => void
   onFabLongPress: () => void
   onSearchTap?: () => void
+  onMoreTap?: () => void
 }
 
 const LONG_PRESS_MS = 480
 
-export const BottomNav = ({ active, navigate, navigateTab, onFabTap, onFabLongPress, onSearchTap }: BottomNavProps) => {
-  const pressTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
+export const BottomNav = ({ active, navigate, navigateTab, onFabTap, onFabLongPress, onSearchTap, onMoreTap }: BottomNavProps) => {
+  const pressTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const didLongPress = useRef(false)
 
   const startPress = useCallback(() => {
@@ -38,11 +39,11 @@ export const BottomNav = ({ active, navigate, navigateTab, onFabTap, onFabLongPr
     didLongPress.current = false
   }, [])
 
-  const tabs: { id: TabId; label: string; icon: string }[] = [
-    { id: 'dashboard',  label: 'Today',   icon: 'home'    },
-    { id: 'journal',    label: 'Journal', icon: 'journal' },
-    { id: 'goals',      label: 'Goals',   icon: 'target'  },
-    { id: 'all-habits', label: 'Habits',  icon: 'flame'   },
+  const tabs: { id: TabId; label: string; icon: string; onTap: () => void }[] = [
+    { id: 'dashboard',  label: 'Today',   icon: 'home',    onTap: () => navigateTab({ name: 'dashboard' }) },
+    { id: 'journal',    label: 'Journal', icon: 'journal', onTap: () => navigateTab({ name: 'journal' }) },
+    { id: 'inbox',      label: 'Inbox',   icon: 'inbox',   onTap: () => navigateTab({ name: 'inbox' }) },
+    { id: 'more',       label: 'Explore', icon: 'layers',  onTap: onMoreTap ?? (() => {}) },
   ]
 
   return (
@@ -54,14 +55,14 @@ export const BottomNav = ({ active, navigate, navigateTab, onFabTap, onFabLongPr
     }}>
       {/* Left two tabs */}
       {tabs.slice(0, 2).map(it => {
-        const I = Icons[it.icon]
+        const I = (Icons as Record<string, React.FC<{ size?: number }>>)[it.icon] ?? Icons.home
         const isActive = active === it.id
         return (
           <button key={it.id}
-            onClick={() => navigateTab({ name: it.id as Screen['name'] } as Screen)}
+            onClick={it.onTap}
             style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-              color: isActive ? 'var(--ink)' : 'var(--ink-3)', width: 64, padding: '4px 0',
+              color: isActive ? 'var(--ink)' : 'var(--ink-3)', width: 64, padding: '4px 0', minHeight: 44,
             }}>
             <I size={20} />
             <span style={{ fontSize: 10, letterSpacing: '0.04em', fontWeight: isActive ? 600 : 400 }}>{it.label}</span>
@@ -69,55 +70,47 @@ export const BottomNav = ({ active, navigate, navigateTab, onFabTap, onFabLongPr
         )
       })}
 
-      {/* Centre FAB */}
-      <button
-        onMouseDown={startPress}
-        onMouseUp={endPress}
-        onMouseLeave={cancelPress}
-        onTouchStart={startPress}
-        onTouchEnd={e => { e.preventDefault(); endPress() }}
-        onTouchCancel={cancelPress}
-        aria-label="Add"
-        style={{
-          width: 54, height: 54, borderRadius: '50%',
-          background: 'var(--ink)', color: 'var(--paper)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: 'var(--shadow-2)', marginTop: -22,
-          flexShrink: 0,
-          WebkitTapHighlightColor: 'transparent',
-          userSelect: 'none',
-        }}
-      >
-        <Icons.plus size={22} />
-      </button>
+      {/* Centre FAB — single tap = quick capture, long press = menu */}
+      <div style={{ position: 'relative', flexShrink: 0 }}>
+        <button
+          onMouseDown={startPress}
+          onMouseUp={endPress}
+          onMouseLeave={cancelPress}
+          onTouchStart={startPress}
+          onTouchEnd={e => { e.preventDefault(); endPress() }}
+          onTouchCancel={cancelPress}
+          aria-label="Add"
+          style={{
+            width: 54, height: 54, borderRadius: '50%',
+            background: 'var(--ink)', color: 'var(--paper)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: 'var(--shadow-2)', marginTop: -22,
+            WebkitTapHighlightColor: 'transparent',
+            userSelect: 'none',
+          }}
+        >
+          <Icons.plus size={22} />
+        </button>
+        {/* Hold hint — surfaces the long-press gesture */}
+        <div style={{
+          position: 'absolute', bottom: -12, left: '50%', transform: 'translateX(-50%)',
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em',
+          color: 'var(--ink-4)', whiteSpace: 'nowrap', pointerEvents: 'none',
+        }}>
+          hold
+        </div>
+      </div>
 
-      {/* Right two tabs — first tab from slice(2) */}
-      {tabs.slice(2, 3).map(it => {
-        const I = Icons[it.icon]
+      {/* Right two tabs */}
+      {tabs.slice(2).map(it => {
+        const I = (Icons as Record<string, React.FC<{ size?: number }>>)[it.icon] ?? Icons.home
         const isActive = active === it.id
         return (
           <button key={it.id}
-            onClick={() => navigateTab({ name: it.id as Screen['name'] } as Screen)}
+            onClick={it.onTap}
             style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-              color: isActive ? 'var(--ink)' : 'var(--ink-3)', width: 64, padding: '4px 0',
-            }}>
-            <I size={20} />
-            <span style={{ fontSize: 10, letterSpacing: '0.04em', fontWeight: isActive ? 600 : 400 }}>{it.label}</span>
-          </button>
-        )
-      })}
-
-      {/* Fourth tab — Habits */}
-      {tabs.slice(3).map(it => {
-        const I = Icons[it.icon]
-        const isActive = active === it.id
-        return (
-          <button key={it.id}
-            onClick={() => navigateTab({ name: it.id as Screen['name'] } as Screen)}
-            style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-              color: isActive ? 'var(--ink)' : 'var(--ink-3)', width: 64, padding: '4px 0',
+              color: isActive ? 'var(--ink)' : 'var(--ink-3)', width: 64, padding: '4px 0', minHeight: 44,
             }}>
             <I size={20} />
             <span style={{ fontSize: 10, letterSpacing: '0.04em', fontWeight: isActive ? 600 : 400 }}>{it.label}</span>

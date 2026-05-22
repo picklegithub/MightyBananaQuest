@@ -7,11 +7,12 @@ import { AddTaskSheet } from '../components/AddTaskSheet'
 import type { Screen, Task } from '../types'
 import { useIsColorful, useIsDark } from '../lib/colorMode'
 import { areaColor } from '../lib/areaColor'
+import { useNav } from '../lib/navContext'
 
 interface Props {
   goalId: string
-  navigate: (s: Screen) => void
-  back: () => void
+  navigate?: (s: Screen) => void
+  back?: () => void
 }
 
 const HORIZONS = ['4 weeks', '12 weeks', '6 months', '1 year', 'Ongoing']
@@ -21,10 +22,22 @@ function getHue(area: string, cats: { id: string; hue: number }[]) {
     ?? Math.abs(area.split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % 360
 }
 
-export const GoalDetailScreen = ({ goalId, navigate, back }: Props) => {
+export const GoalDetailScreen = ({ goalId, navigate: navProp, back: backProp }: Props) => {
+  const { navigate: ctxNavigate, back: ctxBack } = useNav()
+  const navigate = navProp ?? ctxNavigate
+  const back     = backProp ?? ctxBack
   const goal       = useLiveQuery(() => db.goals.get(goalId), [goalId])
   const categories = useLiveQuery(() => db.categories.toArray(), [])
-  const allTasks   = useLiveQuery(() => db.tasks.toArray(), [])
+  const linkedIds  = goal?.linked ?? []
+  const linkedTasks = (useLiveQuery(
+    () => linkedIds.length > 0 ? db.tasks.where('id').anyOf(linkedIds).toArray() : Promise.resolve([] as Task[]),
+    [linkedIds.join(',')]
+  ) ?? []) as Task[]
+  const unlinkedPool = (useLiveQuery(
+    () => db.tasks.filter(t => !t.done && !(goal?.linked ?? []).includes(t.id)).toArray(),
+    [linkedIds.join(',')]
+  ) ?? []) as Task[]
+  const allTasks = [...linkedTasks, ...unlinkedPool]
   const isColorful = useIsColorful()
   const isDark     = useIsDark()
 
@@ -46,16 +59,11 @@ export const GoalDetailScreen = ({ goalId, navigate, back }: Props) => {
     }
   }, [goal?.id])
 
-  // Auto-sync progress from linked task completion
-  const linkedKey = (goal && allTasks)
-    ? allTasks.filter(t => goal.linked.includes(t.id)).map(t => `${t.id}:${t.done}`).join(',')
-    : ''
+  // Auto-sync progress when linked task completion changes
+  const linkedKey = linkedTasks.map(t => `${t.id}:${t.done}`).join(',')
   useEffect(() => {
-    if (!goal || !allTasks) return
-    const linked = allTasks.filter(t => goal.linked.includes(t.id))
-    if (linked.length === 0) return
-    // Granular rollup: sub-task completion counts for in-progress tasks
-    const scores = linked.map(t => {
+    if (!goal || linkedTasks.length === 0) return
+    const scores = linkedTasks.map(t => {
       if (t.done) return 1
       if (t.sub && t.sub.length > 0) return t.sub.filter(s => s.d).length / t.sub.length
       return 0
@@ -65,15 +73,14 @@ export const GoalDetailScreen = ({ goalId, navigate, back }: Props) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkedKey, goal?.id, goal?.progress])
 
-  if (!goal || !allTasks) return null
+  if (!goal) return null
 
-  const cats        = categories ?? []
-  const cat         = cats.find(c => c.id === goal.area)
-  const CatIcon     = cat?.icon ? (Icons as Record<string, any>)[cat.icon] : null
-  const hue         = getHue(goal.area, cats)
-  const goalColor   = isColorful ? areaColor(hue, 'fg', isDark) : 'var(--accent)'
-  const linkedTasks = allTasks.filter(t => goal.linked.includes(t.id))
-  const unlinked    = allTasks.filter(t => !goal.linked.includes(t.id) && !t.done)
+  const cats      = categories ?? []
+  const cat       = cats.find(c => c.id === goal.area)
+  const CatIcon   = cat?.icon ? (Icons as Record<string, any>)[cat.icon] : null
+  const hue       = getHue(goal.area, cats)
+  const goalColor = isColorful ? areaColor(hue, 'fg', isDark) : 'var(--accent)'
+  const unlinked  = unlinkedPool
 
   // Rollup: for tasks with sub-tasks, use sub-task completion as fractional progress.
   // For tasks without sub-tasks: 0 = incomplete, 1 = complete.
@@ -240,6 +247,46 @@ export const GoalDetailScreen = ({ goalId, navigate, back }: Props) => {
         ) : (
           /* ── View mode ── */
           <>
+            {/* Status banners */}
+            {goal.status === 'achieved' && (
+              <div style={{
+                margin: '0 16px 12px',
+                padding: '12px 16px',
+                background: 'var(--accent-soft)',
+                borderRadius: 12,
+                border: '1px solid var(--accent)',
+                display: 'flex', alignItems: 'center', gap: 10,
+              }}>
+                <span style={{ fontSize: 18 }}>✓</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--accent)' }}>Goal achieved</div>
+                  {goal.completedAt && (
+                    <div style={{ fontSize: 12, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>
+                      {new Date(goal.completedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {goal.status === 'dropped' && (
+              <div style={{
+                margin: '0 16px 12px',
+                padding: '12px 16px',
+                background: 'var(--warn-soft)',
+                borderRadius: 12,
+                border: '1px solid var(--warn)',
+                display: 'flex', alignItems: 'center', gap: 10,
+              }}>
+                <span style={{ fontSize: 18 }}>📦</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--warn)' }}>Archived</div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>
+                    This goal has been archived.
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div style={{ padding: '4px 22px 0' }}>
 
               {/* Category + horizon eyebrow */}
@@ -376,6 +423,57 @@ export const GoalDetailScreen = ({ goalId, navigate, back }: Props) => {
                 </div>
               )}
             </div>
+
+            {/* Status actions */}
+            <div style={{ padding: '24px 22px 0' }}>
+              {goal.status !== 'achieved' && (
+                <button
+                  onClick={async () => {
+                    if (!confirm('Mark this goal as achieved?')) return
+                    await updateGoal(goal.id, { status: 'achieved', completedAt: Date.now() })
+                    back()
+                  }}
+                  style={{
+                    width: '100%', padding: 14, borderRadius: 'var(--r-3)',
+                    background: 'var(--accent)', color: 'var(--paper)',
+                    border: 'none', fontFamily: 'var(--font-ui)', fontSize: 15,
+                    fontWeight: 500, cursor: 'pointer', marginBottom: 10,
+                  }}
+                >
+                  Mark as Achieved ✓
+                </button>
+              )}
+              {(!goal.status || goal.status === 'active') && (
+                <button
+                  onClick={async () => {
+                    if (!confirm('Archive this goal? You can view it in the Dropped filter.')) return
+                    await updateGoal(goal.id, { status: 'dropped' })
+                    back()
+                  }}
+                  style={{
+                    width: '100%', padding: 14, borderRadius: 'var(--r-3)',
+                    background: 'none', border: '1px solid var(--rule)',
+                    fontFamily: 'var(--font-ui)', fontSize: 15,
+                    color: 'var(--ink-2)', cursor: 'pointer', marginBottom: 10,
+                  }}
+                >
+                  Archive goal
+                </button>
+              )}
+              {(goal.status === 'achieved' || goal.status === 'dropped') && (
+                <button
+                  onClick={() => updateGoal(goal.id, { status: 'active', completedAt: undefined })}
+                  style={{
+                    width: '100%', padding: 14, borderRadius: 'var(--r-3)',
+                    background: 'none', border: '1px solid var(--rule)',
+                    fontFamily: 'var(--font-ui)', fontSize: 15,
+                    color: 'var(--ink-2)', cursor: 'pointer', marginBottom: 10,
+                  }}
+                >
+                  Restore to active
+                </button>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -387,7 +485,7 @@ export const GoalDetailScreen = ({ goalId, navigate, back }: Props) => {
 
         return (
           <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
+            style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
             onClick={e => { if (e.target === e.currentTarget) setShowPicker(false) }}
           >
             <div style={{

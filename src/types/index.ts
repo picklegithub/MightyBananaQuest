@@ -10,12 +10,14 @@ export interface EffortDef {
   bar: number
 }
 
-// QuadKey kept for database backward-compatibility — no longer shown in UI
+// QuadKey — kept for sync backward-compatibility; no longer set by new task creators
 export type QuadKey = 'q1' | 'q2' | 'q3' | 'q4'
 
 // ── Sub-task ─────────────────────────────────────────────────────────────────
+// Sync: sub[] is merged by id on pull (local-only subs are preserved; remote wins conflicts).
+// Concurrent title edits to the same sub still resolve by task-level LWW (last updatedAt wins).
 export interface SubTask {
-  id?: string  // stable UUID for CRDT set-merge across devices
+  id?: string  // stable UUID — must be populated by addTask/updateTask for field-level merge to work
   t: string    // title
   d: boolean   // done
 }
@@ -28,7 +30,7 @@ export interface Task {
   effort: EffortKey
   due: string
   streak: number
-  quad: QuadKey
+  quad?: QuadKey  // optional — Eisenhower Matrix removed from UI; field retained for sync compat
   recurring: string | null
   done: boolean
   sub: SubTask[]
@@ -38,12 +40,35 @@ export interface Task {
   isHabit?: boolean   // first-class habit flag — logs to habitLog on completion
   status?: 'backlog' | 'someday' | 'active'  // Slow Productivity workflow state (undefined = backlog)
   goalId?: string        // linked goal — surface its why on Task Detail
+  workspaceId?: string  // shared workspace — null = personal task
   reminderMin?: number  // minutes before due/time to notify; 0=on-time, 5/30/60/1440=early; undefined=none
   completedAt?: number  // ms timestamp when task was completed
   createdAt?: number
   updatedAt?: number
   deletedAt?: number  // soft-delete timestamp; present → record is a tombstone
   syncedAt?:  number  // server synced_at reflected back (used only for diagnostics)
+}
+
+// ── Workspace ─────────────────────────────────────────────────────────────────
+export interface Workspace {
+  id: string
+  name: string
+  ownerId: string
+  createdAt: number
+  updatedAt: number
+  deletedAt?: number
+}
+
+export type WorkspaceMemberRole = 'owner' | 'member' | 'viewer'
+
+export interface WorkspaceMember {
+  workspaceId: string
+  userId: string
+  role: WorkspaceMemberRole
+  invitedEmail?: string
+  joinedAt?: number
+  createdAt: number
+  updatedAt: number
 }
 
 // ── Habit (first-class — separate table from tasks) ──────────────────────────
@@ -76,6 +101,27 @@ export interface Category {
   hue: number
 }
 
+// ── Mood Entry ────────────────────────────────────────────────────────────────
+export type MoodScore   = 1 | 2 | 3 | 4 | 5
+export type MoodEnergy  = 'tired' | 'steady' | 'charged'
+export type MoodSource  = 'standalone' | 'morning-journal' | 'evening-journal' | 'daily-plan'
+
+export interface MoodEntry {
+  id:          string
+  date:        string         // YYYY-MM-DD (local)
+  time:        string         // HH:MM (local)
+  source:      MoodSource
+  mood:        MoodScore      // 1–5, required
+  energy:      MoodEnergy | null
+  emotions:    string[]       // from EmotionPicker
+  influences:  string[]       // from InfluenceTags
+  note:        string | null
+  createdAt:   number
+  updatedAt?:  number
+  _synced?:    boolean
+  _deleted?:   boolean
+}
+
 // ── Goal ─────────────────────────────────────────────────────────────────────
 export interface Goal {
   id: string
@@ -85,13 +131,18 @@ export interface Goal {
   progress: number
   why: string
   linked: string[]
+  status?: 'active' | 'achieved' | 'dropped'
+  targetDate?: string      // YYYY-MM-DD
+  completedAt?: number     // ms timestamp
+  createdAt?: number
+  updatedAt?: number
 }
 
 // ── Journal entry ────────────────────────────────────────────────────────────
 export interface JournalEntry {
   id: string
   date: string
-  kind: 'morning' | 'evening'
+  kind: 'morning' | 'evening' | 'thought-record' | 'three-good-things' | 'neuroplasticity'
   // morning
   gratitude?: string[]
   intention?: string
@@ -108,7 +159,10 @@ export interface JournalEntry {
   impact?: 1 | 2 | 3 | 4    // 1=Minimal 2=Some 3=Solid 4=High — powers Productivity score
   // shared free-form notes
   notes?: string
-  morningMood?: 'steady' | 'tired' | 'charged'  // mood tap at top of morning form
+  /** @deprecated — use moodEntries table. Kept for backward compat / analytics fallback. */
+  morningMood?: 'steady' | 'tired' | 'charged'
+  /** @deprecated — was 1–10, replaced by MoodEntry.mood (1–5). */
+  moodScore?:   number
   xpAwarded?: boolean  // idempotency flag — XP awarded once per entry
 }
 
@@ -159,6 +213,14 @@ export interface AppSettings {
   showPlanYourDay?: boolean
   showInboxBadge?: boolean
   voiceCaptureToInbox?: boolean
+  syncPrefs?: {
+    tasks:    boolean
+    habits:   boolean
+    goals:    boolean
+    journal:  boolean   // default false — privacy-sensitive
+    moods:    boolean   // default false — privacy-sensitive
+    shopping: boolean
+  }
 }
 
 // ── Weekly Review ────────────────────────────────────────────────────────────
@@ -185,6 +247,7 @@ export interface WeeklyReview {
   // Meta
   completedAt?: number
   updatedAt?: number
+  shareToken?: string   // UUID — set to generate a public read-only link
 }
 
 // ── Shopping item ─────────────────────────────────────────────────────────────
@@ -239,21 +302,43 @@ export interface DailyPlan {
 
 // ── Navigation ───────────────────────────────────────────────────────────────
 export type Screen =
+  // ── System ─────────────────────────────────────────────────────────────────
   | { name: 'splash' }
   | { name: 'onboarding' }
-  | { name: 'dashboard' }
-  | { name: 'daily-plan' }
-  | { name: 'category'; catId: string }
-  | { name: 'task'; taskId: string }
-  | { name: 'goal'; goalId: string }
-  | { name: 'calendar' }
-  | { name: 'review' }
-  | { name: 'goals' }
-  | { name: 'journal'; phase?: 'morning' | 'evening' | 'history' }
+  // ── CORE nav ───────────────────────────────────────────────────────────────
+  | { name: 'today' }                  // primary home screen (replaces 'dashboard')
+  | { name: 'dashboard' }              // legacy alias → renders Today/DashboardScreen
+  | { name: 'inbox' }
   | { name: 'all-tasks'; initialStatus?: 'active' | 'someday' | 'backlog' }
   | { name: 'all-habits' }
-  | { name: 'habit-analytics' }
-  | { name: 'inbox' }
+  | { name: 'journal'; phase?: 'morning' | 'plan' | 'evening' | 'history' }
+  | { name: 'mood-energy' }            // Phase 4 combined Mood & Energy
+  | { name: 'goals' }
+  // ── Detail screens ─────────────────────────────────────────────────────────
+  | { name: 'task';     taskId:  string }
+  | { name: 'goal';     goalId:  string }
+  | { name: 'category'; catId:   string }
+  | { name: 'habit-analytics' }        // legacy — nav removed, still route-able
+  | { name: 'daily-plan' }
+  // ── GROW / Exercises ───────────────────────────────────────────────────────
+  | { name: 'cbt-toolkit' }            // Phase 5
+  | { name: 'coping-cards' }           // legacy alias → renders CBT Toolkit
+  | { name: 'mindfulness' }            // Phase 5
+  | { name: 'positive-psychology' }    // Phase 5
+  | { name: 'neuroplasticity' }        // Phase 5
+  // ── GROW / Tools ───────────────────────────────────────────────────────────
+  | { name: 'pomodoro' }               // Phase 8
+  | { name: 'flashcards' }             // Phase 8
+  | { name: 'resources' }              // Phase 8
+  // ── PROGRESS ───────────────────────────────────────────────────────────────
+  | { name: 'review' }
+  | { name: 'insights' }               // absorbs habit-analytics + progress
+  | { name: 'progress' }               // legacy — still route-able
+  // ── Phase 4 detail screens (still accessible via deep link) ────────────────
+  | { name: 'mood-tracking' }          // Phase 4 detail
+  | { name: 'energy-score' }           // Phase 4 detail
+  // ── SYSTEM ─────────────────────────────────────────────────────────────────
   | { name: 'settings' }
-  | { name: 'coping-cards' }
-  | { name: 'progress' }
+  | { name: 'calendar' }               // not in nav; accessible via deep link
+  | { name: 'workspace-settings' }
+  | { name: 'shared-review'; token: string }

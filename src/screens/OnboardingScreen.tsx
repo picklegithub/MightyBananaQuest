@@ -1,3 +1,4 @@
+import { makeId } from '../lib/makeId'
 import React, { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addTask, updateTask } from '../data/db'
@@ -33,7 +34,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
   return (
     <div style={{ padding: '0 4px' }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--ink-3)', textTransform: 'uppercase', marginBottom: 24 }}>
-        Step 01 / 03
+        Step 01 / 04
       </div>
       <h1 className="t-display" style={{ fontSize: 38, lineHeight: 0.95, marginBottom: 20 }}>
         The small things,<br />
@@ -100,7 +101,7 @@ function StepAreas({ onNext }: { onNext: () => void }) {
   async function addCustom() {
     const name = newName.trim()
     if (!name) return
-    const id = crypto.randomUUID()
+    const id = makeId()
     await db.categories.add({ id, name, icon: 'sparkle', hue: 200 })
     setSelected(prev => new Set([...prev, id]))
     setNewName(''); setAdding(false)
@@ -108,7 +109,7 @@ function StepAreas({ onNext }: { onNext: () => void }) {
 
   return (
     <div>
-      <div className="eyebrow" style={{ marginBottom: 8 }}>Step 02 / 03</div>
+      <div className="eyebrow" style={{ marginBottom: 8 }}>Step 02 / 04</div>
       <h2 className="t-display" style={{ fontSize: 26, lineHeight: 1.1, marginBottom: 8 }}>
         Choose the <em>parts of life</em> you want here.
       </h2>
@@ -131,7 +132,7 @@ function StepAreas({ onNext }: { onNext: () => void }) {
               <I size={18} stroke={active ? 'var(--paper)' : areaColor(c.hue, 'fg', isDark)} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</div>
-                <div style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', marginTop: 2, letterSpacing: '0.06em' }}>
+                <div style={{ fontSize: 10, opacity: 0.65, fontFamily: 'var(--font-mono)', marginTop: 2, letterSpacing: '0.06em' }}>
                   {active ? 'SELECTED' : 'TAP TO ADD'}
                 </div>
               </div>
@@ -150,7 +151,7 @@ function StepAreas({ onNext }: { onNext: () => void }) {
             <Icons.plus size={18} />
             <div>
               <div className="t-display" style={{ fontSize: 13, fontStyle: 'italic' }}>Your own</div>
-              <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', marginTop: 2, letterSpacing: '0.06em', color: 'var(--ink-4)' }}>CREATE AREA</div>
+              <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', marginTop: 2, letterSpacing: '0.06em', color: 'var(--ink-4)' }}>CREATE AREA</div>
             </div>
           </button>
         )}
@@ -204,9 +205,9 @@ function StepFirstTask({ onNext }: { onNext: () => void }) {
     const trimmed = title.trim()
     if (!trimmed) return
     const task: Task = {
-      id: crypto.randomUUID(),
+      id: makeId(),
       title: trimmed, cat: 'inbox', effort: 's', due: 'Today',
-      quad: 'q2', recurring: null,
+       recurring: null,
       done: false, streak: 0, sub: [],
     }
     await addTask(task)
@@ -224,10 +225,10 @@ function StepFirstTask({ onNext }: { onNext: () => void }) {
         <p style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6, marginBottom: 10 }}>
           What's one thing on your mind right now? Even small things count.
         </p>
-        <div style={{ background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 10, padding: '10px 14px', textAlign: 'left' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--ink-4)', textTransform: 'uppercase', marginBottom: 4 }}>Slow Productivity</div>
-          <p style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.6, margin: 0 }}>
-            Tasks move through <strong>Backlog → Active → Done</strong>. You can only have <strong>3 active tasks</strong> at once — this keeps focus sharp and prevents the overwhelm of too many open commitments.
+        <div style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)', borderRadius: 10, padding: '14px 16px', textAlign: 'left' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--accent)', textTransform: 'uppercase', marginBottom: 6, fontWeight: 600 }}>The core rule</div>
+          <p style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.6, margin: 0 }}>
+            You can only have <strong>3 active tasks</strong> at once. Tasks live in <strong>Backlog → Active → Done</strong>. The cap keeps focus sharp — no more sprawling lists.
           </p>
         </div>
       </div>
@@ -280,7 +281,7 @@ function StepDone({ onDone }: { onDone: () => void }) {
         Your life areas are ready, and you've captured your first task.
       </p>
       <p style={{ color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6, marginBottom: 36, maxWidth: 300, margin: '0 auto 36px' }}>
-        Tap the ＋ button any time to capture a task. The flame button logs a habit. Use the journal each morning and evening to stay grounded.
+        Tap <strong>＋</strong> to capture a task. <strong>Hold ＋</strong> for voice input and the focus timer. Use the journal each morning and evening to stay grounded.
       </p>
       <button onClick={onDone} style={{
         width: '100%', padding: '15px', borderRadius: 14, fontWeight: 600, fontSize: 16,

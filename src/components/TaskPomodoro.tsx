@@ -85,15 +85,15 @@ function snapToSecs(snap: Snap): number {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface Props {
-  effort:        EffortKey
-  xp:            number
+  effort?:       EffortKey
+  xp?:           number
   pomodoroMins?: number
 }
 
-export function TaskPomodoro({ effort, xp, pomodoroMins }: Props) {
+export function TaskPomodoro({ effort, xp = 0, pomodoroMins }: Props) {
   // ── Boot from snapshot ────────────────────────────────────────────────────
   const snap0       = useRef(readSnap()).current
-  const defaultMins = pomodoroMins ?? EFFORT_TO_POM[effort] ?? 25
+  const defaultMins = pomodoroMins ?? (effort ? EFFORT_TO_POM[effort] : 25) ?? 25
 
   const initPhase     = snap0?.phase     ?? 'work'
   const initSelMins   = snap0?.selMins   ?? defaultMins
@@ -451,8 +451,8 @@ export function TaskPomodoro({ effort, xp, pomodoroMins }: Props) {
               </div>
             )}
 
-            {/* XP earned note — work only */}
-            {donePhase === 'work' && (
+            {/* XP earned note — task context only */}
+            {donePhase === 'work' && xp > 0 && (
               <div style={{
                 marginTop:     16,
                 fontFamily:    'var(--font-mono)',
@@ -526,7 +526,7 @@ export function TaskPomodoro({ effort, xp, pomodoroMins }: Props) {
                 </div>
                 <div style={{
                   marginTop: 6, textAlign: 'center',
-                  fontFamily: 'var(--font-mono)', fontSize: 9,
+                  fontFamily: 'var(--font-mono)', fontSize: 10,
                   color: D.ink3, letterSpacing: '0.1em',
                 }}>
                   AUTO-STARTING IN {autoCount}S · TAP TO CANCEL
@@ -652,7 +652,7 @@ export function TaskPomodoro({ effort, xp, pomodoroMins }: Props) {
                   fontFamily: 'var(--font-mono)', fontSize: 10,
                   color: D.ink2, letterSpacing: '0.08em',
                 }}>
-                  {selMins}M · {EFFORT_SHORT[effort]}
+                  {selMins}M{effort ? ` · ${EFFORT_SHORT[effort]}` : ''}
                 </span>
               </div>
 

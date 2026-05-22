@@ -1,3 +1,4 @@
+import { makeId } from '../lib/makeId'
 import React, { useState, useRef, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, addTask, completeTask, uncompleteTask, deleteTask, deleteTasks, updateTask } from '../data/db'
@@ -7,147 +8,19 @@ import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst, Seg } from '../components/ui'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
 import { SwipeableRow } from '../components/SwipeableRow'
+import { TaskCard } from '../components/TaskCard'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { triggerSync } from '../components/SyncStatusBar'
 import { nextDueLabel } from '../lib/parseDue'
 import type { Screen, Task } from '../types'
+import { useNav } from '../lib/navContext'
 import { useIsColorful, useIsDark } from '../lib/colorMode'
 import { areaColor } from '../lib/areaColor'
 
-interface Props { navigate: (s: Screen) => void; back: () => void; onAddTask?: () => void; screen?: Screen }
+interface Props { navigate?: (s: Screen) => void; back?: () => void; onAddTask?: () => void; screen?: Screen }
 interface Burst { id: number; x: number; y: number; xp: number }
 interface NextBanner { id: number; text: string }
 
-// ── Compact task row (6.1 design) ─────────────────────────────────────────────
-function CompactTaskRow({
-  task, areaName, hue, selectMode, isSelected,
-  onTap, onComplete, onDelete, onToggleSelect,
-  isExpanded, onToggleExpand,
-}: {
-  task: Task
-  areaName?: string
-  hue?: number
-  selectMode: boolean
-  isSelected: boolean
-  onTap: () => void
-  onComplete: (e: React.MouseEvent) => void
-  onDelete: () => void
-  onToggleSelect: () => void
-  isExpanded?: boolean
-  onToggleExpand?: () => void
-}) {
-  const e      = EFFORT[task.effort]
-  const isDark = useIsDark()
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      {selectMode && (
-        <button onClick={onToggleSelect} style={{
-          flexShrink: 0, width: 20, height: 20, borderRadius: 5,
-          border: `2px solid ${isSelected ? 'var(--ink)' : 'var(--rule)'}`,
-          background: isSelected ? 'var(--ink)' : 'transparent',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          {isSelected && <Icons.check size={11} sw={3} stroke="var(--paper)" />}
-        </button>
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <SwipeableRow
-          disabled={selectMode}
-          done={task.done}
-          onComplete={() => onComplete({ stopPropagation: () => {}, target: document.body } as unknown as React.MouseEvent)}
-          onDelete={!selectMode ? onDelete : undefined}
-        >
-          <div
-            onClick={selectMode ? onToggleSelect : onTap}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '10px 0',
-              borderBottom: '1px solid var(--rule)',
-              borderLeft: hue !== undefined ? `3px solid ${areaColor(hue, 'fg', isDark)}` : '3px solid transparent',
-              paddingLeft: 8,
-              cursor: 'pointer',
-              opacity: task.done ? 0.45 : 1,
-            }}
-          >
-            {/* Complete button (A5: standardised to 24 px) */}
-            <button
-              onClick={e => { e.stopPropagation(); if (!selectMode) onComplete(e) }}
-              style={{
-                flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
-                border: `1.5px solid ${task.done ? (hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)') : 'var(--ink-3)'}`,
-                background: task.done ? (hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)') : 'transparent',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-            >
-              {task.done && <Icons.check size={12} sw={2.5} stroke="var(--paper)" />}
-            </button>
-
-            {/* Title + meta */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{
-                fontSize: 13, fontWeight: 500,
-                textDecoration: task.done ? 'line-through' : 'none',
-                color: 'var(--ink)',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              }}>
-                {task.title}
-              </div>
-              <div style={{
-                display: 'flex', gap: 6, marginTop: 2,
-                fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)',
-                flexWrap: 'wrap',
-              }}>
-                {areaName && <span>{areaName}</span>}
-                {areaName && <span style={{ opacity: 0.4 }}>·</span>}
-                <span>{e?.label ?? 'Medium'}</span>
-                {task.recurring && (
-                  <><span style={{ opacity: 0.4 }}>·</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><Icons.repeat size={9} /> {task.recurring}</span></>
-                )}
-                {task.streak > 0 && (
-                  <><span style={{ opacity: 0.4 }}>·</span><span style={{ color: 'var(--accent)' }}>{task.streak}d</span></>
-                )}
-                {(task.sub?.length ?? 0) > 0 && (
-                  <><span style={{ opacity: 0.4 }}>·</span>
-                  <span
-                    onClick={onToggleExpand ? (e) => { e.stopPropagation(); onToggleExpand() } : undefined}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 2,
-                      cursor: onToggleExpand ? 'pointer' : 'default',
-                      color: task.sub.filter(s => s.d).length === task.sub.length
-                        ? (hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)')
-                        : 'var(--ink-3)',
-                    }}
-                  >
-                    <Icons.check size={9} sw={2} />
-                    {task.sub.filter(s => s.d).length}/{task.sub.length}
-                    {onToggleExpand && <span style={{ opacity: 0.5, fontSize: 8 }}>{isExpanded ? '▲' : '▼'}</span>}
-                  </span></>
-                )}
-              </div>
-              {task.notes && (
-                <div style={{
-                  fontSize: 10, color: 'var(--ink-4)', fontFamily: 'var(--font-mono)',
-                  marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>
-                  {task.notes.replace(/\n/g, ' ').slice(0, 80)}{task.notes.length > 80 ? '…' : ''}
-                </div>
-              )}
-            </div>
-
-            {/* Due */}
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
-              color: task.quad === 'q1' ? 'var(--warn)' : 'var(--ink-3)',
-            }}>
-              {task.due}
-            </span>
-          </div>
-        </SwipeableRow>
-      </div>
-    </div>
-  )
-}
 
 // ── Inline ghost input ────────────────────────────────────────────────────────
 function GhostInput({ catId, onSaved }: { catId: string; onSaved: () => void }) {
@@ -163,12 +36,12 @@ function GhostInput({ catId, onSaved }: { catId: string; onSaved: () => void }) 
     const t = value.trim()
     if (!t) { setActive(false); return }
     await addTask({
-      id: crypto.randomUUID(),
+      id: makeId(),
       title: t,
       cat: catId === 'all' ? 'inbox' : catId,
       effort: 's',
       due: '',
-      quad: 'q2',
+      
       recurring: null,
       done: false,
       streak: 0,
@@ -222,7 +95,11 @@ function GhostInput({ catId, onSaved }: { catId: string; onSaved: () => void }) 
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-export const AllTasksScreen = ({ navigate, back, onAddTask, screen }: Props) => {
+export const AllTasksScreen = ({ navigate: navProp, back: backProp, onAddTask: onAddTaskProp, screen }: Props) => {
+  const { navigate: ctxNavigate, back: ctxBack, openAddTask } = useNav()
+  const navigate  = navProp      ?? ctxNavigate
+  const back      = backProp     ?? ctxBack
+  const onAddTask = onAddTaskProp ?? openAddTask
   const initialStatus = screen?.name === 'all-tasks' ? (screen.initialStatus ?? 'all') : 'all'
   const [filter,       setFilter]       = useState<'open' | 'all' | 'done'>(initialStatus !== 'all' ? 'open' : 'open')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'someday' | 'backlog'>(initialStatus)
@@ -343,6 +220,7 @@ export const AllTasksScreen = ({ navigate, back, onAddTask, screen }: Props) => 
         title={selectMode ? `${selected.size} selected` : 'All Tasks'}
         subtitle={`${filtered.length} of ${tasks.length}`}
         back={() => selectMode ? exitSelectMode() : back()}
+        icon={<Icons.layers size={22} />}
         rightActions={selectMode && selected.size > 0 ? (
           <button onClick={handleBulkDelete} style={{
             padding: '5px 12px', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: 11,
@@ -438,7 +316,7 @@ export const AllTasksScreen = ({ navigate, back, onAddTask, screen }: Props) => 
               <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 20 }}>
                 Capture what's on your mind — one thing at a time.
               </div>
-              <button onClick={onAddTask} style={{
+              <button onClick={() => onAddTask()} style={{
                 padding: '11px 24px', borderRadius: 12,
                 background: 'var(--ink)', color: 'var(--paper)',
                 fontSize: 14, fontWeight: 600,
@@ -491,23 +369,31 @@ export const AllTasksScreen = ({ navigate, back, onAddTask, screen }: Props) => 
                   const hasSubs = (task.sub?.length ?? 0) > 0
                   return (
                     <div key={task.id}>
-                      <CompactTaskRow
-                        task={task}
-                        areaName={groupBy !== 'area' ? (cat?.name) : undefined}
-                        hue={taskHue}
-                        selectMode={selectMode}
-                        isSelected={selected.has(task.id)}
-                        onTap={() => navigate({ name: 'task', taskId: task.id })}
-                        onComplete={e => handleComplete(e, task)}
-                        onDelete={() => deleteTask(task.id)}
-                        onToggleSelect={() => toggleSelect(task.id)}
-                        isExpanded={isExpanded}
-                        onToggleExpand={hasSubs && !selectMode ? () => toggleExpand(task.id) : undefined}
-                      />
+                      <SwipeableRow
+                        disabled={selectMode}
+                        done={task.done}
+                        onComplete={() => handleComplete({ stopPropagation: () => {}, target: document.body } as unknown as React.MouseEvent, task)}
+                        onDelete={!selectMode ? () => deleteTask(task.id) : undefined}
+                      >
+                        <TaskCard
+                          task={task}
+                          areaName={groupBy !== 'area' ? cat?.name : undefined}
+                          hue={taskHue}
+                          selectMode={selectMode}
+                          isSelected={selected.has(task.id)}
+                          onTap={() => navigate({ name: 'task', taskId: task.id })}
+                          onComplete={e => handleComplete(e, task)}
+                          onDelete={!selectMode ? () => deleteTask(task.id) : undefined}
+                          onToggleSelect={() => toggleSelect(task.id)}
+                          onStatusChange={!selectMode ? (status) => updateTask(task.id, { status }) : undefined}
+                          onToggleSubtasks={hasSubs && !selectMode ? () => toggleExpand(task.id) : undefined}
+                          subtasksExpanded={isExpanded}
+                        />
+                      </SwipeableRow>
                       {isExpanded && hasSubs && (
                         <div style={{
                           marginLeft: 26, paddingLeft: 20,
-                          borderLeft: `2px solid ${taskHue !== undefined ? `hsl(${taskHue}, 40%, 80%)` : 'var(--rule)'}`,
+                          borderLeft: `2px solid ${taskHue !== undefined ? areaColor(taskHue, 'bg', isDark) : 'var(--rule)'}`,
                           marginBottom: 4,
                         }}>
                           {task.sub.map((s, i) => (
@@ -519,8 +405,8 @@ export const AllTasksScreen = ({ navigate, back, onAddTask, screen }: Props) => 
                             }}>
                               <div style={{
                                 width: 13, height: 13, borderRadius: 3, flexShrink: 0,
-                                border: `1.5px solid ${s.d ? (taskHue !== undefined ? `hsl(${taskHue}, 55%, 42%)` : 'var(--accent)') : 'var(--rule)'}`,
-                                background: s.d ? (taskHue !== undefined ? `hsl(${taskHue}, 55%, 42%)` : 'var(--accent)') : 'transparent',
+                                border: `1.5px solid ${s.d ? (taskHue !== undefined ? areaColor(taskHue, 'fg', isDark) : 'var(--accent)') : 'var(--rule)'}`,
+                                background: s.d ? (taskHue !== undefined ? areaColor(taskHue, 'fg', isDark) : 'var(--accent)') : 'transparent',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                               }}>
                                 {s.d && <Icons.check size={8} sw={2.5} stroke="var(--paper)" />}
@@ -562,7 +448,7 @@ export const AllTasksScreen = ({ navigate, back, onAddTask, screen }: Props) => 
           background: 'var(--accent)', color: 'white',
           padding: '8px 18px', borderRadius: 20,
           fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.04em',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          boxShadow: 'var(--shadow-pop)',
           zIndex: 200, pointerEvents: 'none', whiteSpace: 'nowrap',
         }}>
           {nextBanner.text}

@@ -66,6 +66,20 @@ export function GlobalPomodoro({ workMins }: Props) {
     return () => window.removeEventListener('pom:expand', h)
   }, [])
 
+  // ── "Just focus" — start a free work session ─────────────────────────────
+  useEffect(() => {
+    const h = () => {
+      isExternalRef.current = false
+      setExpanded(true)
+      setPhase('work')
+      setSecsLeft(workMins * 60)
+      setState('running')
+    }
+    window.addEventListener('pom:start', h)
+    return () => window.removeEventListener('pom:start', h)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workMins])
+
   // ── Sync from TaskPomodoro's localStorage snapshot ────────────────────────
   // Reads mbq:pom-v1 on mount and whenever TaskPomodoro dispatches pom:sync,
   // so the floating pill always reflects an active task timer.
@@ -375,7 +389,7 @@ export function GlobalPomodoro({ workMins }: Props) {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <span style={{
-            fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
+            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
             textTransform: 'uppercase', color: doneColor,
           }}>
             {isWork ? 'Focus complete' : 'Break complete'}
@@ -458,7 +472,7 @@ export function GlobalPomodoro({ workMins }: Props) {
             </div>
             <div style={{
               marginTop: 5, textAlign: 'center',
-              fontFamily: 'var(--font-mono)', fontSize: 9,
+              fontFamily: 'var(--font-mono)', fontSize: 10,
               color: 'var(--ink-3)', letterSpacing: '0.08em',
             }}>
               AUTO-STARTING IN {autoCount}S
@@ -480,7 +494,7 @@ export function GlobalPomodoro({ workMins }: Props) {
     }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color }}>
           {phaseLabel[phase]}
         </span>
         <button onClick={() => setExpanded(false)} style={{ color: 'var(--ink-3)' }}>
@@ -560,7 +574,7 @@ export function GlobalPomodoro({ workMins }: Props) {
         {(['work', 'short-break', 'long-break'] as Phase[]).map(p => (
           <button key={p} onClick={() => switchPhase(p)} style={{
             flex: 1, padding: '6px 2px', borderRadius: 6,
-            fontSize: 9, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.04em',
+            fontSize: 10, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.04em',
             background: phase === p ? 'var(--ink)' : 'var(--paper-2)',
             color:      phase === p ? 'var(--paper)' : 'var(--ink-3)',
             border: '1px solid', borderColor: phase === p ? 'var(--ink)' : 'var(--rule)',

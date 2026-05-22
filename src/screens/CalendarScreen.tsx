@@ -1,19 +1,20 @@
+import { makeId } from '../lib/makeId'
 import { localDateISO } from '../lib/useCurrentDate'
 import React, { useState, useRef, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, addTask, completeTask, updateTask, deleteTask } from '../data/db'
+import { db, addTask, completeTask, uncompleteTask, updateTask, deleteTask } from '../data/db'
 import { EFFORT } from '../constants'
 import { Icons } from '../components/ui/Icons'
-import { ThemeToggle } from '../components/ThemeToggle'
 import { ConfettiBurst } from '../components/ui'
 import { SwipeableRow } from '../components/SwipeableRow'
 import { UnifiedDuePicker } from '../components/ui/UnifiedDuePicker'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
 import type { Screen, Task } from '../types'
+import { useNav } from '../lib/navContext'
 import { useIsColorful, useIsDark } from '../lib/colorMode'
 import { areaColor } from '../lib/areaColor'
 
-interface Props { navigate: (s: Screen) => void; back?: () => void; onAddTask?: (due?: string) => void }
+interface Props { navigate?: (s: Screen) => void; back?: () => void; onAddTask?: (due?: string) => void }
 interface Burst { id: number; x: number; y: number; xp: number }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -58,7 +59,7 @@ function MonthGrid({ tasks, now, onSelectISO }: {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 3 }}>
         {DAY_HEADERS.map((d, i) => (
           <div key={i} style={{
-            textAlign: 'center', fontSize: 9, color: 'var(--ink-3)',
+            textAlign: 'center', fontSize: 10, color: 'var(--ink-3)',
             fontFamily: 'var(--font-mono)', padding: '2px 0',
           }}>{d}</div>
         ))}
@@ -220,12 +221,12 @@ function CalendarGhostInput({ due, defaultCat = 'inbox' }: { due: string; defaul
     const t = value.trim()
     if (!t) { setActive(false); return }
     await addTask({
-      id: crypto.randomUUID(),
+      id: makeId(),
       title: t,
       cat: defaultCat,
       effort: 's',
       due,
-      quad: 'q2',
+      
       recurring: null,
       done: false,
       streak: 0,
@@ -299,7 +300,11 @@ function CalendarGhostInput({ due, defaultCat = 'inbox' }: { due: string; defaul
   )
 }
 
-export const CalendarScreen = ({ navigate, back, onAddTask }: Props) => {
+export const CalendarScreen = ({ navigate: navProp, back: backProp, onAddTask: onAddTaskProp }: Props) => {
+  const { navigate: ctxNavigate, back: ctxBack, openAddTask: ctxAddTask } = useNav()
+  const navigate  = navProp      ?? ctxNavigate
+  const back      = backProp     ?? ctxBack
+  const onAddTask = onAddTaskProp ?? ((due?: string) => ctxAddTask(due ? { due } : undefined))
   const [selected,           setSelected]           = useState('Today')
   const [bursts,             setBursts]             = useState<Burst[]>([])
   const [expandedReschedule, setExpandedReschedule] = useState<string | null>(null)
@@ -358,7 +363,10 @@ export const CalendarScreen = ({ navigate, back, onAddTask }: Props) => {
 
   async function handleComplete(e: React.MouseEvent, task: Task) {
     e.stopPropagation()
-    if (task.done) return
+    if (task.done) {
+      await uncompleteTask(task.id)
+      return
+    }
     const { xp: gained } = await completeTask(task.id)
     if (gained > 0) {
       const rect = (e.target as HTMLElement).getBoundingClientRect()
@@ -382,12 +390,12 @@ export const CalendarScreen = ({ navigate, back, onAddTask }: Props) => {
       <ScreenHeader
         title="Calendar"
         back={back}
-        rightActions={<>
-          <ThemeToggle />
+        icon={<Icons.calendar size={22} />}
+        rightActions={
           <button onClick={() => navigate({ name: 'settings' })} style={{ color: 'var(--ink-2)' }}>
             <Icons.settings size={20} />
           </button>
-        </>}
+        }
         footer={
           <div style={{ marginTop: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', marginBottom: 6, letterSpacing: '0.06em' }}>
@@ -419,7 +427,7 @@ export const CalendarScreen = ({ navigate, back, onAddTask }: Props) => {
               border: '1px solid', borderColor: sel ? 'var(--ink)' : 'var(--rule)',
               minWidth: 50,
             }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em', marginBottom: 2, opacity: 0.7 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em', marginBottom: 2, opacity: 0.7 }}>
                 {slot === 'Today' ? 'TODAY' : slot === 'Tomorrow' ? 'TMRW' : slot.toUpperCase()}
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 700, lineHeight: 1, marginBottom: 3 }}>
@@ -540,7 +548,7 @@ export const CalendarScreen = ({ navigate, back, onAddTask }: Props) => {
                     borderRadius: 10, marginTop: 4, marginBottom: 4,
                   }}>
                     <span style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)',
+                      fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)',
                       letterSpacing: '0.08em', flexShrink: 0, marginRight: 2,
                     }}>MOVE TO</span>
                     {cats.map(c => (
@@ -603,7 +611,7 @@ export const CalendarScreen = ({ navigate, back, onAddTask }: Props) => {
                 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                     <span style={{ fontSize: 13, fontWeight: 500 }}>{slot}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>
                       {dateForSlot(slot).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                     </span>
                   </div>

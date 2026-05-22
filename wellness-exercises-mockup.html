@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MBQ Wellness Exercises</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #F8F6F2;
+      --surface: #FFFFFF;
+      --text: #1A1714;
+      --text-2: #5A5450;
+      --text-3: #9A928C;
+      --border: #E8E4DF;
+      --radius: 16px;
+      --shadow: 0 2px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+
+      --cbt: #B5603F;
+      --cbt-bg: #FDF1EC;
+      --cbt-soft: #F0D0C3;
+
+      --mind: #3E8A7B;
+      --mind-bg: #EDF7F5;
+      --mind-soft: #B8DDD8;
+
+      --pos: #B8861A;
+      --pos-bg: #FDF7ED;
+      --pos-soft: #E8D190;
+
+      --neuro: #5C7E5C;
+      --neuro-bg: #F0F5F0;
+      --neuro-soft: #B8D4B8;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .app {
+      max-width: 480px;
+      margin: 0 auto;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+    }
+
+    /* Tab bar */
+    .tab-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      padding: 0 4px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: 0 1px 0 var(--border);
+    }
+
+    .tab {
+      flex: 1;
+      padding: 13px 4px 11px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 10.5px;
+      font-weight: 500;
+      color: var(--text-3);
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+
+    .tab .icon { font-size: 17px; line-height: 1; }
+
+    .tab.active[data-tab="cbt"]         { color: var(--cbt);  border-bottom-color: var(--cbt); }
+    .tab.active[data-tab="mindfulness"] { color: var(--mind); border-bottom-color: var(--mind); }
+    .tab.active[data-tab="positive"]    { color: var(--pos);  border-bottom-color: var(--pos); }
+    .tab.active[data-tab="neuro"]       { color: var(--neuro);border-bottom-color: var(--neuro); }
+
+    /* Screens */
+    .screen { display: none; flex: 1; padding-bottom: 32px; }
+    .screen.active { display: block; }
+
+    /* Screen header */
+    .screen-header { padding: 28px 24px 18px; }
+
+    .screen-label {
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .screen-title {
+      font-family: 'Lora', serif;
+      font-size: 27px;
+      font-weight: 500;
+      line-height: 1.2;
+      margin-bottom: 8px;
+    }
+
+    .screen-subtitle {
+      font-size: 14px;
+      color: var(--text-2);
+      line-height: 1.55;
+    }
+
+    /* Shared card */
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin: 0 16px 12px;
+      box-shadow: var(--shadow);
+    }
+
+    .card-label {
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 10px;
+    }
+
+    .card-question {
+      font-family: 'Lora', serif;
+      font-size: 17px;
+      font-weight: 500;
+      line-height: 1.4;
+      margin-bottom: 14px;
+    }
+
+    textarea {
+      width: 100%;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--bg);
+      resize: none;
+      line-height: 1.55;
+      transition: border-color 0.2s;
+      outline: none;
+    }
+
+    textarea:focus { border-color: var(--text-3); }
+    textarea::placeholder { color: var(--text-3); }
+
+    /* Buttons */
+    .btn-secondary {
+      padding: 14px 20px;
+      border-radius: 12px;
+      border: 1.5px solid var(--border);
+      background: none;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-secondary:hover { border-color: var(--text-2); color: var(--text); }
+
+    .btn-primary {
+      padding: 14px 24px;
+      border-radius: 12px;
+      border: none;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      color: white;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+    .btn-cbt   { background: var(--cbt); }
+    .btn-mind  { background: var(--mind); }
+    .btn-pos   { background: var(--pos); }
+    .btn-neuro { background: var(--neuro); }
+
+    /* ─────────── CBT ─────────── */
+
+    .cbt-progress {
+      display: flex;
+      gap: 6px;
+      padding: 0 24px 16px;
+    }
+
+    .cbt-prog-step {
+      flex: 1;
+      height: 3px;
+      background: var(--cbt-soft);
+      border-radius: 2px;
+      transition: background 0.3s;
+    }
+
+    .cbt-prog-step.done   { background: var(--cbt); }
+    .cbt-prog-step.active { background: var(--cbt); opacity: 0.55; }
+
+    .step-label {
+      font-size: 11.5px;
+      color: var(--text-3);
+      padding: 0 24px 14px;
+    }
+
+    .step-label strong { color: var(--cbt); }
+
+    .cbt-card { border-left: 3px solid var(--cbt); }
+
+    /* Chips */
+    .chip-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .chip {
+      padding: 7px 14px;
+      border-radius: 100px;
+      border: 1.5px solid var(--border);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+      background: var(--bg);
+      color: var(--text-2);
+    }
+
+    .chip:hover { border-color: var(--cbt); color: var(--cbt); }
+    .chip.selected { background: var(--cbt); border-color: var(--cbt); color: white; }
+
+    .chip-definition {
+      display: none;
+      font-size: 13px;
+      color: var(--text-2);
+      margin-top: 12px;
+      padding: 10px 14px;
+      background: var(--cbt-bg);
+      border-radius: 10px;
+      line-height: 1.55;
+    }
+
+    .chip-definition.visible { display: block; }
+
+    .cbt-nav {
+      display: flex;
+      gap: 10px;
+      padding: 6px 16px 24px;
+      align-items: center;
+    }
+
+    .friend-prompt {
+      margin-top: 12px;
+      font-size: 13px;
+      color: var(--text-3);
+      font-style: italic;
+      line-height: 1.5;
+    }
+
+    /* ─────────── MINDFULNESS ─────────── */
+
+    .breath-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 24px 28px;
+    }
+
+    .breath-pattern-select {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 36px;
+      background: var(--mind-bg);
+      padding: 4px;
+      border-radius: 100px;
+    }
+
+    .pattern-btn {
+      padding: 8px 18px;
+      border-radius: 100px;
+      border: none;
+      background: none;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .pattern-btn.active {
+      background: var(--mind);
+      color: white;
+      box-shadow: 0 2px 8px rgba(62,138,123,0.3);
+    }
+
+    .breath-circle-wrap {
+      position: relative;
+      width: 210px;
+      height: 210px;
+      margin-bottom: 32px;
+    }
+
+    .breath-ring-bg {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 1.5px solid var(--mind-soft);
+      opacity: 0.5;
+    }
+
+    .breath-circle {
+      position: absolute;
+      inset: 18px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 38% 32%, #D8EEE9, var(--mind-bg) 70%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 4px;
+      transition: transform 0.15s ease;
+      border: 1px solid var(--mind-soft);
+    }
+
+    .breath-phase {
+      font-family: 'Lora', serif;
+      font-size: 17px;
+      font-style: italic;
+      color: var(--mind);
+    }
+
+    .breath-count {
+      font-size: 34px;
+      font-weight: 300;
+      color: var(--mind);
+      line-height: 1;
+    }
+
+    .breath-info {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .breath-rounds { font-size: 14px; color: var(--text-2); margin-bottom: 5px; }
+    .breath-time   { font-size: 13px; color: var(--text-3); }
+
+    .breath-start {
+      width: 200px;
+      padding: 15px;
+      border-radius: 100px;
+      border: none;
+      background: var(--mind);
+      color: white;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+      transition: all 0.2s;
+      box-shadow: 0 4px 16px rgba(62,138,123,0.25);
+    }
+
+    .breath-start:hover { opacity: 0.88; transform: translateY(-1px); }
+
+    .tips-card {
+      margin: 0 16px 24px;
+      padding: 16px 20px;
+      background: var(--mind-bg);
+      border-radius: 12px;
+      border: 1px solid var(--mind-soft);
+    }
+
+    .tips-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--mind);
+      margin-bottom: 8px;
+    }
+
+    .tips-list { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+
+    .tips-list li {
+      font-size: 13px;
+      color: var(--text-2);
+      padding-left: 16px;
+      position: relative;
+      line-height: 1.5;
+    }
+
+    .tips-list li::before {
+      content: '·';
+      position: absolute;
+      left: 4px;
+      color: var(--mind);
+      font-size: 18px;
+      line-height: 1.1;
+    }
+
+    /* ─────────── POSITIVE PSYCHOLOGY ─────────── */
+
+    .pos-date {
+      font-size: 13px;
+      color: var(--text-3);
+      padding: 0 24px 16px;
+    }
+
+    .good-thing {
+      background: var(--surface);
+      border-radius: var(--radius);
+      margin: 0 16px 12px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .good-thing-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 18px 20px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .thing-number {
+      font-family: 'Lora', serif;
+      font-size: 38px;
+      font-weight: 400;
+      color: var(--pos-soft);
+      line-height: 1;
+      flex-shrink: 0;
+      width: 36px;
+    }
+
+    .thing-label {
+      font-family: 'Lora', serif;
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .good-thing-body {
+      padding: 14px 20px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .why-block {}
+
+    .why-prompt {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--pos);
+      letter-spacing: 0.04em;
+      margin-bottom: 3px;
+    }
+
+    .why-hint {
+      font-size: 12px;
+      color: var(--text-3);
+      font-style: italic;
+      margin-bottom: 8px;
+      line-height: 1.45;
+    }
+
+    .pos-save-area { padding: 4px 16px 28px; }
+
+    /* ─────────── NEUROPLASTICITY ─────────── */
+
+    .neuro-date { font-size: 13px; color: var(--text-3); padding: 0 24px 16px; }
+
+    .neuro-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin: 0 16px 12px;
+      box-shadow: var(--shadow);
+    }
+
+    .habit-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s;
+      user-select: none;
+    }
+
+    .habit-item:last-child { border-bottom: none; }
+    .habit-item:hover { background: #FAFDF8; }
+    .habit-item.checked { background: var(--neuro-bg); }
+
+    .habit-check {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      flex-shrink: 0;
+      margin-top: 1px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .habit-item.checked .habit-check {
+      background: var(--neuro);
+      border-color: var(--neuro);
+    }
+
+    .habit-check svg { opacity: 0; transition: opacity 0.15s; }
+    .habit-item.checked .habit-check svg { opacity: 1; }
+
+    .habit-text { flex: 1; }
+
+    .habit-name {
+      font-weight: 500;
+      font-size: 15px;
+      margin-bottom: 3px;
+      color: var(--text);
+      transition: color 0.15s;
+    }
+
+    .habit-item.checked .habit-name { color: var(--neuro); }
+
+    .habit-desc { font-size: 13px; color: var(--text-3); line-height: 1.45; }
+
+    .neuro-why {
+      margin: 0 16px 12px;
+      padding: 16px 20px;
+      background: var(--neuro-bg);
+      border-radius: 12px;
+      border: 1px solid var(--neuro-soft);
+    }
+
+    .neuro-why-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--neuro);
+      margin-bottom: 8px;
+    }
+
+    .neuro-why-text { font-size: 13px; color: var(--text-2); line-height: 1.6; }
+
+    .neuro-streak {
+      margin: 0 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 18px;
+      background: var(--surface);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+
+    .streak-icon { font-size: 22px; flex-shrink: 0; }
+    .streak-text { font-size: 14px; color: var(--text-2); line-height: 1.45; }
+    .streak-text strong { color: var(--neuro); }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    <div class="tab active" data-tab="cbt" onclick="showTab('cbt', this)">
+      <span class="icon">💭</span>
+      <span>CBT</span>
+    </div>
+    <div class="tab" data-tab="mindfulness" onclick="showTab('mindfulness', this)">
+      <span class="icon">🌬️</span>
+      <span>Breathe</span>
+    </div>
+    <div class="tab" data-tab="positive" onclick="showTab('positive', this)">
+      <span class="icon">✦</span>
+      <span>Good Things</span>
+    </div>
+    <div class="tab" data-tab="neuro" onclick="showTab('neuro', this)">
+      <span class="icon">🌿</span>
+      <span>Neuro</span>
+    </div>
+  </div>
+
+  <!-- ═══════════ CBT ═══════════ -->
+  <div class="screen active" id="screen-cbt">
+    <div class="screen-header">
+      <div class="screen-label" style="color:var(--cbt)">CBT Toolkit</div>
+      <div class="screen-title">Thought Record</div>
+      <div class="screen-subtitle">Reframe an unhelpful thought in five steps.</div>
+    </div>
+
+    <div class="cbt-progress">
+      <div class="cbt-prog-step active"></div>
+      <div class="cbt-prog-step"></div>
+      <div class="cbt-prog-step"></div>
+      <div class="cbt-prog-step"></div>
+      <div class="cbt-prog-step"></div>
+    </div>
+
+    <!-- Step 1 -->
+    <div class="cbt-step-content" id="cbt-s1">
+      <div class="step-label"><strong>Step 1 of 5</strong> &nbsp;·&nbsp; Situation</div>
+      <div class="card cbt-card">
+        <div class="card-question">What happened? Briefly describe the situation.</div>
+        <textarea rows="4" placeholder="e.g. My manager didn't respond to my message all day."></textarea>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="cbt-step-content" id="cbt-s2" style="display:none">
+      <div class="step-label"><strong>Step 2 of 5</strong> &nbsp;·&nbsp; Automatic Thought</div>
+      <div class="card cbt-card">
+        <div class="card-question">What thought ran through your mind in that moment?</div>
+        <textarea rows="3" placeholder="e.g. She must be angry with me. I've done something wrong."></textarea>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="cbt-step-content" id="cbt-s3" style="display:none">
+      <div class="step-label"><strong>Step 3 of 5</strong> &nbsp;·&nbsp; Distortion</div>
+      <div class="card cbt-card">
+        <div class="card-question">Does this thought match a familiar thinking pattern?</div>
+        <div class="chip-grid">
+          <div class="chip" onclick="selectChip(this,'All-or-nothing thinking','Seeing situations as black or white with no middle ground. &ldquo;It either works perfectly or it&rsquo;s a disaster.&rdquo;')">All-or-nothing</div>
+          <div class="chip" onclick="selectChip(this,'Catastrophising','Assuming the worst possible outcome will definitely happen. Jumping to disaster.')">Catastrophising</div>
+          <div class="chip" onclick="selectChip(this,'Mind reading','Assuming you know what others are thinking — usually negatively — without real evidence.')">Mind reading</div>
+          <div class="chip" onclick="selectChip(this,'Fortune telling','Predicting the future as if it&rsquo;s certain, typically in a negative direction.')">Fortune telling</div>
+          <div class="chip" onclick="selectChip(this,'Emotional reasoning','Treating feelings as proof of facts. &ldquo;I feel like a failure, so I must be one.&rdquo;')">Emotional reasoning</div>
+          <div class="chip" onclick="selectChip(this,'Should statements','Rigid rules about how you or others must behave. Creates guilt and resentment.')">Should statements</div>
+          <div class="chip" onclick="selectChip(this,'Overgeneralisation','Drawing sweeping conclusions from a single event. &ldquo;This always happens to me.&rdquo;')">Overgeneralisation</div>
+          <div class="chip" onclick="selectChip(this,'Personalisation','Blaming yourself for things that are partly or entirely outside your control.')">Personalisation</div>
+          <div class="chip" onclick="selectChip(this,'Discounting positives','Dismissing good outcomes as luck, flukes, or not counting. Keeps the negative story alive.')">Discounting positives</div>
+          <div class="chip" onclick="selectChip(this,'Labelling','Attaching a harsh global label to yourself or others rather than describing a specific behaviour. &ldquo;I&rsquo;m an idiot.&rdquo;')">Labelling</div>
+        </div>
+        <div class="chip-definition" id="chip-def"></div>
+      </div>
+    </div>
+
+    <!-- Step 4 -->
+    <div class="cbt-step-content" id="cbt-s4" style="display:none">
+      <div class="step-label"><strong>Step 4 of 5</strong> &nbsp;·&nbsp; Evidence</div>
+      <div class="card cbt-card">
+        <div class="card-question">What's the evidence for and against this thought?</div>
+        <div style="margin-bottom:14px">
+          <div class="card-label" style="color:var(--cbt)">Evidence for</div>
+          <textarea rows="3" placeholder="What actually supports this thought being true?"></textarea>
+        </div>
+        <div>
+          <div class="card-label" style="color:var(--mind)">Evidence against</div>
+          <textarea rows="3" placeholder="What contradicts it? What am I ignoring or minimising?"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 5 -->
+    <div class="cbt-step-content" id="cbt-s5" style="display:none">
+      <div class="step-label"><strong>Step 5 of 5</strong> &nbsp;·&nbsp; Reframe</div>
+      <div class="card cbt-card">
+        <div class="card-question">What's a more balanced way to see this?</div>
+        <textarea rows="4" placeholder="A balanced thought holds both sides. It doesn't have to be positive — just fair."></textarea>
+        <div class="friend-prompt">💬 What would a good friend say to you right now?</div>
+      </div>
+    </div>
+
+    <div class="cbt-nav">
+      <button class="btn-secondary" id="cbt-back" onclick="cbtNav(-1)" style="display:none">← Back</button>
+      <button class="btn-primary btn-cbt" id="cbt-next" onclick="cbtNav(1)" style="flex:1">Next →</button>
+    </div>
+  </div>
+
+  <!-- ═══════════ MINDFULNESS ═══════════ -->
+  <div class="screen" id="screen-mindfulness">
+    <div class="screen-header">
+      <div class="screen-label" style="color:var(--mind)">Mindfulness</div>
+      <div class="screen-title">Breathing Guide</div>
+      <div class="screen-subtitle">A few minutes of mindful breathing shifts your nervous system toward calm.</div>
+    </div>
+
+    <div class="breath-container">
+      <div class="breath-pattern-select">
+        <button class="pattern-btn active" onclick="setPattern('box',this)">Box breath · 4–4–4–4</button>
+        <button class="pattern-btn" onclick="setPattern('478',this)">4–7–8</button>
+      </div>
+
+      <div class="breath-circle-wrap">
+        <div class="breath-ring-bg"></div>
+        <div class="breath-circle" id="breath-circle">
+          <div class="breath-phase" id="breath-phase">Ready</div>
+          <div class="breath-count" id="breath-count">—</div>
+        </div>
+      </div>
+
+      <div class="breath-info">
+        <div class="breath-rounds" id="breath-rounds">4 rounds · ~64 seconds</div>
+        <div class="breath-time">Works on mute · no audio needed</div>
+      </div>
+
+      <button class="breath-start" id="breath-btn" onclick="toggleBreath()">Begin</button>
+    </div>
+
+    <div class="tips-card">
+      <div class="tips-title">While you breathe</div>
+      <ul class="tips-list">
+        <li>Breathe from your belly, not your chest</li>
+        <li>Let thoughts pass like clouds — gently return to the breath</li>
+        <li>Soften your jaw, shoulders, and hands</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ═══════════ POSITIVE PSYCHOLOGY ═══════════ -->
+  <div class="screen" id="screen-positive">
+    <div class="screen-header">
+      <div class="screen-label" style="color:var(--pos)">Positive Psychology</div>
+      <div class="screen-title">Three Good Things</div>
+      <div class="screen-subtitle">Write three things that went well today — and <em>why</em> they happened.</div>
+    </div>
+
+    <div class="pos-date" id="pos-date"></div>
+
+    <!-- Thing 1 -->
+    <div class="good-thing">
+      <div class="good-thing-header">
+        <div class="thing-number">1</div>
+        <div class="thing-label">Something that went well</div>
+      </div>
+      <div class="good-thing-body">
+        <textarea rows="2" placeholder="Describe it briefly..."></textarea>
+        <div class="why-block">
+          <div class="why-prompt">Why did this happen?</div>
+          <div class="why-hint">What does it say about you, your effort, your choices, or the world?</div>
+          <textarea rows="2" placeholder="e.g. Because I chose to start early, even when I didn't feel like it."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Thing 2 -->
+    <div class="good-thing">
+      <div class="good-thing-header">
+        <div class="thing-number">2</div>
+        <div class="thing-label">Something that went well</div>
+      </div>
+      <div class="good-thing-body">
+        <textarea rows="2" placeholder="Describe it briefly..."></textarea>
+        <div class="why-block">
+          <div class="why-prompt">Why did this happen?</div>
+          <div class="why-hint">Was it your effort, a skill, another person, or circumstances?</div>
+          <textarea rows="2" placeholder="e.g. A friend reached out because I'd been consistent in staying in touch."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Thing 3 -->
+    <div class="good-thing">
+      <div class="good-thing-header">
+        <div class="thing-number">3</div>
+        <div class="thing-label">Something that went well</div>
+      </div>
+      <div class="good-thing-body">
+        <textarea rows="2" placeholder="Even small things count. A kind moment, a task finished, a decision you're proud of."></textarea>
+        <div class="why-block">
+          <div class="why-prompt">Why did this happen?</div>
+          <div class="why-hint">This is the active ingredient — don't skip it.</div>
+          <textarea rows="2" placeholder=""></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="pos-save-area">
+      <button class="btn-primary btn-pos" style="width:100%;border-radius:12px;padding:15px">Save today's entry</button>
+    </div>
+  </div>
+
+  <!-- ═══════════ NEUROPLASTICITY ═══════════ -->
+  <div class="screen" id="screen-neuro">
+    <div class="screen-header">
+      <div class="screen-label" style="color:var(--neuro)">Neuroplasticity</div>
+      <div class="screen-title">Daily Brain Health</div>
+      <div class="screen-subtitle">The most reliable way to support your brain is through consistent lifestyle habits — not games.</div>
+    </div>
+
+    <div class="neuro-date" id="neuro-date"></div>
+
+    <div class="neuro-card">
+      <div class="habit-item" id="n1" onclick="toggleHabit('n1')">
+        <div class="habit-check">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2.5 7L5.5 10L11.5 4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="habit-text">
+          <div class="habit-name">Move your body</div>
+          <div class="habit-desc">Any movement counts — walk, stretch, swim, lift. Duration doesn't matter.</div>
+        </div>
+      </div>
+
+      <div class="habit-item" id="n2" onclick="toggleHabit('n2')">
+        <div class="habit-check">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2.5 7L5.5 10L11.5 4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="habit-text">
+          <div class="habit-name">Learn something new</div>
+          <div class="habit-desc">A fact, skill, chapter, or conversation outside your usual domain.</div>
+        </div>
+      </div>
+
+      <div class="habit-item" id="n3" onclick="toggleHabit('n3')">
+        <div class="habit-check">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2.5 7L5.5 10L11.5 4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="habit-text">
+          <div class="habit-name">Quality sleep last night</div>
+          <div class="habit-desc">7–9 hours for most adults. Sleep is when the brain consolidates memory.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="neuro-why">
+      <div class="neuro-why-title">Why these three?</div>
+      <div class="neuro-why-text">Physical movement stimulates BDNF — a protein that supports neuron growth. Novel learning creates new synaptic connections. Sleep consolidates the day's learning into long-term memory. Together, these three outperform any commercial "brain training" game on the market.</div>
+    </div>
+
+    <div class="neuro-streak">
+      <div class="streak-icon">🌿</div>
+      <div class="streak-text">You've completed all three <strong>3 days this week</strong>. Keep going.</div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+  // ── Tab switching
+  function showTab(name, el) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('screen-' + name).classList.add('active');
+    if (name === 'mindfulness' && breathRunning) stopBreath();
+  }
+
+  // ── Date labels
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('en-AU', { weekday: 'long', month: 'long', day: 'numeric' });
+  document.getElementById('pos-date').textContent = dateStr;
+  document.getElementById('neuro-date').textContent = dateStr;
+
+  // ── CBT
+  let cbtStep = 1;
+
+  function cbtNav(dir) {
+    document.getElementById('cbt-s' + cbtStep).style.display = 'none';
+    cbtStep = Math.max(1, Math.min(5, cbtStep + dir));
+    document.getElementById('cbt-s' + cbtStep).style.display = 'block';
+
+    document.querySelectorAll('.cbt-prog-step').forEach((el, i) => {
+      el.classList.remove('done','active');
+      if (i + 1 < cbtStep)  el.classList.add('done');
+      if (i + 1 === cbtStep) el.classList.add('active');
+    });
+
+    document.getElementById('cbt-back').style.display = cbtStep > 1 ? 'inline-block' : 'none';
+    document.getElementById('cbt-next').textContent = cbtStep === 5 ? 'Save record ✓' : 'Next →';
+  }
+
+  function selectChip(el, name, def) {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    const d = document.getElementById('chip-def');
+    d.innerHTML = '<strong>' + name + '</strong> — ' + def;
+    d.classList.add('visible');
+  }
+
+  // ── Breathing
+  let breathRunning = false;
+  let breathTimer = null;
+  let breathTickInterval = null;
+  let currentPattern = 'box';
+  const totalRounds = 4;
+
+  const patterns = {
+    box: [
+      { phase: 'Inhale', duration: 4, scale: 1.28 },
+      { phase: 'Hold',   duration: 4, scale: 1.28 },
+      { phase: 'Exhale', duration: 4, scale: 0.78 },
+      { phase: 'Hold',   duration: 4, scale: 0.78 },
+    ],
+    '478': [
+      { phase: 'Inhale', duration: 4, scale: 1.28 },
+      { phase: 'Hold',   duration: 7, scale: 1.28 },
+      { phase: 'Exhale', duration: 8, scale: 0.78 },
+    ]
+  };
+
+  function setPattern(p, el) {
+    if (breathRunning) return;
+    currentPattern = p;
+    document.querySelectorAll('.pattern-btn').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    const total = patterns[p].reduce((s, ph) => s + ph.duration, 0) * totalRounds;
+    document.getElementById('breath-rounds').textContent = totalRounds + ' rounds · ~' + total + ' seconds';
+  }
+
+  function toggleBreath() {
+    breathRunning ? stopBreath() : startBreath();
+  }
+
+  function startBreath() {
+    breathRunning = true;
+    document.getElementById('breath-btn').textContent = 'Stop';
+    runPhase(0, 0);
+  }
+
+  function stopBreath() {
+    breathRunning = false;
+    clearTimeout(breathTimer);
+    clearInterval(breathTickInterval);
+    document.getElementById('breath-btn').textContent = 'Begin';
+    document.getElementById('breath-phase').textContent = 'Ready';
+    document.getElementById('breath-count').textContent = '—';
+    document.getElementById('breath-circle').style.transform = '';
+    const total = patterns[currentPattern].reduce((s,p) => s + p.duration, 0) * totalRounds;
+    document.getElementById('breath-rounds').textContent = totalRounds + ' rounds · ~' + total + ' seconds';
+  }
+
+  function runPhase(roundIdx, phaseIdx) {
+    if (!breathRunning) return;
+    const pat = patterns[currentPattern];
+
+    if (roundIdx >= totalRounds) {
+      breathRunning = false;
+      document.getElementById('breath-btn').textContent = 'Begin';
+      document.getElementById('breath-phase').textContent = 'Complete';
+      document.getElementById('breath-count').textContent = '✓';
+      document.getElementById('breath-rounds').textContent = 'Session complete';
+      document.getElementById('breath-circle').style.transform = '';
+      return;
+    }
+
+    const ph = pat[phaseIdx];
+    document.getElementById('breath-phase').textContent = ph.phase;
+
+    const circle = document.getElementById('breath-circle');
+    circle.style.transition = 'transform ' + (ph.duration * 0.9) + 's ease-in-out';
+    circle.style.transform = 'scale(' + ph.scale + ')';
+
+    const roundsLeft = totalRounds - roundIdx;
+    document.getElementById('breath-rounds').textContent =
+      roundsLeft + ' round' + (roundsLeft !== 1 ? 's' : '') + ' remaining';
+
+    let countdown = ph.duration;
+    document.getElementById('breath-count').textContent = countdown;
+
+    clearInterval(breathTickInterval);
+    breathTickInterval = setInterval(() => {
+      countdown--;
+      if (countdown > 0) document.getElementById('breath-count').textContent = countdown;
+      else clearInterval(breathTickInterval);
+    }, 1000);
+
+    breathTimer = setTimeout(() => {
+      clearInterval(breathTickInterval);
+      const next = phaseIdx + 1;
+      if (next >= pat.length) runPhase(roundIdx + 1, 0);
+      else runPhase(roundIdx, next);
+    }, ph.duration * 1000);
+  }
+
+  // ── Neuroplasticity
+  function toggleHabit(id) {
+    document.getElementById(id).classList.toggle('checked');
+  }
+</script>
+</body>
+</html>

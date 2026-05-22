@@ -115,7 +115,7 @@ export function SearchSheet({ onClose, navigate }: Props) {
         onClick={onClose}
         style={{
           position: 'fixed', inset: 0,
-          background: 'rgba(0,0,0,0.45)',
+          background: 'var(--overlay)',
           zIndex: 300,
         }}
       />
@@ -253,14 +253,14 @@ function ResultGroup({
     <div style={{ marginBottom: 4 }}>
       <div style={{
         padding: '8px 18px 4px',
-        fontFamily: 'var(--font-mono)', fontSize: 9,
+        fontFamily: 'var(--font-mono)', fontSize: 10,
         letterSpacing: '0.1em', color: 'var(--ink-4)',
         display: 'flex', alignItems: 'center', gap: 8,
       }}>
         {label.toUpperCase()}
         <span style={{
           background: 'var(--paper-2)', border: '1px solid var(--rule)',
-          borderRadius: 10, padding: '1px 6px', fontSize: 9,
+          borderRadius: 10, padding: '1px 6px', fontSize: 10,
         }}>
           {count}
         </span>
@@ -327,7 +327,7 @@ function ResultRow({
       {/* Badge */}
       <span style={{
         flexShrink: 0, padding: '2px 7px', borderRadius: 10,
-        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.05em',
+        fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
         background: areaColor(hue, 'bg', isDark), color,
       }}>
         {badge}

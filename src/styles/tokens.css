@@ -27,6 +27,15 @@
   --warn:    oklch(0.520 0.140 50);    /* #8B4A1C — terracotta      */
   --warn-soft: oklch(0.938 0.038 50);  /* #F5E8DC — warn tint       */
 
+  /* Semantic status colours */
+  --destructive-bg:     oklch(0.970 0.030 25);
+  --destructive-fg:     oklch(0.450 0.180 25);
+  --destructive-border: oklch(0.850 0.080 25);
+  --positive-bg:        oklch(0.960 0.050 145);
+  --positive-fg:        oklch(0.400 0.120 145);
+  --negative-bg:        oklch(0.970 0.040 25);
+  --negative-fg:        oklch(0.500 0.140 25);
+
   /* Spacing scale */
   --s-1: 4px;   --s-2: 8px;   --s-3: 12px;  --s-4: 16px;
   --s-5: 20px;  --s-6: 24px;  --s-7: 32px;  --s-8: 40px;
@@ -34,6 +43,11 @@
 
   /* Radii */
   --r-1: 6px;  --r-2: 10px;  --r-3: 14px;  --r-4: 20px;  --r-pill: 999px;
+
+  /* Overlays — use instead of raw rgba(0,0,0,…) */
+  --overlay:       rgba(0, 0, 0, 0.45);
+  --overlay-light: rgba(0, 0, 0, 0.25);
+  --overlay-heavy: rgba(0, 0, 0, 0.60);
 
   /* Shadows — neutral, not warm-brown */
   --shadow-1:   0 1px 0 rgba(0,0,0,0.04),  0 1px 3px rgba(0,0,0,0.06);
@@ -90,6 +104,17 @@
   --accent-soft: oklch(0.270 0.055 145); /* #1E3A23 — tint on dark   */
   --warn:    oklch(0.720 0.130 50);    /* #D4703E — terracotta       */
   --warn-soft: oklch(0.270 0.070 50);  /* #3A2018 — warn tint dark   */
+  --destructive-bg:     oklch(0.240 0.060 25);
+  --destructive-fg:     oklch(0.820 0.140 25);
+  --destructive-border: oklch(0.360 0.100 25);
+  --positive-bg:        oklch(0.220 0.050 145);
+  --positive-fg:        oklch(0.760 0.100 145);
+  --negative-bg:        oklch(0.240 0.050 25);
+  --negative-fg:        oklch(0.820 0.120 25);
+
+  --overlay:       rgba(0, 0, 0, 0.55);
+  --overlay-light: rgba(0, 0, 0, 0.35);
+  --overlay-heavy: rgba(0, 0, 0, 0.72);
   --shadow-1:   0 1px 0 rgba(0,0,0,0.30), 0 1px 3px rgba(0,0,0,0.40);
   --shadow-2:   0 2px 6px rgba(0,0,0,0.30), 0 8px 24px rgba(0,0,0,0.40);
   --shadow-pop: 0 4px 16px rgba(0,0,0,0.40), 0 16px 40px rgba(0,0,0,0.50);

@@ -6,19 +6,21 @@ import { DEFAULT_CATEGORIES } from '../constants'
 import { Icons } from '../components/ui/Icons'
 import { ConfettiBurst } from '../components/ui'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
-import { ThemeToggle } from '../components/ThemeToggle'
+import { HeroBar } from '../components/layout/HeroBar'
 import { SwipeableRow } from '../components/SwipeableRow'
 import { HabitHeatmap } from '../components/HabitHeatmap'
 import { AddTaskSheet } from '../components/AddTaskSheet'
 import type { Screen, Habit } from '../types'
 import { useIsDark } from '../lib/colorMode'
 import { areaColor } from '../lib/areaColor'
+import { useNav } from '../lib/navContext'
 
-interface Props { navigate: (s: Screen) => void; back: () => void; onAddHabit?: () => void }
+interface Props { navigate?: (s: Screen) => void; back?: () => void; onAddHabit?: () => void }
 interface Burst { id: number; x: number; y: number; xp: number }
 
 // ── Habit cap ─────────────────────────────────────────────────────────────────
-const HABIT_CAP = 12
+const HABIT_CAP  = 12
+const SOFT_CAP   = 6
 
 // ── Today's ISO date ───────────────────────────────────────────────────────────
 const todayISO = localDateISO()
@@ -50,10 +52,10 @@ function StrengthBar({ strength, hue }: { strength?: number; hue: number }) {
   return (
     <div style={{ marginTop: 5 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.08em' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em' }}>
           STRENGTH · {label}
         </span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color }}>
           {pct}%
         </span>
       </div>
@@ -68,14 +70,32 @@ function StrengthBar({ strength, hue }: { strength?: number; hue: number }) {
 }
 
 // ── Streak badge ──────────────────────────────────────────────────────────────
-function StreakBadge({ streak }: { streak: number }) {
-  if (!streak) return null
+function StreakBadge({ streak, bestStreak }: { streak: number; bestStreak?: number }) {
+  const streakLabel = streak === 0 && (bestStreak ?? 0) > 3
+    ? `Best: ${bestStreak}d`
+    : streak > 0
+    ? `${streak}d`
+    : ''
+
+  if (!streakLabel) return null
+
+  if (streak === 0 && (bestStreak ?? 0) > 3) {
+    return (
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10,
+        color: 'var(--ink-3)', letterSpacing: '0.04em',
+      }}>
+        {streakLabel}
+      </span>
+    )
+  }
+
   return (
     <span style={{
       fontFamily: 'var(--font-mono)', fontSize: 10,
       color: 'var(--accent)', letterSpacing: '0.04em',
     }}>
-      🔥 {streak}
+      🔥 {streakLabel}
     </span>
   )
 }
@@ -100,7 +120,7 @@ function HabitRow({
   const safeHue  = hue ?? 220
   const color    = areaColor(safeHue, 'fg', isDark)
   const softBg   = areaColor(safeHue, 'bg', isDark)
-  const softRule = isDark ? `oklch(0.35 0.060 ${safeHue})` : `oklch(0.80 0.050 ${safeHue})`
+  const softRule = areaColor(safeHue, 'bg', isDark)
 
   return (
     <SwipeableRow onDelete={onDelete}>
@@ -138,8 +158,8 @@ function HabitRow({
             {habit.title}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <StreakBadge streak={habit.streak} />
-            {(habit.bestStreak ?? 0) > 0 && (habit.bestStreak ?? 0) !== habit.streak && (
+            <StreakBadge streak={habit.streak} bestStreak={habit.bestStreak} />
+            {(habit.bestStreak ?? 0) > 0 && habit.streak > 0 && (habit.bestStreak ?? 0) !== habit.streak && (
               <span style={{
                 fontFamily: 'var(--font-mono)', fontSize: 10,
                 color: 'var(--ink-4)', letterSpacing: '0.04em',
@@ -199,7 +219,7 @@ function HabitRow({
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
           {loggedToday && (
             <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em',
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em',
               color, flexShrink: 0,
             }}>
               DONE
@@ -211,7 +231,7 @@ function HabitRow({
             title="Edit habit"
             style={{
               padding: '3px 6px', borderRadius: 6,
-              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em',
               color: 'var(--ink-3)', border: '1px solid var(--rule)',
               background: 'transparent',
             }}
@@ -224,7 +244,7 @@ function HabitRow({
             title="Archive habit"
             style={{
               padding: '3px 6px', borderRadius: 6,
-              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em',
               color: 'var(--ink-4)', border: '1px solid var(--rule)',
               background: 'transparent',
             }}
@@ -258,12 +278,12 @@ function ArchivedHabitRow({ habit, hue, onUnarchive, onDelete }: {
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
             {habit.bestStreak > 0 && (
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>
                 Best: {habit.bestStreak}
               </span>
             )}
             {habit.strength !== undefined && (
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>
                 Strength: {Math.round(habit.strength * 100)}%
               </span>
             )}
@@ -273,7 +293,7 @@ function ArchivedHabitRow({ habit, hue, onUnarchive, onDelete }: {
           onClick={onUnarchive}
           style={{
             padding: '5px 10px', borderRadius: 8,
-            fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
+            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em',
             color: 'var(--ink-2)', border: '1px solid var(--rule)',
             background: 'var(--paper-3)',
           }}
@@ -286,8 +306,10 @@ function ArchivedHabitRow({ habit, hue, onUnarchive, onDelete }: {
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export const AllHabitsScreen = ({ navigate: _navigate, back, onAddHabit }: Props) => {
+export const AllHabitsScreen = ({ back: backProp, onAddHabit: onAddHabitProp }: Props) => {
+  const { back: ctxBack, openAddHabit } = useNav()
+  const back       = backProp       ?? ctxBack
+  const onAddHabit = onAddHabitProp ?? openAddHabit
   const [catFilter,     setCatFilter]     = useState<string>('all')
   const [bursts,        setBursts]        = useState<Burst[]>([])
   const [expandedHeat,  setExpandedHeat]  = useState<Set<string>>(new Set())
@@ -395,8 +417,23 @@ export const AllHabitsScreen = ({ navigate: _navigate, back, onAddHabit }: Props
         title="Habits"
         subtitle={`${pending.length} pending · ${logged.length} logged today · ${activeHabits.length}/${HABIT_CAP}`}
         back={back}
-        rightActions={<ThemeToggle />}
+        icon={<Icons.flame size={22} />}
       />
+
+      {/* HeroBar — habits at-a-glance */}
+      {(() => {
+        const doneToday  = activeHabits.filter(h => h.done).length
+        const totalToday = activeHabits.length
+        const bestStreak = activeHabits.reduce((m, h) => Math.max(m, h.streak ?? 0), 0)
+        const atRisk     = activeHabits.filter(h => !h.done && (h.streak ?? 0) > 0).length
+        return (
+          <HeroBar stats={[
+            { label: 'Done today', value: `${doneToday}/${totalToday}`, tone: doneToday === totalToday && totalToday > 0 ? 'success' : 'default' },
+            { label: 'Best streak', value: bestStreak > 0 ? `${bestStreak}d` : '—', tone: bestStreak >= 7 ? 'success' : 'default' },
+            { label: 'At risk', value: atRisk, tone: atRisk > 0 ? 'warning' : 'default' },
+          ]} />
+        )
+      })()}
 
       {/* Category filter chips */}
       <div style={{
@@ -441,6 +478,25 @@ export const AllHabitsScreen = ({ navigate: _navigate, back, onAddHabit }: Props
             }}>
               Dismiss
             </button>
+          </div>
+        )}
+
+        {/* ── Soft cap nudge ── */}
+        {activeHabits.length >= SOFT_CAP && (
+          <div style={{
+            margin: '0 0 12px',
+            padding: '12px 16px',
+            background: 'var(--warn-soft)',
+            borderRadius: 12,
+            border: '1px solid var(--warn)',
+            fontSize: 13,
+            color: 'var(--ink-2)',
+            lineHeight: 1.5,
+          }}>
+            <span style={{ fontWeight: 500, color: 'var(--warn)' }}>
+              {activeHabits.length} active habits.
+            </span>
+            {' '}Quality over quantity — consider whether each one is earning its place.
           </div>
         )}
 

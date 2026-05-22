@@ -7,18 +7,19 @@ import { ScreenHeader } from '../components/layout/ScreenHeader'
 import { Toggle, Seg } from '../components/ui'
 import { supabase } from '../lib/supabase'
 import { notificationsSupported, requestPermission } from '../lib/notifications'
-import { drainOutbox, incrementalPull, retryDeadLettered } from '../lib/sync'
+import { retryDeadLettered } from '../lib/sync'
 import { useSyncState, setSyncState } from '../lib/syncState'
-import { triggerSync, cancelSync } from '../components/SyncStatusBar'
+import { triggerSync } from '../components/SyncStatusBar'
 import type { Screen, AppSettings } from '../types'
+import { useNav } from '../lib/navContext'
 
-type SyncOp        = 'push' | 'pull' | 'both' | 'resync' | null
+type SyncOp        = 'both' | 'resync' | null
 type ConfirmAction = 'streaks' | 'tasks' | 'goals' | 'all' | 'resync' | null
 
 interface Props {
-  navigate: (s: Screen) => void
-  back: () => void
-  onLogout: () => void
+  navigate?: (s: Screen) => void
+  back?: () => void
+  onLogout?: () => void
 }
 
 // ── Palette Section ───────────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ function PaletteSection({
                 transition: 'box-shadow 0.2s',
               }} />
               <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
                 textTransform: 'uppercase',
                 color: on ? 'var(--ink)' : 'var(--ink-3)',
                 fontWeight: on ? 600 : 400,
@@ -150,7 +151,11 @@ function relativeTime(ts: number): string {
   return `${Math.floor(diffHr / 24)}d ago`
 }
 
-export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
+export const SettingsScreen = ({ navigate: navProp, back: backProp, onLogout: logoutProp }: Props) => {
+  const { navigate: ctxNavigate, back: ctxBack, onLogout: ctxLogout } = useNav()
+  const navigate = navProp  ?? ctxNavigate
+  const back     = backProp ?? ctxBack
+  const onLogout = logoutProp ?? ctxLogout
   const settings     = useLiveQuery(() => db.settings.get(1), [])
   const syncState    = useSyncState()
   const outboxCount  = useLiveQuery(() => db.outbox.count(), []) ?? 0
@@ -159,14 +164,6 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
     () => db.outbox.orderBy('queuedAt').reverse().first().then(e => e?.lastError ?? null),
     []
   ) ?? null
-  const processedThisWeek = useLiveQuery(
-    () => {
-      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
-      return db.inboxItems.filter(i => !!i.processedAt && i.processedAt >= sevenDaysAgo).count()
-    },
-    []
-  ) ?? 0
-
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() =>
     notificationsSupported() ? Notification.permission : 'denied'
   )
@@ -175,6 +172,7 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
   const [wiping,        setWiping]        = useState(false)
   const [confirmLogout, setConfirmLogout] = useState(false)
   const [loggingOut,    setLoggingOut]    = useState(false)
+  const [reloading,     setReloading]     = useState(false)
 
   if (!settings) return null
 
@@ -194,42 +192,10 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
   }
 
   // ── Sync handlers ─────────────────────────────────────────────────────────
-  async function handlePush() {
-    if (syncOp) return
-    setSyncOp('push')
-    setSyncState({ phase: 'pushing', pushProgress: 0, errorMsg: null })
-    try {
-      const failures = await drainOutbox()
-      setSyncState({ phase: 'done', pushProgress: 100, lastSyncAt: Date.now(),
-        errorMsg: failures > 0 ? `${failures} item${failures !== 1 ? 's' : ''} failed — will retry` : null })
-      setTimeout(() => setSyncState({ phase: 'idle' }), 3000)
-    } catch (e) {
-      setSyncState({ phase: 'error', errorMsg: e instanceof Error ? e.message : 'Push failed' })
-    } finally { setSyncOp(null) }
-  }
-
-  async function handlePull() {
-    if (syncOp) return
-    setSyncOp('pull')
-    setSyncState({ phase: 'pulling', pullProgress: 0, errorMsg: null })
-    try {
-      await incrementalPull()
-      setSyncState({ phase: 'done', pullProgress: 100, lastSyncAt: Date.now(), errorMsg: null })
-      setTimeout(() => setSyncState({ phase: 'idle' }), 3000)
-    } catch (e) {
-      setSyncState({ phase: 'error', errorMsg: e instanceof Error ? e.message : 'Pull failed' })
-    } finally { setSyncOp(null) }
-  }
-
   async function handlePushPull() {
     if (syncOp) return
     setSyncOp('both')
     try { await triggerSync() } finally { setSyncOp(null) }
-  }
-
-  function handleCancel() {
-    cancelSync()
-    setSyncOp(null)
   }
 
   async function handleResync() {
@@ -241,6 +207,7 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
       setSyncState({ phase: 'pulling', pullProgress: 0, errorMsg: null })
       await incrementalPull()
       setSyncState({ phase: 'done', pullProgress: 100, lastSyncAt: Date.now(), errorMsg: null })
+      setReloading(true)
       setTimeout(() => window.location.reload(), 800)
     } catch (e) {
       setSyncState({ phase: 'error', errorMsg: e instanceof Error ? e.message : 'Resync failed' })
@@ -275,6 +242,17 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
 
   return (
     <div className="screen">
+      {reloading && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 999,
+          background: 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column', gap: 12,
+        }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-3)', letterSpacing: '0.08em' }}>
+            RELOADING…
+          </div>
+        </div>
+      )}
       <ScreenHeader title="Settings" back={back} />
 
       <div className="screen-scroll" style={{ padding: '0 0 40px' }}>
@@ -344,11 +322,6 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
               on={settings.voiceCaptureToInbox ?? true}
               onChange={v => update({ voiceCaptureToInbox: v })}
             />
-          </Row>
-          <Row label="Processed this week">
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-3)' }}>
-              {processedThisWeek} item{processedThisWeek !== 1 ? 's' : ''}
-            </span>
           </Row>
         </Section>
 
@@ -449,74 +422,30 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
           </div>
         </Section>
 
-        {/* Reflect */}
-        <Section title="Reflect">
-          <button
-            onClick={() => navigate({ name: 'review' })}
-            style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '13px 20px', width: '100%',
-              borderBottom: '1px solid var(--rule)',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>Weekly Review</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-                Wins · Goals pulse · Covey quadrant audit
-              </div>
-            </div>
-            <Icons.arrow size={16} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
-          </button>
-          <button
-            onClick={() => navigate({ name: 'coping-cards' })}
-            style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '13px 20px', width: '100%',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>Coping cards</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-                CBT · ACT · DBT · mindfulness · self-compassion
-              </div>
-            </div>
-            <Icons.arrow size={16} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
-          </button>
-        </Section>
-
-        {/* Stats */}
-        <Section title="Stats">
-          <Row label="XP earned">
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600 }}>
-              {settings.xp.toLocaleString()}
-            </span>
-          </Row>
-          <Row label="Current streak">
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600, color: 'var(--warn)', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Icons.flame size={14} /> {settings.streak} days
-            </span>
-          </Row>
-        </Section>
-
         {/* Sync */}
         <Section title="Sync">
+          <Row label="Workspaces" sub="Share task lists with others">
+            <button
+              onClick={() => navigate({ name: 'workspace-settings' })}
+              style={{ color: 'var(--ink-3)', padding: 4 }}
+            >
+              <Icons.arrow size={16} />
+            </button>
+          </Row>
           {/* Status card */}
           <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--rule)' }}>
             <div style={{
               padding: '10px 14px', borderRadius: 10,
-              background: outboxError
-                ? 'oklch(0.97 0.03 25)'
-                : outboxCount > 0 ? 'oklch(0.97 0.04 75)'
-                : 'oklch(0.97 0.03 145)',
-              border: `1px solid ${outboxError ? 'oklch(0.88 0.08 25)' : outboxCount > 0 ? 'oklch(0.88 0.08 75)' : 'oklch(0.88 0.06 145)'}`,
+              background: outboxError ? 'var(--destructive-bg)' : outboxCount > 0 ? 'var(--warn-soft)' : 'var(--positive-bg)',
+              border: `1px solid ${outboxError ? 'var(--destructive-border)' : outboxCount > 0 ? 'var(--warn)' : 'var(--positive-fg)'}`,
               display: 'flex', flexDirection: 'column', gap: 4,
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{
                   fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
-                  color: outboxError ? 'oklch(0.50 0.15 25)' : outboxCount > 0 ? 'oklch(0.50 0.12 75)' : 'oklch(0.40 0.10 145)',
+                  color: outboxError ? 'var(--destructive-fg)' : outboxCount > 0 ? 'var(--warn)' : 'var(--positive-fg)',
                 }}>
-                  {outboxError ? '⚠ SYNC ERROR' : syncOp ? `● ${syncOp === 'push' ? 'PUSHING' : syncOp === 'pull' ? 'PULLING' : syncOp === 'resync' ? 'RESYNCING' : 'SYNCING'}…` : outboxCount > 0 ? '⏳ PENDING' : '✓ SYNCED'}
+                  {outboxError ? '⚠ SYNC ERROR' : syncOp ? `● ${syncOp === 'resync' ? 'RESYNCING' : 'SYNCING'}…` : outboxCount > 0 ? '⏳ PENDING' : '✓ SYNCED'}
                 </span>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>
                   {outboxCount > 0 ? `${outboxCount} item${outboxCount !== 1 ? 's' : ''} queued` : 'up to date'}
@@ -526,21 +455,21 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
                 Last sync: {relativeTime(syncState.lastSyncAt)}
               </div>
               {outboxError && (
-                <div style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'oklch(0.50 0.15 25)', wordBreak: 'break-word', lineHeight: 1.5 }}>
+                <div style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--destructive-fg)', wordBreak: 'break-word', lineHeight: 1.5 }}>
                   {outboxError === '[object Object]' ? 'Network or server error — will retry' : outboxError}
                 </div>
               )}
               {deadCount > 0 && (
                 <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'oklch(0.50 0.15 25)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--destructive-fg)' }}>
                     ✗ {deadCount} write{deadCount !== 1 ? 's' : ''} failed permanently
                   </span>
                   <button
                     onClick={() => retryDeadLettered()}
                     style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.05em',
-                      color: 'oklch(0.50 0.15 25)', padding: '2px 8px', borderRadius: 6,
-                      border: '1px solid oklch(0.88 0.08 25)', background: 'transparent',
+                      fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
+                      color: 'var(--destructive-fg)', padding: '2px 8px', borderRadius: 6,
+                      border: '1px solid var(--destructive-border)', background: 'transparent',
                     }}
                   >
                     RETRY
@@ -550,56 +479,98 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
             </div>
           </div>
 
-          {/* Push / Pull row */}
-          <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--rule)', display: 'flex', gap: 8 }}>
-            <SyncBtn onClick={handlePush} disabled={!!syncOp} loading={syncOp === 'push'} icon="↑">Push</SyncBtn>
-            <SyncBtn onClick={handlePull} disabled={!!syncOp} loading={syncOp === 'pull'} icon="↓">Pull</SyncBtn>
-          </div>
-
-          {/* Push & Pull */}
+          {/* Sync now */}
           <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--rule)' }}>
             <SyncBtn full primary onClick={handlePushPull} disabled={!!syncOp} loading={syncOp === 'both'} icon="↑↓">
-              Push &amp; Pull
+              Sync now
             </SyncBtn>
           </div>
 
-          {/* Cancel */}
+          {/* What syncs */}
+          <div style={{ padding: '10px 20px 4px', borderBottom: '1px solid var(--rule)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+              What syncs across devices
+            </div>
+          </div>
+          {([
+            { key: 'tasks',    label: 'Tasks'          },
+            { key: 'habits',   label: 'Habits'         },
+            { key: 'goals',    label: 'Goals'          },
+            { key: 'shopping', label: 'Shopping list'  },
+            { key: 'journal',  label: 'Journal entries'},
+            { key: 'moods',    label: 'Mood & energy'  },
+          ] as const).map(({ key, label }) => {
+            const prefs = { tasks: true, habits: true, goals: true, shopping: true, journal: true, moods: true, ...settings.syncPrefs }
+            return (
+              <Row key={key} label={label}>
+                <Toggle
+                  on={prefs[key]}
+                  onChange={v => update({ syncPrefs: { ...prefs, [key]: v } })}
+                />
+              </Row>
+            )
+          })}
+        </Section>
+
+        {/* Account */}
+        <Section title="Account">
           <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--rule)' }}>
-            <SyncBtn full onClick={handleCancel} disabled={!syncOp && !['pushing','pulling','previewing'].includes(syncState.phase)}>
-              Cancel sync
-            </SyncBtn>
-            {!syncOp && !['pushing','pulling','previewing'].includes(syncState.phase) && (
-              <div style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.04em' }}>
-                No sync in progress. Local data is intact.
+            {!confirmLogout ? (
+              <button
+                onClick={() => setConfirmLogout(true)}
+                style={{
+                  width: '100%', padding: '13px', borderRadius: 12, fontSize: 13,
+                  border: '1px solid var(--rule)', color: 'var(--ink-2)',
+                  fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
+                  background: 'var(--paper-3)',
+                }}>
+                Sign out
+              </button>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{
+                  padding: '10px 14px', borderRadius: 10,
+                  background: 'var(--warn-soft)',
+                  fontFamily: 'var(--font-mono)', fontSize: 12,
+                  color: 'var(--warn)', textAlign: 'center', letterSpacing: '0.02em',
+                }}>
+                  Sign out of MightyBananaQuest?
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => setConfirmLogout(false)}
+                    style={{
+                      flex: 1, padding: '11px', borderRadius: 10, fontSize: 13,
+                      border: '1px solid var(--rule)', color: 'var(--ink-2)',
+                      fontFamily: 'var(--font-mono)', background: 'var(--paper-2)',
+                    }}>
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    disabled={loggingOut}
+                    style={{
+                      flex: 1, padding: '11px', borderRadius: 10, fontSize: 13,
+                      border: 'none', fontFamily: 'var(--font-mono)', fontWeight: 600,
+                      background: loggingOut ? 'var(--ink-3)' : 'var(--ink)',
+                      color: 'var(--paper)',
+                    }}>
+                    {loggingOut ? 'Signing out…' : 'Yes, sign out'}
+                  </button>
+                </div>
               </div>
             )}
           </div>
-
-          {/* Reset local cache & resync */}
-          <div style={{ padding: '12px 20px' }}>
-            {confirmAction === 'resync' ? (
-              <InlineConfirm
-                message="Clears all local data and pull watermarks, then rebuilds everything from the server. Any unsynced local changes will be lost."
-                confirmLabel={syncOp === 'resync' ? 'Resyncing…' : 'Yes, reset & resync'}
-                loading={syncOp === 'resync'}
-                danger
-                onCancel={() => setConfirmAction(null)}
-                onConfirm={handleResync}
-              />
-            ) : (
-              <SyncBtn full danger onClick={() => setConfirmAction('resync')} disabled={!!syncOp}>
-                Reset local cache &amp; resync everything
-              </SyncBtn>
-            )}
-            <div style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.04em', lineHeight: 1.5 }}>
-              Use if local state is stuck or out of date. Fetches fresh data from server.
+          <div style={{ padding: '10px 20px 14px' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.6 }}>
+              MightyBananaQuest — data stored on-device, synced securely across your devices.
             </div>
           </div>
         </Section>
 
-        {/* Wipe */}
-        <Section title="Wipe">
-          {/* Streaks + Tasks row */}
+        {/* Danger zone */}
+        <Section title="Danger zone">
+          {/* Streaks + Tasks */}
           <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--rule)' }}>
             {confirmAction === 'streaks' ? (
               <InlineConfirm
@@ -640,6 +611,27 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
             )}
           </div>
 
+          {/* Reset local cache */}
+          <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--rule)' }}>
+            {confirmAction === 'resync' ? (
+              <InlineConfirm
+                message="Clears all local data and pull watermarks, then rebuilds everything from the server. Any unsynced local changes will be lost."
+                confirmLabel={syncOp === 'resync' ? 'Resyncing…' : 'Yes, reset & resync'}
+                loading={syncOp === 'resync'}
+                danger
+                onCancel={() => setConfirmAction(null)}
+                onConfirm={handleResync}
+              />
+            ) : (
+              <SyncBtn full danger onClick={() => setConfirmAction('resync')} disabled={!!syncOp}>
+                Reset local cache &amp; resync
+              </SyncBtn>
+            )}
+            <div style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.04em', lineHeight: 1.5 }}>
+              Use if local state is stuck. Clears local data and rebuilds from server.
+            </div>
+          </div>
+
           {/* Wipe all — most destructive */}
           <div style={{ padding: '12px 20px' }}>
             {confirmAction === 'all' ? (
@@ -661,70 +653,6 @@ export const SettingsScreen = ({ navigate, back, onLogout }: Props) => {
                 </div>
               </>
             )}
-          </div>
-        </Section>
-
-        {/* Account */}
-        <Section title="Account">
-          <div style={{ padding: '12px 20px' }}>
-            {!confirmLogout ? (
-              <button
-                onClick={() => setConfirmLogout(true)}
-                style={{
-                  width: '100%', padding: '13px', borderRadius: 12, fontSize: 13,
-                  border: '1px solid var(--rule)', color: 'var(--ink-2)',
-                  fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
-                  background: 'var(--paper-3)',
-                }}>
-                Sign out
-              </button>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{
-                  padding: '10px 14px', borderRadius: 10,
-                  background: 'var(--warn-soft)',
-                  fontFamily: 'var(--font-mono)', fontSize: 12,
-                  color: 'var(--warn)', textAlign: 'center', letterSpacing: '0.02em',
-                }}>
-                  Sign out of MightyBananaQuest?
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={() => setConfirmLogout(false)}
-                    style={{
-                      flex: 1, padding: '11px', borderRadius: 10, fontSize: 13,
-                      border: '1px solid var(--rule)', color: 'var(--ink-2)',
-                      fontFamily: 'var(--font-mono)',
-                      background: 'var(--paper-2)',
-                    }}>
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    disabled={loggingOut}
-                    style={{
-                      flex: 1, padding: '11px', borderRadius: 10, fontSize: 13,
-                      border: 'none',
-                      fontFamily: 'var(--font-mono)', fontWeight: 600,
-                      background: loggingOut ? 'var(--ink-3)' : 'var(--ink)',
-                      color: 'var(--paper)',
-                    }}>
-                    {loggingOut ? 'Signing out…' : 'Yes, sign out'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </Section>
-
-        {/* About */}
-        <Section title="About">
-          <div style={{ padding: '6px 20px 14px' }}>
-            <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-              <span className="t-display" style={{ fontSize: 15 }}>MightyBananaQuest</span>
-              <br />
-              Your gamified life OS. Data is stored on-device and synced securely across your devices.
-            </div>
           </div>
         </Section>
       </div>
@@ -785,9 +713,9 @@ function WipeBtn({
         padding: '12px', borderRadius: 12, fontSize: 13,
         fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
         opacity: disabled ? 0.4 : 1,
-        background: destructive ? 'oklch(0.97 0.03 25)' : 'var(--paper-3)',
-        color: destructive ? 'oklch(0.45 0.18 25)' : 'var(--ink-2)',
-        border: `1px solid ${destructive ? 'oklch(0.85 0.08 25)' : 'var(--rule)'}`,
+        background: destructive ? 'var(--destructive-bg)' : 'var(--paper-3)',
+        color: destructive ? 'var(--destructive-fg)' : 'var(--ink-2)',
+        border: `1px solid ${destructive ? 'var(--destructive-border)' : 'var(--rule)'}`,
       }}
     >
       {children}
@@ -810,10 +738,10 @@ function InlineConfirm({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{
         padding: '10px 14px', borderRadius: 10, lineHeight: 1.55,
-        background: danger ? 'oklch(0.97 0.03 25)' : 'var(--accent-soft)',
-        border: `1px solid ${danger ? 'oklch(0.88 0.08 25)' : 'var(--rule)'}`,
+        background: danger ? 'var(--destructive-bg)' : 'var(--accent-soft)',
+        border: `1px solid ${danger ? 'var(--destructive-border)' : 'var(--rule)'}`,
         fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.03em',
-        color: danger ? 'oklch(0.45 0.18 25)' : 'var(--ink-2)',
+        color: danger ? 'var(--destructive-fg)' : 'var(--ink-2)',
       }}>
         {message}
       </div>
@@ -837,7 +765,7 @@ function InlineConfirm({
             flex: 1, padding: '11px', borderRadius: 10, fontSize: 13, fontWeight: 600,
             border: 'none',
             fontFamily: 'var(--font-mono)',
-            background: danger ? 'oklch(0.45 0.18 25)' : 'var(--ink)',
+            background: danger ? 'var(--destructive-fg)' : 'var(--ink)',
             color: 'var(--paper)',
             opacity: loading ? 0.6 : 1,
           }}

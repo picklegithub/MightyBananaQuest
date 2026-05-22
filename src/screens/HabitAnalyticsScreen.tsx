@@ -13,8 +13,9 @@ import { db } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
 import type { Screen } from '../types'
+import { useNav } from '../lib/navContext'
 
-interface Props { navigate: (s: Screen) => void; back: () => void }
+interface Props { navigate?: (s: Screen) => void; back?: () => void }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function isoDate(d: Date): string {
@@ -114,7 +115,9 @@ function WeekdayBar({ label, pct, color }: { label: string; pct: number; color: 
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-export function HabitAnalyticsScreen({ back }: Props) {
+export function HabitAnalyticsScreen({ back: backProp }: Props) {
+  const { back: ctxBack } = useNav()
+  const back = backProp ?? ctxBack
   const habits  = useLiveQuery(() => db.habits.toArray(), [])
   const allLogs = useLiveQuery(() => db.habitLog.toArray(), [])
 
@@ -256,10 +259,10 @@ export function HabitAnalyticsScreen({ back }: Props) {
             <div style={{
               marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5,
               padding: '3px 10px', borderRadius: 12,
-              background: trend === 'up' ? 'oklch(0.96 0.05 145)' : trend === 'down' ? 'oklch(0.97 0.04 25)' : 'var(--paper)',
+              background: trend === 'up' ? 'var(--positive-bg)' : trend === 'down' ? 'var(--negative-bg)' : 'var(--paper)',
               border: '1px solid var(--rule)',
               fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.04em',
-              color: trend === 'up' ? 'oklch(0.40 0.12 145)' : trend === 'down' ? 'oklch(0.50 0.14 25)' : 'var(--ink-3)',
+              color: trend === 'up' ? 'var(--positive-fg)' : trend === 'down' ? 'var(--negative-fg)' : 'var(--ink-3)',
             }}>
               {trend === 'up'   && '↑ Improving'}
               {trend === 'down' && '↓ Declining'}
@@ -275,7 +278,7 @@ export function HabitAnalyticsScreen({ back }: Props) {
           border: '1px solid var(--rule)',
         }}>
           <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em',
+            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em',
             color: 'var(--ink-4)', marginBottom: 14, textTransform: 'uppercase',
           }}>
             4-week completion rate
@@ -300,7 +303,7 @@ export function HabitAnalyticsScreen({ back }: Props) {
           border: '1px solid var(--rule)',
         }}>
           <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em',
+            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em',
             color: 'var(--ink-4)', marginBottom: 14, textTransform: 'uppercase',
           }}>
             Weekday consistency (12 weeks)

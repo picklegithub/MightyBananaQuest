@@ -1,3 +1,4 @@
+import { makeId } from '../lib/makeId'
 /**
  * sync.ts — Incremental, outbox-based Supabase ↔ Dexie sync
  *
@@ -38,7 +39,7 @@
 
 import { supabase } from './supabase'
 import { db, type OutboxEntry } from '../data/db'
-import type { Task, Goal, JournalEntry, InboxItem, Category, AppSettings, ShoppingItem, Habit, WeeklyReview, DailyPlan, GoalPulse, CopingCard } from '../types'
+import type { Task, Goal, JournalEntry, InboxItem, Category, AppSettings, ShoppingItem, Habit, WeeklyReview, DailyPlan, GoalPulse, CopingCard, SubTask, MoodEntry, MoodEnergy, MoodSource, Workspace, WorkspaceMember, WorkspaceMemberRole } from '../types'
 
 // ── Error message extractor ───────────────────────────────────────────────────
 // Supabase PostgrestError is a plain object { message, details, hint, code },
@@ -80,7 +81,9 @@ export async function getUserIdAsync(): Promise<string | null> {
 //     meaning 007 hasn't been deployed yet). Clients that have never pulled
 //     start with null → full pull on first sync.
 //
-// Once 007 is stable in production the synced_at fallback path can be removed.
+// Once 007 is stable in production: set VITE_REQUIRE_SERVER_SEQ=true in .env to
+// retire the synced_at fallback. The flag makes SyncStatusBar skip incrementalPull()
+// instead of falling back — safe to enable once all environments have 007 applied.
 
 const LAST_PULL_KEY = 'mbq_last_pull_at'
 const LAST_SEQ_KEY  = 'mbq_last_server_seq'
@@ -112,23 +115,37 @@ export function enqueueUpsert(table: string, recordId: string, data: object): vo
   const now  = Date.now()
   // Preserve existing idempotencyKey if the entry already exists (rapid edits → same key)
   db.outbox.get(key).then(existing => {
+    // Compute changedFields by diffing new data against last queued data.
+    // Accumulated across rapid edits (union). Falls back to all-fields on first write.
+    const nd = data as Record<string, unknown>
+    let changedFields: string[]
+    if (existing?.data) {
+      const pd = existing.data as Record<string, unknown>
+      const diffed = Object.keys(nd).filter(k => JSON.stringify(nd[k]) !== JSON.stringify(pd[k]))
+      const prev   = existing.changedFields ?? Object.keys(pd)
+      changedFields = [...new Set([...prev, ...diffed])]
+    } else {
+      changedFields = Object.keys(nd)
+    }
     db.outbox.put({
       key,
       table,
       recordId,
       op:              'upsert',
       data,
+      changedFields,
       queuedAt:        existing?.queuedAt ?? now,
       attempts:        0,                          // reset on each new edit
       nextRetryAt:     now,
-      idempotencyKey:  existing?.idempotencyKey ?? crypto.randomUUID(),
+      idempotencyKey:  existing?.idempotencyKey ?? makeId(),
       deadLettered:    false,
     }).catch(() => {})
   }).catch(() => {
     db.outbox.put({
       key, table, recordId, op: 'upsert', data,
+      changedFields: Object.keys(data as Record<string, unknown>),
       queuedAt: now, attempts: 0, nextRetryAt: now,
-      idempotencyKey: crypto.randomUUID(), deadLettered: false,
+      idempotencyKey: makeId(), deadLettered: false,
     }).catch(() => {})
   })
 }
@@ -146,14 +163,14 @@ export function enqueueDelete(table: string, recordId: string, data?: object): v
       queuedAt:       existing?.queuedAt ?? now,
       attempts:       0,
       nextRetryAt:    now,
-      idempotencyKey: existing?.idempotencyKey ?? crypto.randomUUID(),
+      idempotencyKey: existing?.idempotencyKey ?? makeId(),
       deadLettered:   false,
     }).catch(() => {})
   }).catch(() => {
     db.outbox.put({
       key, table, recordId, op: 'delete', data,
       queuedAt: now, attempts: 0, nextRetryAt: now,
-      idempotencyKey: crypto.randomUUID(), deadLettered: false,
+      idempotencyKey: makeId(), deadLettered: false,
     }).catch(() => {})
   })
 }
@@ -175,7 +192,7 @@ function taskToRow(task: Task, userId: string) {
     effort:        task.effort,
     due:           task.due,
     streak:        task.streak,
-    quad:          task.quad,
+    quad:          task.quad ?? null,
     recurring:     task.recurring,
     done:          task.done,
     sub:           task.sub,
@@ -184,9 +201,58 @@ function taskToRow(task: Task, userId: string) {
     pomodoro_mins: task.pomodoroMins ?? null,
     time:          task.time ?? null,
     notes:         task.notes ?? null,
+    workspace_id:  task.workspaceId ?? null,
     created_at:    task.createdAt ?? null,
     updated_at:    task.updatedAt ? new Date(task.updatedAt).toISOString() : isoNow(),
   }
+}
+
+function rowToWorkspace(row: Record<string, unknown>): Workspace {
+  return {
+    id:        row.id as string,
+    name:      (row.name as string) ?? '',
+    ownerId:   (row.owner_id as string) ?? '',
+    createdAt: row.created_at ? new Date(row.created_at as string).getTime() : Date.now(),
+    updatedAt: row.updated_at ? new Date(row.updated_at as string).getTime() : Date.now(),
+    deletedAt: row.deleted_at ? new Date(row.deleted_at as string).getTime() : undefined,
+  }
+}
+
+function rowToWorkspaceMember(row: Record<string, unknown>): WorkspaceMember {
+  return {
+    workspaceId:   (row.workspace_id as string) ?? '',
+    userId:        (row.user_id as string) ?? '',
+    role:          (row.role as WorkspaceMemberRole) ?? 'member',
+    invitedEmail:  (row.invited_email as string | undefined) ?? undefined,
+    joinedAt:      row.joined_at ? new Date(row.joined_at as string).getTime() : undefined,
+    createdAt:     row.created_at ? new Date(row.created_at as string).getTime() : Date.now(),
+    updatedAt:     row.updated_at ? new Date(row.updated_at as string).getTime() : Date.now(),
+  }
+}
+
+// Merge sub[] arrays by id: remote wins on conflicts; local-only subs are preserved.
+// Falls back to remote-takes-all when either side lacks ids (legacy data).
+function mergeSubTasks(local: SubTask[], remote: SubTask[]): SubTask[] {
+  const hasIds = (subs: SubTask[]) => subs.length === 0 || subs.some(s => s.id)
+  if (!hasIds(remote) || !hasIds(local)) return remote
+  const remoteMap = new Map(remote.filter(s => s.id).map(s => [s.id!, s]))
+  const localOnly = local.filter(s => s.id && !remoteMap.has(s.id!))
+  return [...remote, ...localOnly]
+}
+
+// Field-level LWW merge: preserve locally-changed fields, take remote for everything else.
+// localChangedFields comes from the outbox entry for this record.
+// Falls back gracefully — if no changedFields, caller should use standard LWW.
+function fieldLevelMerge<T extends Record<string, unknown>>(
+  local: T,
+  remote: T,
+  localChangedFields: string[],
+): T {
+  const merged = { ...remote } as Record<string, unknown>
+  for (const field of localChangedFields) {
+    if (field in local) merged[field] = local[field]
+  }
+  return merged as T
 }
 
 function rowToTask(row: Record<string, unknown>): Task {
@@ -197,7 +263,7 @@ function rowToTask(row: Record<string, unknown>): Task {
     effort:       (row.effort as Task['effort']) ?? 's',
     due:          (row.due as string) ?? 'Today',
     streak:       (row.streak as number) ?? 0,
-    quad:         (row.quad as Task['quad']) ?? 'q2',
+    quad:         (row.quad as Task['quad']) ?? undefined,
     recurring:    (row.recurring as string | null) ?? null,
     done:         (row.done as boolean) ?? false,
     sub:          (row.sub as Task['sub']) ?? [],
@@ -206,6 +272,7 @@ function rowToTask(row: Record<string, unknown>): Task {
     pomodoroMins: (row.pomodoro_mins as number | undefined) ?? undefined,
     time:         (row.time as string | undefined) ?? undefined,
     notes:        (row.notes as string | undefined) ?? undefined,
+    workspaceId:  (row.workspace_id as string | undefined) ?? undefined,
     createdAt:    (row.created_at as number | undefined) ?? undefined,
     updatedAt:    row.updated_at ? new Date(row.updated_at as string).getTime() : undefined,
     deletedAt:    row.deleted_at ? new Date(row.deleted_at as string).getTime() : undefined,
@@ -273,30 +340,41 @@ function rowToJournal(row: Record<string, unknown>): JournalEntry {
   }
 }
 
-function inboxToRow(item: any, userId: string) {
-  return {
-    id:         item.id,
-    user_id:    userId,
-    kind:       item.kind ?? 'capture',
-    text:       item.text,
-    when_ts:    item.when ?? '',
-    processed:  item.processed ?? false,
-    updated_at: isoNow(),
-  }
-}
-
-function rowToInbox(row: Record<string, unknown>): any {
-  return {
-    id:        row.id as string,
-    kind:      'capture' as const,
-    text:      (row.text as string) ?? '',
-    when:      (row.when_ts as string) ?? '',
-    processed: (row.processed as boolean) ?? false,
-  }
-}
-
 function habitLogToRow(log: { id: string; taskId: string; date: string }, userId: string) {
   return { id: log.id, user_id: userId, task_id: log.taskId, date: log.date }
+}
+
+function moodEntryToRow(entry: MoodEntry, userId: string) {
+  return {
+    id:         entry.id,
+    user_id:    userId,
+    date:       entry.date,
+    time:       entry.time,
+    source:     entry.source,
+    mood:       entry.mood,
+    energy:     entry.energy ?? null,
+    emotions:   entry.emotions,
+    influences: entry.influences,
+    note:       entry.note ?? null,
+    created_at: new Date(entry.createdAt).toISOString(),
+    updated_at: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : isoNow(),
+  }
+}
+
+function rowToMoodEntry(row: Record<string, unknown>): MoodEntry {
+  return {
+    id:         row.id as string,
+    date:       row.date as string,
+    time:       row.time as string,
+    source:     row.source as MoodSource,
+    mood:       row.mood as MoodEntry['mood'],
+    energy:     (row.energy as MoodEnergy) ?? null,
+    emotions:   (row.emotions as string[]) ?? [],
+    influences: (row.influences as string[]) ?? [],
+    note:       (row.note as string) ?? null,
+    createdAt:  row.created_at ? new Date(row.created_at as string).getTime() : Date.now(),
+    updatedAt:  row.updated_at ? new Date(row.updated_at as string).getTime() : undefined,
+  }
 }
 
 function copingCardToRow(card: CopingCard, userId: string) {
@@ -497,6 +575,7 @@ function rowToWeeklyReview(row: Record<string, unknown>): WeeklyReview {
     nextWeekThing:  (row.next_week_thing as string) ?? '',
     completedAt:    (row.completed_at as number | undefined) ?? undefined,
     updatedAt:      row.updated_at ? new Date(row.updated_at as string).getTime() : undefined,
+    shareToken:     (row.share_token as string | undefined) ?? undefined,
   }
 }
 
@@ -539,7 +618,6 @@ function serializeForSupabase(
     case 'tasks':          return taskToRow(data as Task, userId)
     case 'goals':          return goalToRow(data as Goal, userId)
     case 'journal':        return journalToRow(data as JournalEntry, userId)
-    case 'inbox':          return inboxToRow(data as any, userId)
     case 'inbox_items':    return inboxItemsToRow(data as InboxItem, userId)
     case 'categories':     return categoryToRow(data as Category, userId)
     case 'settings':       return settingsToRow(data as AppSettings, userId)
@@ -549,8 +627,51 @@ function serializeForSupabase(
     case 'daily_plans':     return dailyPlanToRow(data as DailyPlan, userId)
     case 'coping_cards':   return copingCardToRow(data as CopingCard, userId)
     case 'habit_log':      return habitLogToRow(data as { id: string; taskId: string; date: string }, userId)
+    case 'mood_entries':   return moodEntryToRow(data as MoodEntry, userId)
+    case 'workspaces': {
+      const ws = data as Workspace
+      return {
+        id:         ws.id,
+        name:       ws.name,
+        owner_id:   ws.ownerId ?? userId,
+        created_at: new Date(ws.createdAt).toISOString(),
+        updated_at: new Date(ws.updatedAt).toISOString(),
+        ...(ws.deletedAt ? { deleted_at: new Date(ws.deletedAt).toISOString() } : {}),
+      }
+    }
+    case 'workspace_members': {
+      const wm = data as WorkspaceMember
+      return {
+        workspace_id:  wm.workspaceId,
+        user_id:       wm.userId,
+        role:          wm.role,
+        invited_email: wm.invitedEmail ?? null,
+        joined_at:     wm.joinedAt ? new Date(wm.joinedAt).toISOString() : null,
+        created_at:    new Date(wm.createdAt).toISOString(),
+        updated_at:    new Date(wm.updatedAt).toISOString(),
+      }
+    }
     default:               return { ...data, user_id: userId }
   }
+}
+
+// ── Selective sync ────────────────────────────────────────────────────────────
+
+const DEFAULT_SYNC_PREFS = { tasks: true, habits: true, goals: true, journal: false, moods: false, shopping: true }
+
+// Maps Supabase table names → syncPrefs key. Tables absent from this map always sync.
+const SYNC_TABLE_MAP: Partial<Record<string, keyof typeof DEFAULT_SYNC_PREFS>> = {
+  tasks:          'tasks',
+  habits:         'habits',
+  goals:          'goals',
+  journal:        'journal',
+  mood_entries:   'moods',
+  shopping_items: 'shopping',
+}
+
+async function getSyncPrefs(): Promise<typeof DEFAULT_SYNC_PREFS> {
+  const settings = await db.settings.get(1)
+  return { ...DEFAULT_SYNC_PREFS, ...(settings?.syncPrefs ?? {}) }
 }
 
 // ── Outbox drain ──────────────────────────────────────────────────────────────
@@ -561,12 +682,19 @@ export async function drainOutbox(): Promise<number> {
   const userId = await getUserIdAsync()
   if (!userId) return 0
 
+  const syncPrefs = await getSyncPrefs()
+
   // Fetch all entries that are due for retry, oldest first — skip dead-lettered
   const due: OutboxEntry[] = (await db.outbox
     .where('nextRetryAt')
     .belowOrEqual(Date.now())
     .sortBy('queuedAt')
-  ).filter(e => !e.deadLettered)
+  ).filter(e => {
+    if (e.deadLettered) return false
+    const prefKey = SYNC_TABLE_MAP[e.table]
+    if (prefKey && !syncPrefs[prefKey]) return false  // table disabled by user pref
+    return true
+  })
 
   if (due.length === 0) return 0
 
@@ -615,6 +743,15 @@ export async function drainOutbox(): Promise<number> {
       // Success — remove from outbox
       await db.outbox.delete(entry.key)
     } catch (err) {
+      // Server-side cap rejection: silently drop the entry rather than dead-lettering.
+      // This only happens when a second device bypassed the client cap — the server is
+      // the authoritative guard and the write should simply not go through.
+      if (errMsg(err).includes('active_task_cap_exceeded')) {
+        await db.outbox.delete(entry.key)
+        console.warn(`[sync] active task cap rejected by server — outbox entry dropped`)
+        window.dispatchEvent(new CustomEvent('sync:cap-exceeded'))
+        continue
+      }
       failures++
       const attempts = entry.attempts + 1
       const deadLettered = attempts >= MAX_OUTBOX_ATTEMPTS
@@ -689,7 +826,6 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
           break
         case 'goals':          await db.goals.delete(id);         break
         case 'journal':        await db.journal.delete(id);       break
-        case 'inbox':          await db.inbox.delete(id);         break
         case 'inbox_items':    await db.inboxItems.delete(id);    break
         case 'coping_cards':   await db.copingCards.delete(id);   break
         case 'categories':     await db.categories.delete(id);    break
@@ -697,6 +833,7 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         case 'habits':          await db.habits.delete(id);             break
         case 'weekly_reviews':  await db.weeklyReviews.delete(id);      break
         case 'daily_plans':     await db.dailyPlans.delete(id as string); break
+        case 'mood_entries':    await db.moodEntries.delete(id);           break
       }
       deleted++
       continue
@@ -719,7 +856,19 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
           const completed = await db.completedTasks.get(id)
           if (completed && !incoming.done && completed.completedAt >= incomingTs) break
         }
-        if (!local || incomingTs > localTs) { await db.tasks.put(incoming); pulled++ }
+        if (local) {
+          const outboxEntry = await db.outbox.get(`tasks:${id}`)
+          if (outboxEntry?.changedFields) {
+            const merged = fieldLevelMerge({ ...local } as Record<string, unknown>, incoming as unknown as Record<string, unknown>, outboxEntry.changedFields)
+            merged['sub'] = mergeSubTasks(local.sub ?? [], incoming.sub ?? [])
+            await db.tasks.put(merged as unknown as Task); pulled++
+          } else if (incomingTs > localTs) {
+            const merged = { ...incoming, sub: mergeSubTasks(local.sub ?? [], incoming.sub ?? []) }
+            await db.tasks.put(merged); pulled++
+          }
+        } else {
+          await db.tasks.put(incoming); pulled++
+        }
         break
       }
       case 'goals': {
@@ -736,14 +885,6 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         const incomingTs = payload.updated_at ? new Date(payload.updated_at as string).getTime() : 0
         const localTs    = local?.updatedAt ?? 0
         if (!local || incomingTs > localTs) { await db.journal.put(incoming); pulled++ }
-        break
-      }
-      case 'inbox': {
-        const incoming   = rowToInbox(payload)
-        const local      = await db.inbox.get(incoming.id)
-        const incomingTs = payload.updated_at ? new Date(payload.updated_at as string).getTime() : 0
-        const localTs    = (local as any)?.updatedAt ?? 0
-        if (!local || incomingTs > localTs) { await db.inbox.put(incoming); pulled++ }
         break
       }
       case 'inbox_items': {
@@ -815,6 +956,14 @@ export async function incrementalPull(): Promise<{ pulled: number; deleted: numb
         }
         break
       }
+      case 'mood_entries': {
+        const incoming   = rowToMoodEntry(payload)
+        const local      = await db.moodEntries.get(incoming.id)
+        const incomingTs = incoming.updatedAt ?? incoming.createdAt ?? 0
+        const localTs    = local?.updatedAt ?? local?.createdAt ?? 0
+        if (!local || incomingTs > localTs) { await db.moodEntries.put(incoming); pulled++ }
+        break
+      }
     }
   }
 
@@ -863,7 +1012,19 @@ const TABLE_PULLERS: Array<{
               const completed = await db.completedTasks.get(incoming.id)
               if (completed && !incoming.done && completed.completedAt >= inTs) continue
             }
-            if (!local || inTs > loTs) { await db.tasks.put(incoming); pulled++ }
+            if (local) {
+              const outboxEntry = await db.outbox.get(`tasks:${incoming.id}`)
+              if (outboxEntry?.changedFields) {
+                const merged = fieldLevelMerge({ ...local } as Record<string, unknown>, incoming as unknown as Record<string, unknown>, outboxEntry.changedFields)
+                merged['sub'] = mergeSubTasks(local.sub ?? [], incoming.sub ?? [])
+                await db.tasks.put(merged as unknown as Task); pulled++
+              } else if (inTs > loTs) {
+                const merged = { ...incoming, sub: mergeSubTasks(local.sub ?? [], incoming.sub ?? []) }
+                await db.tasks.put(merged); pulled++
+              }
+            } else {
+              await db.tasks.put(incoming); pulled++
+            }
           }
         }
         hasMore = data.length === PULL_PAGE_SIZE
@@ -959,28 +1120,6 @@ const TABLE_PULLERS: Array<{
           const inTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
           const loTs = local?.updatedAt ?? 0
           if (!local || inTs > loTs) { await db.journal.put(incoming); pulled++ }
-        }
-        hasMore = data.length === PULL_PAGE_SIZE
-      }
-      return { pulled, deleted: 0, maxSeq }
-    },
-  },
-  {
-    name: 'inbox',
-    pull: async (since, userId) => {
-      let pulled = 0; let maxSeq = since; let hasMore = true
-      while (hasMore) {
-        const { data, error } = await supabase.from('inbox').select('*')
-          .eq('user_id', userId).gt('server_seq', maxSeq)
-          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
-        if (error || !data || data.length === 0) { hasMore = false; break }
-        for (const row of data) {
-          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
-          const incoming   = rowToInbox(row as Record<string, unknown>)
-          const local      = await db.inbox.get(incoming.id) as (InboxItem & { updatedAt?: number }) | undefined
-          const inTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
-          const loTs = local?.updatedAt ?? 0
-          if (!local || inTs > loTs) { await db.inbox.put(incoming); pulled++ }
         }
         hasMore = data.length === PULL_PAGE_SIZE
       }
@@ -1134,6 +1273,70 @@ const TABLE_PULLERS: Array<{
       return { pulled, deleted: 0, maxSeq }
     },
   },
+  {
+    name: 'mood_entries',
+    pull: async (since, userId) => {
+      let pulled = 0; let deleted = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('mood_entries').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          if (row.deleted_at) { await db.moodEntries.delete(row.id as string); deleted++; continue }
+          const incoming   = rowToMoodEntry(row as Record<string, unknown>)
+          const local      = await db.moodEntries.get(incoming.id)
+          const inTs       = incoming.updatedAt ?? incoming.createdAt ?? 0
+          const loTs       = local?.updatedAt ?? local?.createdAt ?? 0
+          if (!local || inTs > loTs) { await db.moodEntries.put(incoming); pulled++ }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted, maxSeq }
+    },
+  },
+  {
+    name: 'workspaces',
+    pull: async (since, userId) => {
+      let pulled = 0; let deleted = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('workspaces').select('*')
+          .eq('owner_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          if (row.deleted_at) { await db.workspaces.delete(row.id as string); deleted++; continue }
+          const incoming = rowToWorkspace(row as Record<string, unknown>)
+          const local    = await db.workspaces.get(incoming.id)
+          const inTs     = incoming.updatedAt; const loTs = local?.updatedAt ?? 0
+          if (!local || inTs > loTs) { await db.workspaces.put(incoming); pulled++ }
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted, maxSeq }
+    },
+  },
+  {
+    name: 'workspace_members',
+    pull: async (since, userId) => {
+      let pulled = 0; let maxSeq = since; let hasMore = true
+      while (hasMore) {
+        const { data, error } = await supabase.from('workspace_members').select('*')
+          .eq('user_id', userId).gt('server_seq', maxSeq)
+          .order('server_seq', { ascending: true }).limit(PULL_PAGE_SIZE)
+        if (error || !data || data.length === 0) { hasMore = false; break }
+        for (const row of data) {
+          const seq = (row.server_seq as number) ?? 0; if (seq > maxSeq) maxSeq = seq
+          const incoming = rowToWorkspaceMember(row as Record<string, unknown>)
+          await db.workspaceMembers.put(incoming); pulled++
+        }
+        hasMore = data.length === PULL_PAGE_SIZE
+      }
+      return { pulled, deleted: 0, maxSeq }
+    },
+  },
 ]
 
 export async function incrementalPullBySeq(
@@ -1148,10 +1351,14 @@ export async function incrementalPullBySeq(
   if (!probe || probe.length === 0) return null  // 007 not yet deployed — signal caller to fall back
 
   const lastSeq = getLastServerSeq()
+  const syncPrefs = await getSyncPrefs()
   let totalPulled = 0; let totalDeleted = 0; let maxSeq = lastSeq
 
   for (let i = 0; i < TABLE_PULLERS.length; i++) {
-    const { pulled, deleted, maxSeq: tableMax } = await TABLE_PULLERS[i].pull(lastSeq, userId)
+    const puller = TABLE_PULLERS[i]
+    const prefKey = SYNC_TABLE_MAP[puller.name]
+    if (prefKey && !syncPrefs[prefKey]) continue  // table disabled by user pref
+    const { pulled, deleted, maxSeq: tableMax } = await puller.pull(lastSeq, userId)
     totalPulled += pulled; totalDeleted += deleted
     if (tableMax > maxSeq) maxSeq = tableMax
     onProgress?.(Math.round(10 + ((i + 1) / TABLE_PULLERS.length) * 90))
@@ -1162,11 +1369,35 @@ export async function incrementalPullBySeq(
   return { pulled: totalPulled, deleted: totalDeleted }
 }
 
+// ── Server tombstone helpers ───────────────────────────────────────────────────
+
+export async function pushTombstoneToServer(taskId: string): Promise<void> {
+  const userId = await getUserIdAsync()
+  if (!userId) return
+  await supabase.from('deleted_tasks').upsert(
+    { user_id: userId, task_id: taskId, deleted_at: new Date().toISOString() },
+    { onConflict: 'user_id,task_id' }
+  )
+}
+
+async function pullServerTombstones(userId: string): Promise<void> {
+  const { data } = await supabase.from('deleted_tasks').select('task_id').eq('user_id', userId)
+  if (!data || data.length === 0) return
+  const now = Date.now()
+  await Promise.all(
+    data.map(r => db.deletedTasks.put({ id: r.task_id as string, deletedAt: now }))
+  )
+}
+
 // ── Fallback full pull (used before migration 004 is applied) ─────────────────
 // Fetches all tasks directly — no event log, no incremental. Keeps the app
 // working while the migration is pending. Goals/journal/etc. are skipped
 // (only tasks matter for immediate usability).
 async function _fallbackFullPull(userId: string): Promise<void> {
+  // Rebuild local tombstones from server before pulling — prevents ghost data
+  // if IndexedDB was evicted and local tombstones were lost.
+  await pullServerTombstones(userId)
+
   const { data: rows } = await supabase.from('tasks').select('*').eq('user_id', userId)
   if (!rows) return
   const tombstoneIds = new Set((await db.deletedTasks.toArray()).map(t => t.id))
@@ -1174,10 +1405,15 @@ async function _fallbackFullPull(userId: string): Promise<void> {
   for (const row of rows) {
     const id = row.id as string
     if (tombstoneIds.has(id)) continue
+    if (row.deleted_at) {
+      await db.deletedTasks.put({ id, deletedAt: Date.now() })
+      await db.tasks.delete(id)
+      continue
+    }
     const incoming = rowToTask(row as Record<string, unknown>)
     const local    = await db.tasks.get(id)
     if (!local || (incoming.updatedAt ?? 0) > (local.updatedAt ?? 0)) {
-      toUpsert.push(incoming)
+      toUpsert.push(local ? { ...incoming, sub: mergeSubTasks(local.sub ?? [], incoming.sub ?? []) } : incoming)
     }
   }
   if (toUpsert.length > 0) await db.tasks.bulkPut(toUpsert)
@@ -1201,16 +1437,14 @@ async function _fallbackFullPull(userId: string): Promise<void> {
 
   // Remaining tables (goals, journal, inbox, categories, habits)
   {
-    const [{ data: goals }, { data: journal }, { data: inbox }, { data: cats }, { data: habits }] = await Promise.all([
+    const [{ data: goals }, { data: journal }, { data: cats }, { data: habits }] = await Promise.all([
       supabase.from('goals').select('*').eq('user_id', userId),
       supabase.from('journal').select('*').eq('user_id', userId),
-      supabase.from('inbox').select('*').eq('user_id', userId),
       supabase.from('categories').select('*').eq('user_id', userId),
       supabase.from('habits').select('*').eq('user_id', userId),
     ])
     if (goals?.length)   await db.goals.bulkPut(goals.map(r => rowToGoal(r as Record<string, unknown>)))
     if (journal?.length) await db.journal.bulkPut(journal.map(r => rowToJournal(r as Record<string, unknown>)))
-    if (inbox?.length)   await db.inbox.bulkPut(inbox.map(r => rowToInbox(r as Record<string, unknown>)))
     if (cats?.length)    await db.categories.bulkPut(cats.map(r => rowToCategory(r as Record<string, unknown>)))
     if (habits?.length) {
       for (const row of habits) {
@@ -1261,11 +1495,10 @@ export async function pushAllLocal(): Promise<void> {
 
   const tombstoneIds = new Set((await db.deletedTasks.toArray()).map(t => t.id))
 
-  const [tasks, goals, journal, inbox, categories, settings, shoppingItems, habits, weeklyReviews, dailyPlans, inboxItems, copingCards, habitLogs] = await Promise.all([
+  const [tasks, goals, journal, categories, settings, shoppingItems, habits, weeklyReviews, dailyPlans, inboxItems, copingCards, habitLogs, moodEntries] = await Promise.all([
     db.tasks.toArray(),
     db.goals.toArray(),
     db.journal.toArray(),
-    db.inbox.toArray(),
     db.categories.toArray(),
     db.settings.get(1),
     db.shoppingItems.toArray(),
@@ -1275,6 +1508,7 @@ export async function pushAllLocal(): Promise<void> {
     db.inboxItems.toArray(),
     db.copingCards.toArray(),
     db.habitLog.toArray(),
+    db.moodEntries.toArray(),
   ])
 
   const filteredTasks = tasks.filter(t => !tombstoneIds.has(t.id))
@@ -1288,9 +1522,6 @@ export async function pushAllLocal(): Promise<void> {
       : null,
     journal.length
       ? supabase.from('journal').upsert(journal.map(j => journalToRow(j, userId)), { onConflict: 'id' })
-      : null,
-    inbox.length
-      ? supabase.from('inbox').upsert(inbox.map(i => inboxToRow(i, userId)), { onConflict: 'id' })
       : null,
     categories.length
       ? supabase.from('categories').upsert(categories.map(c => categoryToRow(c, userId)), { onConflict: 'id' })
@@ -1319,15 +1550,29 @@ export async function pushAllLocal(): Promise<void> {
     habitLogs.length
       ? supabase.from('habit_log').upsert(habitLogs.map(l => habitLogToRow(l, userId)), { onConflict: 'id' })
       : null,
+    moodEntries.length
+      ? supabase.from('mood_entries').upsert(moodEntries.map(e => moodEntryToRow(e, userId)), { onConflict: 'id' })
+      : null,
   ])
 }
 
 // ── Realtime subscriptions ────────────────────────────────────────────────────
 
 let realtimeChannel: ReturnType<typeof supabase.channel> | null = null
+let _realtimeUserId: string | null = null
 
 export function startRealtime(userId: string): void {
-  if (realtimeChannel) return
+  // If we already have a live channel for this user, do nothing.
+  // Tearing down and recreating causes connection churn that can delay
+  // in-flight REST requests (e.g. drainOutbox) and triggers the 30s timeout.
+  if (_realtimeUserId === userId && realtimeChannel) return
+
+  // User changed (e.g. account switch) or channel was torn down — rebuild.
+  if (realtimeChannel) {
+    supabase.removeChannel(realtimeChannel)
+    realtimeChannel = null
+  }
+  _realtimeUserId = userId
 
   realtimeChannel = supabase
     .channel(`mbq-${userId}`)
@@ -1359,7 +1604,17 @@ export function startRealtime(userId: string): void {
           const completed = await db.completedTasks.get(incoming.id)
           if (completed && !incoming.done && completed.completedAt >= incomingTs) return
         }
-        if (!local || incomingTs > localTs) {
+        if (local) {
+          const outboxEntry = await db.outbox.get(`tasks:${incoming.id}`)
+          if (outboxEntry?.changedFields) {
+            const merged = fieldLevelMerge({ ...local } as Record<string, unknown>, incoming as unknown as Record<string, unknown>, outboxEntry.changedFields)
+            merged['sub'] = mergeSubTasks(local.sub ?? [], incoming.sub ?? [])
+            await db.tasks.put(merged as unknown as Task)
+          } else if (incomingTs > localTs) {
+            const merged = { ...incoming, sub: mergeSubTasks(local.sub ?? [], incoming.sub ?? []) }
+            await db.tasks.put(merged)
+          }
+        } else {
           await db.tasks.put(incoming)
         }
       }
@@ -1398,24 +1653,6 @@ export function startRealtime(userId: string): void {
         const incomingTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
         const localTs    = local?.updatedAt ?? 0
         if (!local || incomingTs > localTs) await db.journal.put(incoming)
-      }
-    )
-
-    // ── inbox ──────────────────────────────────────────────────────────────
-    .on('postgres_changes',
-      { event: '*', schema: 'public', table: 'inbox', filter: `user_id=eq.${userId}` },
-      async (payload) => {
-        if (payload.eventType === 'DELETE') {
-          await db.inbox.delete((payload.old as { id: string }).id)
-          return
-        }
-        const row = payload.new as Record<string, unknown>
-        if (row.deleted_at) { await db.inbox.delete(row.id as string); return }
-        const incoming   = rowToInbox(row)
-        const local      = await db.inbox.get(incoming.id) as (InboxItem & { updatedAt?: number }) | undefined
-        const incomingTs = row.updated_at ? new Date(row.updated_at as string).getTime() : 0
-        const localTs    = local?.updatedAt ?? 0
-        if (!local || incomingTs > localTs) await db.inbox.put(incoming)
       }
     )
 
@@ -1570,6 +1807,52 @@ export function startRealtime(userId: string): void {
       }
     )
 
+    // ── mood_entries ───────────────────────────────────────────────────────────
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'mood_entries', filter: `user_id=eq.${userId}` },
+      async (payload) => {
+        if (payload.eventType === 'DELETE') {
+          await db.moodEntries.delete((payload.old as { id: string }).id)
+          return
+        }
+        const row = payload.new as Record<string, unknown>
+        if (row.deleted_at) { await db.moodEntries.delete(row.id as string); return }
+        const incoming   = rowToMoodEntry(row)
+        const local      = await db.moodEntries.get(incoming.id)
+        const incomingTs = incoming.updatedAt ?? incoming.createdAt ?? 0
+        const localTs    = local?.updatedAt ?? local?.createdAt ?? 0
+        if (!local || incomingTs > localTs) await db.moodEntries.put(incoming)
+      }
+    )
+
+    // ── workspaces ─────────────────────────────────────────────────────────────
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'workspaces', filter: `owner_id=eq.${userId}` },
+      async (payload) => {
+        if (payload.eventType === 'DELETE') {
+          await db.workspaces.delete((payload.old as { id: string }).id); return
+        }
+        const row = payload.new as Record<string, unknown>
+        if (row.deleted_at) { await db.workspaces.delete(row.id as string); return }
+        const incoming = rowToWorkspace(row)
+        const local    = await db.workspaces.get(incoming.id)
+        if (!local || incoming.updatedAt > (local.updatedAt ?? 0)) await db.workspaces.put(incoming)
+      }
+    )
+
+    // ── workspace_members ──────────────────────────────────────────────────────
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'workspace_members', filter: `user_id=eq.${userId}` },
+      async (payload) => {
+        if (payload.eventType === 'DELETE') {
+          const old = payload.old as { workspace_id: string; user_id: string }
+          await db.workspaceMembers.delete([old.workspace_id, old.user_id]); return
+        }
+        const row = payload.new as Record<string, unknown>
+        await db.workspaceMembers.put(rowToWorkspaceMember(row))
+      }
+    )
+
     .subscribe()
 }
 
@@ -1578,6 +1861,7 @@ export function stopRealtime(): void {
     supabase.removeChannel(realtimeChannel)
     realtimeChannel = null
   }
+  _realtimeUserId = null
 }
 
 // ── Outbox size (used by SyncStatusBar for pending indicator) ─────────────────
@@ -1618,6 +1902,47 @@ export async function retryDeadLettered(): Promise<void> {
       lastError:    undefined,
     })
   }
+}
+
+/** Keep local version — re-queue dead-lettered entry with a fresh idempotency key. */
+export async function resolveKeepLocal(key: string): Promise<void> {
+  await db.outbox.update(key, {
+    deadLettered:    false,
+    attempts:        0,
+    nextRetryAt:     Date.now(),
+    lastError:       undefined,
+    idempotencyKey:  makeId(),
+  })
+}
+
+/** Accept server version — fetch the server record, overwrite local, remove from outbox. */
+export async function resolveAcceptServer(table: string, recordId: string): Promise<void> {
+  const userId = await getUserIdAsync()
+  if (!userId) return
+  try {
+    const { data } = await supabase.from(table).select('*').eq('id', recordId).eq('user_id', userId).single()
+    if (data) {
+      // Put the server version into the appropriate local table
+      const row = data as Record<string, unknown>
+      switch (table) {
+        case 'tasks':          await db.tasks.put(rowToTask(row)); break
+        case 'habits':         await db.habits.put(rowToHabit(row)); break
+        case 'goals':          await db.goals.put(rowToGoal(row)); break
+        case 'journal':        await db.journal.put(rowToJournal(row)); break
+        case 'shopping_items': await db.shoppingItems.put(rowToShoppingItem(row)); break
+        case 'coping_cards':   await db.copingCards.put(rowToCopingCard(row)); break
+        case 'mood_entries':   await db.moodEntries.put(rowToMoodEntry(row)); break
+      }
+    }
+    await db.outbox.delete(`${table}:${recordId}`)
+  } catch {
+    // Non-critical — leave in dead-letter queue if fetch fails
+  }
+}
+
+/** Discard — remove dead-lettered entry from outbox, leave local record unchanged (no sync). */
+export async function resolveDiscard(key: string): Promise<void> {
+  await db.outbox.delete(key)
 }
 
 /**

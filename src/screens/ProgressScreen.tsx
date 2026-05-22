@@ -2,20 +2,27 @@ import { localDateISO } from '../lib/useCurrentDate'
 /**
  * ProgressScreen — "A steady month."
  *
- * 4-section scrollable stats view:
- *   1. 2×2 BigStat grid  (streak / XP / this week / XP-to-level)
- *   2. 7-day bar chart   (completion rate by day)
- *   3. 84-dot heatmap    (habit-log density, last 12 weeks)
- *   4. By-area bars      (done % per category, all time)
+ * 5-section scrollable stats view:
+ *   1. 2×2 BigStat grid     (streak / XP / this week / XP-to-level)
+ *   2. 7-day bar chart       (completion rate by day)
+ *   3. 84-dot heatmap        (habit-log density, last 12 weeks)
+ *   4. Mood & Energy panel   (sustainability score, avg energy, mood dist)
+ *   5. By-area bars          (done % per category, all time)
+ *   6. Activity log          (last 50 completed tasks)
  */
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../data/db'
 import { Icons } from '../components/ui/Icons'
 import { ScreenHeader } from '../components/layout/ScreenHeader'
 import { EFFORT } from '../constants'
 import type { Screen, AppSettings, Task, Category } from '../types'
+import { useNav } from '../lib/navContext'
+import {
+  getEnergyStats, getMoodDistribution, getSustainabilityScore,
+  type EnergyStats, type MoodDistribution,
+} from '../lib/analyticsQueries'
 
 // ── Progress stats shape ──────────────────────────────────────────────────────
 interface ProgressStats {
@@ -62,7 +69,7 @@ function generateProgressHeadline(
   return { prefix: 'A fresh', em: 'start', suffix: 'awaits.' }
 }
 
-interface Props { navigate: (s: Screen) => void; back?: () => void }
+interface Props { navigate?: (s: Screen) => void; back?: () => void }
 
 // ── BigStat card ──────────────────────────────────────────────────────────────
 function BigStat({
@@ -74,7 +81,7 @@ function BigStat({
   return (
     <div style={{ padding: 16, borderRadius: 14, background: 'var(--paper-2)', border: '1px solid var(--rule)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div className="eyebrow" style={{ fontSize: 9 }}>{label}</div>
+        <div className="eyebrow" style={{ fontSize: 10 }}>{label}</div>
         <I size={14} stroke="var(--ink-3)" />
       </div>
       <div className="t-display" style={{ fontSize: 32, marginTop: 8, lineHeight: 1 }}>{value}</div>
@@ -144,7 +151,7 @@ function ActivityRow({ task, cat }: { task: Task; cat: Category | undefined }) {
         </div>
         {cat && (
           <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 9,
+            fontFamily: 'var(--font-mono)', fontSize: 10,
             color: 'var(--ink-3)', marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.06em',
           }}>
             {cat.name}
@@ -177,12 +184,34 @@ function SectionHead({ title, sub }: { title: string; sub: string }) {
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
-export const ProgressScreen = ({ back }: Props) => {
+export const ProgressScreen = ({ back: backProp }: Props) => {
+  const { back: ctxBack } = useNav()
+  const back = backProp ?? ctxBack
   const settings  = useLiveQuery(() => db.settings.get(1), [])
   const tasks     = useLiveQuery(() => db.tasks.toArray(), [])
   const cats      = useLiveQuery(() => db.categories.toArray(), []) ?? []
   const habitLogs = useLiveQuery(() => db.habitLog.toArray(), [])
   const journal   = useLiveQuery(() => db.journal.toArray(), []) ?? []
+
+  // ── Mood & Energy analytics (async — not reactive, loads once) ───────────
+  const [energyStats,   setEnergyStats]   = useState<EnergyStats | null>(null)
+  const [moodDist,      setMoodDist]      = useState<MoodDistribution | null>(null)
+  const [sustainScore,  setSustainScore]  = useState<number>(NaN)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      getEnergyStats(30),
+      getMoodDistribution(30),
+      getSustainabilityScore(30),
+    ]).then(([e, m, s]) => {
+      if (cancelled) return
+      setEnergyStats(e)
+      setMoodDist(m)
+      setSustainScore(s)
+    })
+    return () => { cancelled = true }
+  }, [])
 
   // Activity log: most-recent ACTIVITY_LIMIT completed tasks, newest first
   const recentDone = useLiveQuery(
@@ -233,7 +262,10 @@ export const ProgressScreen = ({ back }: Props) => {
 
   // ── This week stats ───────────────────────────────────────────────────────
   const weekDone  = tasks.filter(t => t.done && t.completedAt && last7.includes(localDateISO(new Date(t.completedAt)))).length
-  const weekTotal = tasks.filter(t => t.due && last7.includes(t.due)).length
+  const weekTotal = new Set([
+    ...tasks.filter(t => t.due && last7.includes(t.due)).map(t => t.id),
+    ...tasks.filter(t => t.done && t.completedAt && last7.includes(localDateISO(new Date(t.completedAt)))).map(t => t.id),
+  ]).size
 
   // ── Habit heatmap: last 84 days (12 columns × 7 rows) ────────────────────
   const dots84 = Array.from({ length: 84 }, (_, i) => isoOffset(83 - i))
@@ -269,7 +301,7 @@ export const ProgressScreen = ({ back }: Props) => {
 
   return (
     <div className="screen">
-      <ScreenHeader title="Progress" back={back} />
+      <ScreenHeader title="Progress" back={back} icon={<Icons.chart size={22} />} />
 
       <div className="screen-scroll" style={{ padding: '0 0 44px' }}>
 
@@ -325,7 +357,7 @@ export const ProgressScreen = ({ back }: Props) => {
                     transition: 'height .4s ease',
                   }} />
                 </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>
                   {bar.dow}
                 </div>
               </div>
@@ -358,6 +390,72 @@ export const ProgressScreen = ({ back }: Props) => {
             <span>{endLabel}</span>
           </div>
         </div>
+
+        {/* ── Mood & Energy ────────────────────────────────────────────────── */}
+        {(energyStats || moodDist) && (
+          <div style={{ padding: '28px 22px 0' }}>
+            <SectionHead title="Mood & energy" sub="last 30 days" />
+
+            {/* Score + avg energy cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'var(--paper-2)', border: '1px solid var(--rule)' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.12em' }}>SUSTAINABILITY</div>
+                <div className="t-display" style={{ fontSize: 30, marginTop: 6, lineHeight: 1, color: isNaN(sustainScore) ? 'var(--ink-3)' : 'var(--ink)' }}>
+                  {isNaN(sustainScore) ? '—' : sustainScore}
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', marginTop: 5, letterSpacing: '0.04em' }}>/ 100 score</div>
+              </div>
+              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'var(--paper-2)', border: '1px solid var(--rule)' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.12em' }}>AVG ENERGY</div>
+                <div className="t-display" style={{ fontSize: 30, marginTop: 6, lineHeight: 1, color: energyStats && !isNaN(energyStats.avg) ? 'var(--ink)' : 'var(--ink-3)' }}>
+                  {energyStats && !isNaN(energyStats.avg) ? energyStats.avg.toFixed(1) : '—'}
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', marginTop: 5, letterSpacing: '0.04em' }}>
+                  {energyStats && energyStats.trend !== 'insufficient'
+                    ? `${energyStats.trend === 'up' ? '↑' : energyStats.trend === 'down' ? '↓' : '→'} vs prior week`
+                    : '/ 3.0 scale'}
+                </div>
+              </div>
+            </div>
+
+            {/* Mood distribution bars */}
+            {moodDist && (moodDist.charged + moodDist.steady + moodDist.tired > 0) && (() => {
+              const mMax = Math.max(moodDist.charged, moodDist.steady, moodDist.tired, 1)
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {([
+                    { key: 'charged', emoji: '⚡', color: 'var(--accent)', count: moodDist.charged },
+                    { key: 'steady',  emoji: '✦',  color: 'var(--ink-2)', count: moodDist.steady  },
+                    { key: 'tired',   emoji: '○',  color: 'var(--warn)',  count: moodDist.tired   },
+                  ] as const).map(bar => (
+                    <div key={bar.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 60, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-2)', flexShrink: 0 }}>
+                        {bar.emoji} {bar.key.charAt(0).toUpperCase() + bar.key.slice(1)}
+                      </div>
+                      <div style={{ flex: 1, height: 8, background: 'var(--paper-3)', borderRadius: 4, overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${(bar.count / mMax) * 100}%`, height: '100%',
+                          background: bar.color, borderRadius: 4,
+                          minWidth: bar.count > 0 ? 4 : 0, transition: 'width .5s ease',
+                        }} />
+                      </div>
+                      <div style={{ width: 22, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', textAlign: 'right', flexShrink: 0 }}>
+                        {bar.count}d
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+
+            {/* Empty state */}
+            {moodDist && moodDist.charged + moodDist.steady + moodDist.tired === 0 && (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)', paddingTop: 4 }}>
+                Log mood in Daily Plan or Morning Journal to see data here.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── By area breakdown ────────────────────────────────────────────── */}
         {cats.length > 0 && (
@@ -405,7 +503,7 @@ export const ProgressScreen = ({ back }: Props) => {
               <div key={group.date}>
                 {/* Date header */}
                 <div style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 9,
+                  fontFamily: 'var(--font-mono)', fontSize: 10,
                   color: 'var(--ink-3)', textTransform: 'uppercase',
                   letterSpacing: '0.1em',
                   padding: '12px 0 2px',

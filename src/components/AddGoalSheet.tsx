@@ -1,3 +1,4 @@
+import { makeId } from '../lib/makeId'
 import React, { useState } from 'react'
 import { addGoal } from '../data/db'
 import { Icons } from './ui/Icons'
@@ -28,7 +29,7 @@ export function AddGoalSheet({ categories, onClose }: Props) {
   async function handleSave() {
     if (!title.trim()) return
     await addGoal({
-      id: crypto.randomUUID(),
+      id: makeId(),
       title: title.trim(), area, horizon,
       why: why.trim(), progress: 0, linked: [],
     })

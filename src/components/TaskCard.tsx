@@ -7,16 +7,6 @@ import type { Task } from '../types'
 import { useIsDark } from '../lib/colorMode'
 import { areaColor } from '../lib/areaColor'
 
-// ── Priority dot colour map ───────────────────────────────────────────────────
-const QUAD_COLOR: Record<string, string> = {
-  q1: 'var(--warn)',      // Do — urgent + important
-  q2: 'var(--accent)',    // Schedule — important
-  q3: 'var(--ink-3)',     // Delegate
-  q4: 'var(--ink-4)',     // Drop
-}
-const QUAD_LABEL: Record<string, string> = {
-  q1: 'Do', q2: 'Schedule', q3: 'Delegate', q4: 'Drop',
-}
 
 // ── Mini sub-task progress ring ───────────────────────────────────────────────
 function MiniRing({ progress, hue }: { progress: number; hue?: number }) {
@@ -64,9 +54,15 @@ interface Props {
   /** Subtask expand/collapse toggle — when provided shows a chevron next to subtask count */
   onToggleSubtasks?: () => void
   subtasksExpanded?: boolean
+  /** AllTasks: 1-tap status promote/demote pill */
+  onStatusChange?: (status: 'active' | 'backlog') => void
+  /** AllTasks: select mode — shows checkbox, suppresses tap-to-open */
+  selectMode?: boolean
+  isSelected?: boolean
+  onToggleSelect?: () => void
 }
 
-export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onAreaToggle, onRescheduleToggle, onToggleSubtasks, subtasksExpanded }: Props) {
+export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onAreaToggle, onRescheduleToggle, onToggleSubtasks, subtasksExpanded, onStatusChange, selectMode, isSelected, onToggleSelect }: Props) {
   const syncStatus = useTaskSyncState(task.id)
   const isDark   = useIsDark()
   const subDone = task.sub.filter(s => s.d).length
@@ -75,6 +71,15 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
 
   const ringColor   = hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--accent)'
   const borderColor = hue !== undefined ? areaColor(hue, 'fg', isDark) : 'var(--rule)'
+  const leftBorder  = task.done
+    ? '3px solid var(--rule)'
+    : task.status === 'someday'
+      ? '3px dashed var(--rule)'
+      : hue !== undefined
+        ? `3px solid ${ringColor}`
+        : task.status === 'active'
+          ? '3px solid var(--accent)'
+          : '3px solid var(--rule)'
   const showDue     = task.due && task.due !== ''
   const dueLabel    = showDue ? friendlyDue(task.due) : ''
   const timeLabel   = task.time ? formatTime(task.time) : null
@@ -87,15 +92,30 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
     : null
 
   return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* Select mode checkbox */}
+      {selectMode && (
+        <button
+          onClick={onToggleSelect}
+          style={{
+            flexShrink: 0, width: 20, height: 20, borderRadius: 5,
+            border: `2px solid ${isSelected ? 'var(--ink)' : 'var(--rule)'}`,
+            background: isSelected ? 'var(--ink)' : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          {isSelected && <Icons.check size={11} sw={3} stroke="var(--paper)" />}
+        </button>
+      )}
     <button
-      onClick={onTap}
+      onClick={selectMode ? onToggleSelect : onTap}
       style={{
-        display: 'flex', alignItems: 'flex-start', gap: 12,
+        flex: 1, display: 'flex', alignItems: 'flex-start', gap: 12,
         padding: '11px 14px 11px 12px',
         background: 'var(--paper-2)',
         borderRadius: 12,
         border: '1px solid var(--rule)',
-        borderLeft: hue !== undefined ? `3px solid ${ringColor}` : '1px solid var(--rule)',
+        borderLeft: leftBorder,
         textAlign: 'left', width: '100%',
         opacity: task.done ? 0.52 : 1,
         transition: 'opacity .15s',
@@ -166,23 +186,11 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
             </>
           )}
 
-          {/* Priority — only show q1/q2 */}
-          {(task.quad === 'q1' || task.quad === 'q2') && (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 2,
-              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
-              color: QUAD_COLOR[task.quad], flexShrink: 0,
-            }}>
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: QUAD_COLOR[task.quad], flexShrink: 0 }} />
-              {QUAD_LABEL[task.quad]}
-            </span>
-          )}
-
           {/* Active status dot */}
           {task.status === 'active' && (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 3,
-              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em',
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em',
               color: 'var(--accent)', flexShrink: 0,
             }}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0 }} />
@@ -193,7 +201,7 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
           {/* Area label (cross-area views) */}
           {areaName && (
             <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 9,
+              fontFamily: 'var(--font-mono)', fontSize: 10,
               color: 'var(--ink-4)', letterSpacing: '0.04em',
               flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
@@ -213,7 +221,7 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
             {hasRepeat && (
               <span style={{
                 display: 'inline-flex', alignItems: 'center', gap: 3,
-                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.05em',
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
                 color: 'var(--ink-4)', flexShrink: 0,
               }}>
                 <Icons.repeat size={9} /> {task.recurring}
@@ -227,7 +235,7 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
                 <span
                   onClick={onToggleSubtasks ? (e) => { e.stopPropagation(); onToggleSubtasks() } : undefined}
                   style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.05em',
+                    fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em',
                     color: subDone === subTotal ? ringColor : 'var(--ink-3)', flexShrink: 0,
                     display: 'flex', alignItems: 'center', gap: 3,
                     cursor: onToggleSubtasks ? 'pointer' : 'default',
@@ -250,7 +258,7 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
                 <span style={{ width: 2, height: 2, borderRadius: '50%', background: 'var(--rule)', flexShrink: 0 }} />
                 <span style={{
                   display: 'flex', alignItems: 'center', gap: 2,
-                  fontFamily: 'var(--font-mono)', fontSize: 9,
+                  fontFamily: 'var(--font-mono)', fontSize: 10,
                   color: 'var(--warn)', letterSpacing: '0.05em', flexShrink: 0,
                 }}>
                   <Icons.flame size={9} /> {task.streak}d
@@ -290,7 +298,7 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
           <span
             title="Sync failed — open sync panel to retry"
             style={{
-              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.04em',
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.04em',
               color: 'var(--warn)',
               border: '1px solid var(--warn)',
               borderRadius: 3, padding: '1px 4px', flexShrink: 0,
@@ -315,14 +323,41 @@ export function TaskCard({ task, onTap, onComplete, onDelete, hue, areaName, onA
           </button>
         )}
 
+        {/* Status pill — promote backlog→active or demote active→backlog */}
+        {!task.done && onStatusChange && (task.status === 'backlog' || !task.status) && (
+          <button
+            onClick={e => { e.stopPropagation(); onStatusChange('active') }}
+            title="Set active"
+            style={{
+              flexShrink: 0, fontSize: 11, fontFamily: 'var(--font-mono)',
+              padding: '3px 7px', borderRadius: 99,
+              border: '1px solid var(--rule)', background: 'transparent',
+              color: 'var(--ink-3)', letterSpacing: '0.04em',
+            }}
+          >↑</button>
+        )}
+        {!task.done && onStatusChange && task.status === 'active' && (
+          <button
+            onClick={e => { e.stopPropagation(); onStatusChange('backlog') }}
+            title="Move to backlog"
+            style={{
+              flexShrink: 0, fontSize: 11, fontFamily: 'var(--font-mono)',
+              padding: '3px 7px', borderRadius: 99,
+              border: '1px solid var(--ink-3)', background: 'var(--ink)',
+              color: 'var(--paper)', letterSpacing: '0.04em',
+            }}
+          >●</button>
+        )}
+
         {onDelete ? (
           <button onClick={onDelete} style={{ padding: '4px', color: 'var(--ink-4)' }}>
             <Icons.close size={14} />
           </button>
-        ) : !onAreaToggle && !onRescheduleToggle && (
+        ) : !onAreaToggle && !onRescheduleToggle && !onStatusChange && (
           <Icons.arrow size={14} style={{ color: 'var(--ink-4)' }} />
         )}
       </div>
     </button>
+    </div>
   )
 }

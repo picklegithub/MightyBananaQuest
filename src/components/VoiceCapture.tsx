@@ -1,3 +1,4 @@
+import { makeId } from '../lib/makeId'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import * as chrono from 'chrono-node'
 import { useLiveQuery } from 'dexie-react-hooks'
@@ -279,12 +280,12 @@ export function VoiceCapture({ onClose, onExpand, captureToInbox = false, onCapt
       return  // onCaptured handles close + navigation
     } else {
       const task: Task = {
-        id:        crypto.randomUUID(),
+        id:        makeId(),
         title:     p.title,
         cat:       p.catId ?? '',
         effort:    p.effort,
         due:       p.due ?? '',
-        quad:      'q2',
+        
         recurring: null,
         done:      false,
         streak:    0,
@@ -480,7 +481,7 @@ function ParsedView({
         flexShrink: 0,
       }}>
         <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em',
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em',
           textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 8,
         }}>You said</div>
         <div style={{
@@ -494,7 +495,7 @@ function ParsedView({
       {/* Parsed fields */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 8px' }}>
         <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em',
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em',
           textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 12,
         }}>
           Parsed — tap Edit to change
@@ -633,7 +634,7 @@ function ParsedField({
   return (
     <div style={{ padding: '11px 0', borderBottom: '1px solid var(--rule)' }}>
       <div style={{
-        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
+        fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
         textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 5,
       }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -644,7 +645,7 @@ function ParsedField({
       {hint && (
         <div style={{
           marginTop: 3, marginLeft: icon ? 30 : 0,
-          fontFamily: 'var(--font-mono)', fontSize: 9,
+          fontFamily: 'var(--font-mono)', fontSize: 10,
           color: 'var(--ink-3)', letterSpacing: '0.04em',
         }}>
           ↳ {hint}
